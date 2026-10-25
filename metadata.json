@@ -1,0 +1,10 @@
+{
+  "name": "Remix CollabBoard - Gerçek Zamanlı Beyaz Tahta \u0026 Ortak Çalışma Alanı",
+  "description": "Çok kullanıcılı gerçek zamanlı beyaz tahta, kod editörü, dosya paylaşımı ve entegre WebRTC sesli sohbet platformu.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

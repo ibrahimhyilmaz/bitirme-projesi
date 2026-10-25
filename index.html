@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="tr" class="h-full">
+  <head>
+    <script>
+      (function() {
+        // Defensive patch for browser extensions that overwrite window.fetch
+        // Resolves: "TypeError: Cannot set property fetch of #<Window> which has only a getter"
+        try {
+          var originalFetch = window.fetch;
+          var fetchHandler = originalFetch ? function() {
+            return originalFetch.apply(window, arguments);
+          } : undefined;
+
+          // Define getter and setter on window so `window.fetch = ...` succeeds smoothly
+          try {
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function() {
+                return fetchHandler;
+              },
+              set: function(fn) {
+                fetchHandler = fn;
+              }
+            });
+          } catch (e1) {
+            try {
+              if (typeof Window !== 'undefined' && Window.prototype) {
+                Object.defineProperty(Window.prototype, 'fetch', {
+                  configurable: true,
+                  enumerable: true,
+                  get: function() {
+                    return fetchHandler;
+                  },
+                  set: function(fn) {
+                    fetchHandler = fn;
+                  }
+                });
+              }
+            } catch (e2) {}
+          }
+        } catch (_) {}
+
+        // Suppress unhandled extension errors from polluting or breaking the app
+        window.addEventListener('error', function(event) {
+          if (!event) return;
+          var fn = event.filename || '';
+          var msg = event.message || '';
+          var stack = (event.error && event.error.stack) ? event.error.stack : '';
+          if (
+            fn.indexOf('chrome-extension://') !== -1 ||
+            stack.indexOf('chrome-extension://') !== -1 ||
+            msg.indexOf('Cannot set property fetch') !== -1 ||
+            msg.indexOf('requests.js') !== -1
+          ) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+            return true;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(event) {
+          if (!event) return;
+          var reason = event.reason;
+          var reasonMsg = String(reason && (reason.message || reason) || '');
+          var stack = String(reason && reason.stack || '');
+          if (
+            reasonMsg.indexOf('chrome-extension://') !== -1 ||
+            stack.indexOf('chrome-extension://') !== -1 ||
+            reasonMsg.indexOf('Cannot set property fetch') !== -1
+          ) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+          }
+        }, true);
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CollabBoard - Gerçek Zamanlı Beyaz Tahta & Ortak Çalışma Alanı</title>
+    <meta name="description" content="Çok kullanıcılı gerçek zamanlı beyaz tahta, kod editörü, dosya paylaşımı ve entegre WebRTC sesli sohbet platformu." />
+    <meta property="og:title" content="CollabBoard - Gerçek Zamanlı Beyaz Tahta & Ortak Çalışma Alanı" />
+    <meta property="og:description" content="Çok kullanıcılı gerçek zamanlı beyaz tahta, kod editörü, dosya paylaşımı ve entegre WebRTC sesli sohbet platformu." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </head>
+  <body class="h-full bg-slate-50 text-slate-900 antialiased overflow-hidden select-none">
+    <div id="root" class="h-full w-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
