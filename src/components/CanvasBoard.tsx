@@ -1,7 +1,9 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
   CanvasElement,
+  LaserStrokePoint,
   Point,
+  StrokeStyle,
   ToolType,
   UserPing,
   UserPresence,
@@ -9,12 +11,16 @@ import {
 } from '../types';
 import {
   drawElement,
+  drawSelectionGizmo,
   drawRemoteCursors,
   drawPings,
   drawReactions,
   screenToCanvas,
   getElementBounds,
   isPointInsideElement,
+  hitTestTransformHandle,
+  rotatePointAroundCenter,
+  TransformHandleType,
 } from '../utils/canvasRenderer';
 
 interface CanvasBoardProps {
@@ -30,11 +36,15 @@ interface CanvasBoardProps {
   strokeColor: string;
   fillColor: string;
   strokeWidth: number;
+  strokeStyle: StrokeStyle;
   fontSize: number;
   opacity: number;
   pings: UserPing[];
   reactions: UserReaction[];
+  remoteLaserPoints?: LaserStrokePoint[];
   onCursorMove: (cursor: Point, isDrawing: boolean, activeTool: string) => void;
+  onLaserMove?: (point: Point) => void;
+  onSaveHistorySnapshot?: () => void;
   onCreateElement: (el: CanvasElement) => void;
   onUpdateElement: (id: string, changes: Partial<CanvasElement>) => void;
   onBatchUpdateElements: (updates: { id: string; changes: Partial<CanvasElement> }[]) => void;
@@ -45,6 +55,7 @@ interface CanvasBoardProps {
   setZoom: React.Dispatch<React.SetStateAction<number>>;
   pan: Point;
   setPan: React.Dispatch<React.SetStateAction<Point>>;
+  canEdit?: boolean;
 }
 
 export const CanvasBoard: React.FC<CanvasBoardProps> = ({
@@ -55,11 +66,15 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   strokeColor,
   fillColor,
   strokeWidth,
+  strokeStyle,
   fontSize,
   opacity,
   pings,
   reactions,
+  remoteLaserPoints = [],
   onCursorMove,
+  onLaserMove,
+  onSaveHistorySnapshot,
   onCreateElement,
   onUpdateElement,
   onDeleteElements,
@@ -69,6 +84,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   setZoom,
   pan,
   setPan,
+  canEdit = true,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -83,10 +99,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const currentDrawingElementRef = useRef<CanvasElement | null>(null);
   const [currentDrawingElement, setCurrentDrawingElement] = useState<CanvasElement | null>(null);
 
-  // Dragging selected element
+  // Dragging / Transforming selected element
   const isDraggingSelectedRef = useRef<boolean>(false);
+  const activeTransformHandleRef = useRef<TransformHandleType | null>(null);
+  const [hoveredHandle, setHoveredHandle] = useState<TransformHandleType | 'body' | null>(null);
+  const [isRotatingActive, setIsRotatingActive] = useState<boolean>(false);
   const dragStartCanvasPointRef = useRef<Point>({ x: 0, y: 0 });
-  const initialElementPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const initialElementSnapshotRef = useRef<CanvasElement | null>(null);
+  const initialBoundsRef = useRef<ReturnType<typeof getElementBounds> | null>(null);
 
   // Laser pointer path
   const [laserPoints, setLaserPoints] = useState<{ x: number; y: number; time: number }[]>([]);
@@ -100,73 +120,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
   // Throttled cursor broadcast
   const lastCursorEmitRef = useRef<number>(0);
-
-  // High DPI resize handler
-  useEffect(() => {
-    const handleResize = () => {
-      const canvas = canvasRef.current;
-      const container = containerRef.current;
-      if (!canvas || !container) return;
-
-      const dpr = window.devicePixelRatio || 1;
-      const width = container.clientWidth;
-      const height = container.clientHeight;
-
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-
-      render();
-    };
-
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Keyboard navigation & hotkeys
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement ||
-        editingElementId
-      ) {
-        return;
-      }
-
-      if (e.code === 'Space' && !e.repeat) {
-        isSpacePressedRef.current = true;
-      }
-
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedElementId) {
-          onDeleteElements([selectedElementId]);
-          onSelectElement(null);
-        }
-      }
-
-      if (e.key === 'Escape') {
-        onSelectElement(null);
-        setEditingElementId(null);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        isSpacePressedRef.current = false;
-        isPanningRef.current = false;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [editingElementId, selectedElementId, onDeleteElements, onSelectElement]);
 
   // Main Render loop
   const render = useCallback(() => {
@@ -197,42 +150,18 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       drawElement(ctx, currentDrawingElement);
     }
 
-    // Render selection box
-    if (selectedElementId) {
+    // Render selection gizmo (bounding box + 8 resize handles + rotation handle)
+    if (selectedElementId && editingElementId !== selectedElementId) {
       const selectedEl = elements.find((e) => e.id === selectedElementId);
       if (selectedEl) {
-        const bounds = getElementBounds(selectedEl);
-        ctx.save();
-        ctx.strokeStyle = '#2563eb';
-        ctx.lineWidth = 1.5 / zoom;
-        ctx.setLineDash([4 / zoom, 4 / zoom]);
-        ctx.strokeRect(bounds.minX, bounds.minY, bounds.width, bounds.height);
-
-        // Resize handles at 4 corners
-        ctx.setLineDash([]);
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#2563eb';
-        const handleSize = 7 / zoom;
-
-        const handles = [
-          { x: bounds.minX, y: bounds.minY },
-          { x: bounds.maxX, y: bounds.minY },
-          { x: bounds.maxX, y: bounds.maxY },
-          { x: bounds.minX, y: bounds.maxY },
-        ];
-
-        for (const h of handles) {
-          ctx.fillRect(h.x - handleSize / 2, h.y - handleSize / 2, handleSize, handleSize);
-          ctx.strokeRect(h.x - handleSize / 2, h.y - handleSize / 2, handleSize, handleSize);
-        }
-        ctx.restore();
+        drawSelectionGizmo(ctx, selectedEl, zoom, isRotatingActive);
       }
     }
 
-    // Render laser pointer trail
+    // Render local laser pointer trail
+    const now = Date.now();
     if (laserPoints.length > 1) {
       ctx.save();
-      const now = Date.now();
       for (let i = 0; i < laserPoints.length - 1; i++) {
         const p1 = laserPoints[i];
         const p2 = laserPoints[i + 1];
@@ -243,7 +172,32 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         ctx.strokeStyle = `rgba(239, 68, 68, ${alpha})`;
         ctx.shadowColor = '#ef4444';
         ctx.shadowBlur = 8 / zoom;
-        ctx.lineWidth = 6 / zoom;
+        ctx.lineWidth = 5 / zoom;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Render remote laser pointer trails
+    if (remoteLaserPoints.length > 1) {
+      ctx.save();
+      for (let i = 0; i < remoteLaserPoints.length - 1; i++) {
+        const p1 = remoteLaserPoints[i];
+        const p2 = remoteLaserPoints[i + 1];
+        if (p1.userId !== p2.userId) continue;
+        const age = now - p1.time;
+        if (age > 1200 || p2.time - p1.time > 300) continue;
+        const alpha = Math.max(0, 1 - age / 1200);
+
+        ctx.strokeStyle = p1.color || '#ef4444';
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = p1.color || '#ef4444';
+        ctx.shadowBlur = 8 / zoom;
+        ctx.lineWidth = 5 / zoom;
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(p1.x, p1.y);
@@ -267,7 +221,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     elements,
     currentDrawingElement,
     selectedElementId,
+    isRotatingActive,
     laserPoints,
+    remoteLaserPoints,
     editingElementId,
     pings,
     reactions,
@@ -275,7 +231,106 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     currentUser.id,
   ]);
 
-  // Request animation frame for continuous animations (laser, pings, reactions)
+  // High DPI resize handler
+  useEffect(() => {
+    const handleResize = () => {
+      const canvas = canvasRef.current;
+      const container = containerRef.current;
+      if (!canvas || !container) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+
+      render();
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [render]);
+
+  // Keyboard navigation & hotkeys
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        editingElementId
+      ) {
+        return;
+      }
+
+      if (e.code === 'Space' && !e.repeat) {
+        isSpacePressedRef.current = true;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedElementId && canEdit) {
+          onDeleteElements([selectedElementId]);
+          onSelectElement(null);
+        }
+      }
+
+      if (e.key === 'Escape') {
+        onSelectElement(null);
+        setEditingElementId(null);
+      }
+
+      // Nudge selected element with arrow keys
+      if (
+        canEdit &&
+        selectedElementId &&
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)
+      ) {
+        const sel = elements.find((el) => el.id === selectedElementId);
+        if (sel && !sel.isLocked) {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 2;
+          const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+          const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+          if (sel.points && sel.points.length > 0) {
+            onUpdateElement(sel.id, {
+              x: sel.x + dx,
+              y: sel.y + dy,
+              points: sel.points.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })),
+            });
+          } else {
+            onUpdateElement(sel.id, { x: sel.x + dx, y: sel.y + dy });
+          }
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        isSpacePressedRef.current = false;
+        isPanningRef.current = false;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [
+    canEdit,
+    editingElementId,
+    selectedElementId,
+    elements,
+    onDeleteElements,
+    onSelectElement,
+    onUpdateElement,
+  ]);
+
+  // Request animation frame for continuous animations
   useEffect(() => {
     let animId: number;
     const loop = () => {
@@ -297,7 +352,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     const mouseY = e.clientY - rect.top;
 
     if (e.ctrlKey || e.metaKey) {
-      // Zoom centered at cursor
       const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
       const newZoom = Math.min(3, Math.max(0.2, zoom * zoomFactor));
 
@@ -308,7 +362,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       setZoom(newZoom);
       setPan({ x: newPanX, y: newPanY });
     } else {
-      // Pan
       setPan((prev) => ({
         x: prev.x - e.deltaX,
         y: prev.y - e.deltaY,
@@ -331,19 +384,78 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    if (e.button !== 0) return; // Only primary button
+    if (e.button !== 0) return;
+
+    // If an inline text/sticky editor is currently open and the user clicks on the canvas outside it,
+    // commit or clean up the current text edit first and return so we don't spawn a second text box.
+    if (editingElementId) {
+      const trimmed = editingText.trim();
+      const targetEl = elements.find((el) => el.id === editingElementId);
+      if (targetEl) {
+        if (targetEl.type === 'text' && !trimmed) {
+          onDeleteElements([editingElementId]);
+          onSelectElement(null);
+        } else {
+          onUpdateElement(editingElementId, { text: editingText });
+        }
+      }
+      setEditingElementId(null);
+      setEditingText('');
+      return;
+    }
+
     isPointerDownRef.current = true;
 
-    // Handle Select Tool
+    // Handle Laser Pointer (allowed for viewers too)
+    if (activeTool === 'laser') {
+      setLaserPoints([{ x: canvasPt.x, y: canvasPt.y, time: Date.now() }]);
+      if (onLaserMove) onLaserMove(canvasPt);
+      return;
+    }
+
+    // If user is a viewer (read-only), allow selecting to inspect or panning, but block mutations
+    if (!canEdit) {
+      if (activeTool === 'select') {
+        const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
+        onSelectElement(hitElement ? hitElement.id : null);
+      }
+      return;
+    }
+
+    // Handle Select Tool (including rotation & resize handles)
     if (activeTool === 'select') {
-      // Check if clicking on an element
+      if (selectedElementId) {
+        const selectedEl = elements.find((el) => el.id === selectedElementId);
+        if (selectedEl && !selectedEl.isLocked) {
+          const hitHandle = hitTestTransformHandle(canvasPt, selectedEl, zoom);
+          if (hitHandle) {
+            if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+            activeTransformHandleRef.current = hitHandle;
+            setIsRotatingActive(hitHandle === 'rot');
+            dragStartCanvasPointRef.current = canvasPt;
+            initialElementSnapshotRef.current = {
+              ...selectedEl,
+              points: selectedEl.points ? selectedEl.points.map((p) => ({ ...p })) : undefined,
+            };
+            initialBoundsRef.current = getElementBounds(selectedEl);
+            return;
+          }
+        }
+      }
+
+      // Otherwise check if clicking on any element body
       const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
       if (hitElement) {
         onSelectElement(hitElement.id);
         if (!hitElement.isLocked) {
+          if (onSaveHistorySnapshot) onSaveHistorySnapshot();
           isDraggingSelectedRef.current = true;
           dragStartCanvasPointRef.current = canvasPt;
-          initialElementPosRef.current = { x: hitElement.x, y: hitElement.y };
+          initialElementSnapshotRef.current = {
+            ...hitElement,
+            points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
+          };
+          initialBoundsRef.current = getElementBounds(hitElement);
         }
       } else {
         onSelectElement(null);
@@ -354,16 +466,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     // Handle Eraser Tool
     if (activeTool === 'eraser') {
       const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
-      if (hitElement) {
+      if (hitElement && !hitElement.isLocked) {
         onDeleteElements([hitElement.id]);
         if (selectedElementId === hitElement.id) onSelectElement(null);
       }
-      return;
-    }
-
-    // Handle Laser Pointer
-    if (activeTool === 'laser') {
-      setLaserPoints([{ x: canvasPt.x, y: canvasPt.y, time: Date.now() }]);
       return;
     }
 
@@ -373,18 +479,24 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         id: `sticky-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         type: 'sticky',
         x: canvasPt.x - 90,
-        y: canvasPt.y - 70,
+        y: canvasPt.y - 75,
         width: 180,
         height: 150,
         fillColor: fillColor === 'transparent' ? '#fef08a' : fillColor,
         color: strokeColor,
-        text: 'Yeni Not...\n(Çift tıkla)',
+        text: '',
         fontSize: 15,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
         createdBy: currentUser.name,
         updatedAt: Date.now(),
       };
       onCreateElement(newSticky);
       onSelectElement(newSticky.id);
+      isPointerDownRef.current = false;
+      setEditingElementId(newSticky.id);
+      setEditingText('');
       return;
     }
 
@@ -396,15 +508,19 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         x: canvasPt.x,
         y: canvasPt.y,
         color: strokeColor,
-        text: 'Metin Girin',
+        text: '',
         fontSize,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
         createdBy: currentUser.name,
         updatedAt: Date.now(),
       };
       onCreateElement(newText);
       onSelectElement(newText.id);
+      isPointerDownRef.current = false;
       setEditingElementId(newText.id);
-      setEditingText(newText.text || '');
+      setEditingText('');
       return;
     }
 
@@ -418,7 +534,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         points: [canvasPt],
         color: strokeColor,
         strokeWidth,
+        strokeStyle,
         opacity,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
         createdBy: currentUser.name,
         updatedAt: Date.now(),
       };
@@ -438,7 +558,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       color: strokeColor,
       fillColor,
       strokeWidth,
+      strokeStyle,
       opacity,
+      rotation: 0,
+      flipX: false,
+      flipY: false,
       createdBy: currentUser.name,
       updatedAt: Date.now(),
     };
@@ -470,21 +594,141 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Dragging Selected Element
-    if (isDraggingSelectedRef.current && selectedElementId) {
+    // Handle Active Transform Handle (Rotation or Resize)
+    if (
+      activeTransformHandleRef.current &&
+      selectedElementId &&
+      initialElementSnapshotRef.current &&
+      initialBoundsRef.current
+    ) {
+      const handle = activeTransformHandleRef.current;
+      const initEl = initialElementSnapshotRef.current;
+      const initBounds = initialBoundsRef.current;
+
+      if (handle === 'rot') {
+        // Angle from element center to current pointer
+        const angleRad = Math.atan2(canvasPt.y - initBounds.cy, canvasPt.x - initBounds.cx);
+        let angleDeg = (angleRad * 180) / Math.PI + 90;
+        angleDeg = ((angleDeg % 360) + 360) % 360;
+        // Snap to 15-degree increments when Shift is held, or within 3 deg of cardinal angles
+        if (e.shiftKey) {
+          angleDeg = Math.round(angleDeg / 15) * 15;
+        } else {
+          for (const cardinal of [0, 45, 90, 135, 180, 225, 270, 315, 360]) {
+            if (Math.abs(angleDeg - cardinal) <= 2.5) {
+              angleDeg = cardinal % 360;
+              break;
+            }
+          }
+        }
+        onUpdateElement(selectedElementId, { rotation: Math.round(angleDeg) });
+        return;
+      }
+
+      // Resize handle in local unrotated coordinates
+      const localPt = rotatePointAroundCenter(
+        canvasPt,
+        { x: initBounds.cx, y: initBounds.cy },
+        -(initEl.rotation || 0)
+      );
+      const localStart = rotatePointAroundCenter(
+        dragStartCanvasPointRef.current,
+        { x: initBounds.cx, y: initBounds.cy },
+        -(initEl.rotation || 0)
+      );
+
+      const dx = localPt.x - localStart.x;
+      const dy = localPt.y - localStart.y;
+
+      let newMinX = initBounds.minX;
+      let newMaxX = initBounds.maxX;
+      let newMinY = initBounds.minY;
+      let newMaxY = initBounds.maxY;
+
+      if (handle.includes('w')) newMinX = Math.min(initBounds.maxX - 16, initBounds.minX + dx);
+      if (handle.includes('e')) newMaxX = Math.max(initBounds.minX + 16, initBounds.maxX + dx);
+      if (handle.includes('n')) newMinY = Math.min(initBounds.maxY - 16, initBounds.minY + dy);
+      if (handle.includes('s')) newMaxY = Math.max(initBounds.minY + 16, initBounds.maxY + dy);
+
+      const newW = Math.max(16, newMaxX - newMinX);
+      const newH = Math.max(16, newMaxY - newMinY);
+
+      if (initEl.points && initEl.points.length > 0) {
+        const scaleX = newW / Math.max(1, initBounds.width);
+        const scaleY = newH / Math.max(1, initBounds.height);
+        const scaledPoints = initEl.points.map((pt) => ({
+          x: newMinX + (pt.x - initBounds.minX) * scaleX,
+          y: newMinY + (pt.y - initBounds.minY) * scaleY,
+        }));
+        onUpdateElement(selectedElementId, {
+          x: newMinX,
+          y: newMinY,
+          points: scaledPoints,
+        });
+      } else if (initEl.type === 'text') {
+        const scale = Math.max(0.5, newH / Math.max(1, initBounds.height));
+        const nextFontSize = Math.min(96, Math.max(10, Math.round((initEl.fontSize || 20) * scale)));
+        onUpdateElement(selectedElementId, {
+          x: newMinX,
+          y: newMinY,
+          fontSize: nextFontSize,
+        });
+      } else {
+        onUpdateElement(selectedElementId, {
+          x: newMinX,
+          y: newMinY,
+          width: newW,
+          height: newH,
+        });
+      }
+      return;
+    }
+
+    // Handle Dragging Selected Element Body
+    if (
+      isDraggingSelectedRef.current &&
+      selectedElementId &&
+      initialElementSnapshotRef.current
+    ) {
+      const initEl = initialElementSnapshotRef.current;
       const dx = canvasPt.x - dragStartCanvasPointRef.current.x;
       const dy = canvasPt.y - dragStartCanvasPointRef.current.y;
-      onUpdateElement(selectedElementId, {
-        x: initialElementPosRef.current.x + dx,
-        y: initialElementPosRef.current.y + dy,
-      });
+
+      if (initEl.points && initEl.points.length > 0) {
+        onUpdateElement(selectedElementId, {
+          x: initEl.x + dx,
+          y: initEl.y + dy,
+          points: initEl.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+        });
+      } else {
+        onUpdateElement(selectedElementId, {
+          x: initEl.x + dx,
+          y: initEl.y + dy,
+        });
+      }
       return;
+    }
+
+    // Update hover cursor state when in select mode and pointer is not down
+    if (!isPointerDownRef.current && activeTool === 'select') {
+      if (selectedElementId) {
+        const selEl = elements.find((el) => el.id === selectedElementId);
+        if (selEl && !selEl.isLocked) {
+          const h = hitTestTransformHandle(canvasPt, selEl, zoom);
+          if (h) {
+            setHoveredHandle(h);
+            return;
+          }
+        }
+      }
+      const hitBody = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
+      setHoveredHandle(hitBody ? 'body' : null);
     }
 
     // Handle Eraser drag
     if (isPointerDownRef.current && activeTool === 'eraser') {
       const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
-      if (hitElement) {
+      if (hitElement && !hitElement.isLocked) {
         onDeleteElements([hitElement.id]);
       }
       return;
@@ -492,7 +736,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
     // Handle Laser trail
     if (activeTool === 'laser' && isPointerDownRef.current) {
-      setLaserPoints((prev) => [...prev.slice(-40), { x: canvasPt.x, y: canvasPt.y, time: Date.now() }]);
+      setLaserPoints((prev) => [
+        ...prev.slice(-45),
+        { x: canvasPt.x, y: canvasPt.y, time: Date.now() },
+      ]);
+      if (onLaserMove) onLaserMove(canvasPt);
       return;
     }
 
@@ -506,9 +754,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         currentDrawingElementRef.current = updated;
         setCurrentDrawingElement(updated);
       } else {
-        // Shapes
-        const w = canvasPt.x - curr.x;
-        const h = canvasPt.y - curr.y;
+        let w = canvasPt.x - curr.x;
+        let h = canvasPt.y - curr.y;
+        // Hold Shift to constrain aspect ratio 1:1
+        if (e.shiftKey) {
+          const maxDim = Math.max(Math.abs(w), Math.abs(h));
+          w = Math.sign(w || 1) * maxDim;
+          h = Math.sign(h || 1) * maxDim;
+        }
         const updated = { ...curr, width: w, height: h };
         currentDrawingElementRef.current = updated;
         setCurrentDrawingElement(updated);
@@ -521,13 +774,33 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     isPointerDownRef.current = false;
     isPanningRef.current = false;
     isDraggingSelectedRef.current = false;
+    activeTransformHandleRef.current = null;
+    setIsRotatingActive(false);
 
     if (currentDrawingElementRef.current) {
       const finished = currentDrawingElementRef.current;
       currentDrawingElementRef.current = null;
       setCurrentDrawingElement(null);
 
-      // Validate non-zero geometry
+      // Normalize negative width/height for geometric boxes (except arrow/line)
+      if (
+        finished.type !== 'pencil' &&
+        finished.type !== 'highlighter' &&
+        finished.type !== 'arrow' &&
+        finished.type !== 'line'
+      ) {
+        const w = finished.width || 0;
+        const h = finished.height || 0;
+        if (w < 0) {
+          finished.x += w;
+          finished.width = Math.abs(w);
+        }
+        if (h < 0) {
+          finished.y += h;
+          finished.height = Math.abs(h);
+        }
+      }
+
       if (
         finished.type === 'pencil' ||
         finished.type === 'highlighter' ||
@@ -549,7 +822,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     const canvasPt = screenToCanvas(screenPt, pan, zoom);
 
     const hit = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
-    if (hit && (hit.type === 'sticky' || hit.type === 'text')) {
+    if (hit && (hit.type === 'sticky' || hit.type === 'text') && !hit.isLocked) {
       setEditingElementId(hit.id);
       setEditingText(hit.text || '');
     }
@@ -557,11 +830,33 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
   // Save inline text / sticky editing
   const handleSaveInlineText = () => {
-    if (editingElementId) {
-      onUpdateElement(editingElementId, { text: editingText });
-      setEditingElementId(null);
-      setEditingText('');
+    if (!editingElementId) return;
+    const trimmed = editingText.trim();
+    const targetEl = elements.find((el) => el.id === editingElementId);
+    if (targetEl && targetEl.type === 'text' && !trimmed) {
+      onDeleteElements([editingElementId]);
+      onSelectElement(null);
+    } else {
+      onUpdateElement(editingElementId, {
+        text: editingText,
+        updatedAt: Date.now(),
+      });
     }
+    setEditingElementId(null);
+    setEditingText('');
+  };
+
+  // Cancel inline text / sticky editing
+  const handleCancelInlineText = () => {
+    if (editingElementId) {
+      const targetEl = elements.find((el) => el.id === editingElementId);
+      if (targetEl && !targetEl.text?.trim()) {
+        onDeleteElements([editingElementId]);
+        onSelectElement(null);
+      }
+    }
+    setEditingElementId(null);
+    setEditingText('');
   };
 
   // Calculate inline editor position in screen coordinates
@@ -625,6 +920,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             width: w,
             height: h,
             imageUrl: dataUrl,
+            rotation: 0,
+            flipX: false,
+            flipY: false,
             createdBy: currentUser.name,
             updatedAt: Date.now(),
           };
@@ -634,6 +932,22 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const getCursorClass = () => {
+    if (activeTool === 'pan' || isSpacePressedRef.current || isPanningRef.current) {
+      return 'cursor-grab active:cursor-grabbing';
+    }
+    if (activeTool === 'select') {
+      if (isRotatingActive || hoveredHandle === 'rot') return 'cursor-grab active:cursor-grabbing';
+      if (hoveredHandle === 'nw' || hoveredHandle === 'se') return 'cursor-nwse-resize';
+      if (hoveredHandle === 'ne' || hoveredHandle === 'sw') return 'cursor-nesw-resize';
+      if (hoveredHandle === 'n' || hoveredHandle === 's') return 'cursor-ns-resize';
+      if (hoveredHandle === 'e' || hoveredHandle === 'w') return 'cursor-ew-resize';
+      if (hoveredHandle === 'body') return 'cursor-move';
+      return 'cursor-default';
+    }
+    return 'cursor-crosshair';
   };
 
   return (
@@ -648,56 +962,76 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       onDrop={handleDrop}
       className={`relative w-full h-full overflow-hidden select-none touch-none ${
         gridStyle === 'dots' ? 'canvas-dots' : gridStyle === 'grid' ? 'canvas-grid' : 'bg-slate-50'
-      } ${
-        activeTool === 'pan' || isSpacePressedRef.current
-          ? 'cursor-grab active:cursor-grabbing'
-          : activeTool === 'select'
-          ? 'cursor-default'
-          : activeTool === 'eraser'
-          ? 'cursor-crosshair'
-          : 'cursor-crosshair'
-      }`}
+      } ${getCursorClass()}`}
     >
       <canvas ref={canvasRef} className="block w-full h-full" />
 
       {/* Inline Text / Sticky Editor */}
       {editingInfo && (
         <div
-          className="absolute z-40 bg-white/95 rounded-lg shadow-xl border border-blue-400 p-2 flex flex-col gap-2"
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerMove={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          className="absolute z-40 bg-white/95 rounded-xl shadow-2xl border-2 border-blue-500 p-2.5 flex flex-col gap-2"
           style={{
-            left: `${editingInfo.screenX}px`,
-            top: `${editingInfo.screenY}px`,
-            width: `${Math.max(220, editingInfo.screenW)}px`,
-            minHeight: `${Math.max(120, editingInfo.screenH)}px`,
+            left: `${Math.max(12, Math.min(window.innerWidth - 260, editingInfo.screenX))}px`,
+            top: `${Math.max(12, Math.min(window.innerHeight - 180, editingInfo.screenY))}px`,
+            width: `${Math.max(240, editingInfo.screenW)}px`,
+            minHeight: `${Math.max(125, editingInfo.screenH)}px`,
           }}
         >
           <textarea
             autoFocus
             value={editingText}
-            onChange={(e) => setEditingText(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setEditingText(val);
+              if (editingElementId) {
+                onUpdateElement(editingElementId, { text: val });
+              }
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.stopPropagation();
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || editingInfo.el.type === 'text' && !e.shiftKey)) {
+                e.preventDefault();
                 handleSaveInlineText();
               }
               if (e.key === 'Escape') {
-                setEditingElementId(null);
+                e.preventDefault();
+                handleCancelInlineText();
               }
             }}
-            placeholder="Metin yazın..."
-            className="w-full flex-1 p-2 text-sm bg-transparent border-none outline-none resize-none font-sans text-slate-800"
+            placeholder={
+              editingInfo.el.type === 'sticky'
+                ? 'Yapışkan not içeriğini yazın...'
+                : 'Metninizi yazın... (Kaydetmek için Enter veya Kaydet butonu)'
+            }
+            className="w-full flex-1 p-2 text-sm bg-transparent border-none outline-none resize-none font-sans text-slate-800 select-text"
           />
-          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
-            <span>Kaydet: Ctrl+Enter</span>
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-100">
+            <span>{editingInfo.el.type === 'text' ? 'Enter veya Ctrl+Enter' : 'Ctrl+Enter ile kaydet'}</span>
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setEditingElementId(null)}
-                className="px-2 py-0.5 rounded text-slate-600 hover:bg-slate-100"
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCancelInlineText();
+                }}
+                className="px-2.5 py-1 rounded-md text-slate-600 hover:bg-slate-100 font-medium"
               >
                 İptal
               </button>
               <button
-                onClick={handleSaveInlineText}
-                className="px-2 py-0.5 rounded bg-blue-600 text-white font-medium hover:bg-blue-700"
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSaveInlineText();
+                }}
+                className="px-3 py-1 rounded-md bg-blue-600 text-white font-semibold hover:bg-blue-700 shadow-xs"
               >
                 Kaydet
               </button>
@@ -707,27 +1041,31 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       )}
 
       {/* Grid Pattern Selector (Bottom Left) */}
-      <div className="absolute bottom-4 left-4 z-10 flex items-center gap-1 bg-white/90 backdrop-blur-xs p-1 rounded-lg border border-slate-200 text-xs text-slate-600 shadow-xs">
+      <div
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute bottom-4 left-4 z-10 flex items-center gap-1 bg-white/95 backdrop-blur-xs p-1 rounded-lg border border-slate-200 text-xs text-slate-600 shadow-xs"
+      >
         <button
           onClick={() => setGridStyle('dots')}
-          className={`px-2 py-1 rounded transition-colors ${
-            gridStyle === 'dots' ? 'bg-slate-200 font-semibold text-slate-900' : 'hover:bg-slate-100'
+          className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap shrink-0 ${
+            gridStyle === 'dots' ? 'bg-slate-900 font-semibold text-white' : 'hover:bg-slate-100'
           }`}
         >
           Noktalı
         </button>
         <button
           onClick={() => setGridStyle('grid')}
-          className={`px-2 py-1 rounded transition-colors ${
-            gridStyle === 'grid' ? 'bg-slate-200 font-semibold text-slate-900' : 'hover:bg-slate-100'
+          className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap shrink-0 ${
+            gridStyle === 'grid' ? 'bg-slate-900 font-semibold text-white' : 'hover:bg-slate-100'
           }`}
         >
           Izgara
         </button>
         <button
           onClick={() => setGridStyle('none')}
-          className={`px-2 py-1 rounded transition-colors ${
-            gridStyle === 'none' ? 'bg-slate-200 font-semibold text-slate-900' : 'hover:bg-slate-100'
+          className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap shrink-0 ${
+            gridStyle === 'none' ? 'bg-slate-900 font-semibold text-white' : 'hover:bg-slate-100'
           }`}
         >
           Düz

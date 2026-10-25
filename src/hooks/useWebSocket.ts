@@ -1,5 +1,18 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { CanvasElement, ChatMessage, Point, SharedFile, UserPing, UserPresence, UserReaction } from '../types';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import {
+  CanvasElement,
+  ChatMessage,
+  LaserStrokePoint,
+  Point,
+  RoomSettings,
+  RoomSummary,
+  ServerLimits,
+  SharedFile,
+  UserPing,
+  UserPresence,
+  UserReaction,
+  UserRole,
+} from '../types';
 import { soundEffects } from '../utils/audio';
 
 interface UseWebSocketOptions {
@@ -12,13 +25,40 @@ interface UseWebSocketOptions {
     color: string;
   };
   onWebRTCSignal?: (fromUserId: string, signal: unknown) => void;
+  onKicked?: (roomId: string, roomName: string, by: string) => void;
 }
 
-export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebSocketOptions) {
+export function useWebSocket({
+  roomId,
+  roomName,
+  user,
+  onWebRTCSignal,
+  onKicked,
+}: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [users, setUsers] = useState<UserPresence[]>([]);
+  const [roomSettings, setRoomSettings] = useState<RoomSettings>({
+    isLocked: false,
+    maxUsers: 12,
+    defaultRole: 'editor',
+    allowGuestDraw: true,
+    ownerId: '',
+  });
+  const [syncedRoomName, setSyncedRoomName] = useState<string>(roomName);
+  const [roomsList, setRoomsList] = useState<RoomSummary[]>([]);
+  const [serverLimits, setServerLimits] = useState<ServerLimits>({
+    maxRooms: 20,
+    maxUsersPerRoom: 30,
+    currentRoomsCount: 1,
+  });
+  const [roomError, setRoomError] = useState<{
+    code: string;
+    message: string;
+    roomId?: string;
+  } | null>(null);
+
   const [code, setCode] = useState<{ content: string; language: string; lastUpdatedBy: string }>({
     content: '',
     language: 'javascript',
@@ -32,11 +72,17 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [pings, setPings] = useState<UserPing[]>([]);
   const [reactions, setReactions] = useState<UserReaction[]>([]);
+  const [remoteLaserPoints, setRemoteLaserPoints] = useState<LaserStrokePoint[]>([]);
 
   const pendingQueue = useRef<string[]>([]);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const keepAliveIntervalRef = useRef<number | null>(null);
+  const userRef = useRef(user);
+  userRef.current = user;
   const onWebRTCSignalRef = useRef(onWebRTCSignal);
   onWebRTCSignalRef.current = onWebRTCSignal;
+  const onKickedRef = useRef(onKicked);
+  onKickedRef.current = onKicked;
 
   // Safe sender helper
   const sendMessage = useCallback((msg: object) => {
@@ -48,15 +94,80 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
     }
   }, []);
 
-  // Connect & reconnect logic
+  // Sync user profile changes without dropping socket
+  useEffect(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'user-update',
+          user,
+        })
+      );
+    }
+  }, [user.name, user.color, user.avatar]);
+
+  // Connect & reconnect logic per roomId
   useEffect(() => {
     let isCancelled = false;
+
+    function resolveWsUrl(): string | null {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const serverFromQuery = params.get('server');
+        if (serverFromQuery && serverFromQuery.startsWith('ws')) {
+          localStorage.setItem('collab_ws_server', serverFromQuery.trim());
+          return serverFromQuery.trim();
+        }
+        const savedServer = localStorage.getItem('collab_ws_server');
+        if (savedServer && savedServer.startsWith('ws')) {
+          return savedServer.trim();
+        }
+      } catch {
+        // Ignore storage error
+      }
+
+      const host = window.location.hostname;
+      const isStaticHost =
+        host.endsWith('.github.io') ||
+        host.endsWith('.web.app') ||
+        host.endsWith('.firebaseapp.com') ||
+        host.endsWith('.pages.dev') ||
+        host.endsWith('.netlify.app') ||
+        host.endsWith('.vercel.app');
+
+      if (isStaticHost) {
+        // On static hosts without a custom WS backend URL, rely on Firebase Cloud Sync
+        return null;
+      }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${window.location.host}`;
+    }
 
     function connect() {
       if (isCancelled) return;
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}`;
+      const wsUrl = resolveWsUrl();
+      if (!wsUrl) {
+        setIsConnected(true);
+        setUsers([
+          {
+            id: userRef.current.id,
+            name: userRef.current.name,
+            avatar: userRef.current.avatar,
+            color: userRef.current.color,
+            role: 'owner',
+            cursor: { x: 0, y: 0 },
+            isDrawing: false,
+            activeTool: 'select',
+            isMuted: true,
+            isDeafened: false,
+            isSpeaking: false,
+            joinedAt: Date.now(),
+          },
+        ]);
+        return;
+      }
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -71,7 +182,7 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
             type: 'join-room',
             roomId,
             roomName,
-            user,
+            user: userRef.current,
           })
         );
 
@@ -80,6 +191,15 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
           const item = pendingQueue.current.shift();
           if (item) ws.send(item);
         }
+
+        if (keepAliveIntervalRef.current) {
+          clearInterval(keepAliveIntervalRef.current);
+        }
+        keepAliveIntervalRef.current = window.setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping-keepalive' }));
+          }
+        }, 25000);
       };
 
       ws.onmessage = (event) => {
@@ -88,6 +208,17 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
 
           switch (msg.type) {
             case 'init-room': {
+              setRoomError(null);
+              setSyncedRoomName(msg.roomName || roomName);
+              if (msg.settings) {
+                setRoomSettings(msg.settings);
+              }
+              if (Array.isArray(msg.rooms)) {
+                setRoomsList(msg.rooms);
+              }
+              if (msg.limits) {
+                setServerLimits(msg.limits);
+              }
               setElements(msg.elements || []);
               setCode(msg.code || { content: '', language: 'javascript', lastUpdatedBy: '' });
               setNotes(msg.notes || { content: '', lastUpdatedBy: '' });
@@ -97,12 +228,62 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
               break;
             }
 
+            case 'rooms-list-updated': {
+              if (Array.isArray(msg.rooms)) {
+                setRoomsList(msg.rooms);
+              }
+              if (msg.limits) {
+                setServerLimits(msg.limits);
+              }
+              break;
+            }
+
+            case 'room-settings-updated': {
+              if (msg.roomName) {
+                setSyncedRoomName(msg.roomName);
+              }
+              if (msg.settings) {
+                setRoomSettings(msg.settings);
+              }
+              break;
+            }
+
+            case 'room-error': {
+              setRoomError({
+                code: msg.code || 'ERROR',
+                message: msg.message || 'Oda işlemi sırasında bir hata oluştu.',
+                roomId: msg.roomId,
+              });
+              break;
+            }
+
+            case 'user-role-updated': {
+              setUsers((prev) =>
+                prev.map((u) => (u.id === msg.userId ? { ...u, role: msg.role } : u))
+              );
+              break;
+            }
+
+            case 'kicked-from-room': {
+              if (onKickedRef.current) {
+                onKickedRef.current(msg.roomId, msg.roomName, msg.by);
+              }
+              break;
+            }
+
             case 'user-joined': {
               setUsers((prev) => {
                 const filtered = prev.filter((u) => u.id !== msg.user.id);
                 return [...filtered, msg.user];
               });
               soundEffects.playJoinSound();
+              break;
+            }
+
+            case 'user-updated': {
+              setUsers((prev) =>
+                prev.map((u) => (u.id === msg.user.id ? { ...u, ...msg.user } : u))
+              );
               break;
             }
 
@@ -128,9 +309,24 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
               break;
             }
 
+            case 'laser-moved': {
+              if (msg.point) {
+                setRemoteLaserPoints((prev) => [
+                  ...prev.slice(-60),
+                  {
+                    x: msg.point.x,
+                    y: msg.point.y,
+                    time: Date.now(),
+                    userId: msg.userId,
+                    color: msg.color || '#ef4444',
+                  },
+                ]);
+              }
+              break;
+            }
+
             case 'element-created': {
               setElements((prev) => {
-                // Idempotent guard
                 if (prev.some((el) => el.id === msg.element.id)) {
                   return prev.map((el) => (el.id === msg.element.id ? msg.element : el));
                 }
@@ -141,7 +337,9 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
 
             case 'element-updated': {
               setElements((prev) =>
-                prev.map((el) => (el.id === msg.id ? { ...el, ...msg.changes, updatedAt: Date.now() } : el))
+                prev.map((el) =>
+                  el.id === msg.id ? { ...el, ...msg.changes, updatedAt: Date.now() } : el
+                )
               );
               break;
             }
@@ -166,6 +364,13 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
             case 'element-deleted': {
               const idSet = new Set(msg.ids);
               setElements((prev) => prev.filter((el) => !idSet.has(el.id)));
+              break;
+            }
+
+            case 'elements-replaced': {
+              if (Array.isArray(msg.elements)) {
+                setElements(msg.elements);
+              }
               break;
             }
 
@@ -197,7 +402,7 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
 
             case 'chat-received': {
               setChatMessages((prev) => [...prev, msg.message]);
-              if (msg.message.userId !== user.id) {
+              if (msg.message.userId !== userRef.current.id) {
                 soundEffects.playMessageSound();
               }
               break;
@@ -274,7 +479,9 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
       ws.onclose = () => {
         if (isCancelled) return;
         setIsConnected(false);
-        // Exponential reconnect
+        if (keepAliveIntervalRef.current) {
+          clearInterval(keepAliveIntervalRef.current);
+        }
         reconnectTimeoutRef.current = window.setTimeout(() => {
           connect();
         }, 2000);
@@ -292,23 +499,82 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
+      if (keepAliveIntervalRef.current) {
+        clearInterval(keepAliveIntervalRef.current);
+      }
       if (wsRef.current) {
         wsRef.current.close();
       }
     };
-  }, [roomId, roomName, user]);
+  }, [roomId]);
 
-  // Clean up old pings and reactions periodically
+  // Clean up old pings, reactions, and remote laser points periodically
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
       setPings((prev) => prev.filter((p) => now - p.timestamp < 3600));
       setReactions((prev) => prev.filter((r) => now - r.timestamp < 2600));
-    }, 1000);
+      setRemoteLaserPoints((prev) => prev.filter((lp) => now - lp.time < 1300));
+    }, 500);
     return () => clearInterval(timer);
   }, []);
 
+  // Derive current user's role in the room
+  const currentUserRole: UserRole = useMemo(() => {
+    const me = users.find((u) => u.id === user.id);
+    if (me && me.role) return me.role;
+    if (roomSettings.ownerId === user.id) return 'owner';
+    return roomSettings.defaultRole || 'editor';
+  }, [users, user.id, roomSettings.ownerId, roomSettings.defaultRole]);
+
+  const canEdit =
+    currentUserRole === 'owner' ||
+    currentUserRole === 'admin' ||
+    currentUserRole === 'editor';
+
+  const canManage = currentUserRole === 'owner' || currentUserRole === 'admin';
+
   // Public Actions
+  const requestRoomsList = useCallback(() => {
+    sendMessage({ type: 'get-rooms' });
+  }, [sendMessage]);
+
+  const updateRoomSettings = useCallback(
+    (changes: {
+      isLocked?: boolean;
+      maxUsers?: number;
+      defaultRole?: 'editor' | 'viewer';
+      roomName?: string;
+    }) => {
+      sendMessage({
+        type: 'room-settings-update',
+        changes,
+      });
+    },
+    [sendMessage]
+  );
+
+  const updateUserRole = useCallback(
+    (targetUserId: string, newRole: UserRole) => {
+      sendMessage({
+        type: 'user-role-update',
+        targetUserId,
+        newRole,
+      });
+    },
+    [sendMessage]
+  );
+
+  const kickUser = useCallback(
+    (targetUserId: string) => {
+      sendMessage({
+        type: 'user-kick',
+        targetUserId,
+      });
+    },
+    [sendMessage]
+  );
+
   const sendCursor = useCallback(
     (cursor: Point, isDrawing: boolean, activeTool: string) => {
       sendMessage({
@@ -321,9 +587,19 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
     [sendMessage]
   );
 
+  const sendLaserPoint = useCallback(
+    (point: Point) => {
+      sendMessage({
+        type: 'laser-move',
+        point,
+      });
+    },
+    [sendMessage]
+  );
+
   const createElement = useCallback(
     (element: CanvasElement) => {
-      // Optimistic update
+      if (!canEdit) return;
       setElements((prev) => {
         if (prev.some((e) => e.id === element.id)) return prev;
         return [...prev, element];
@@ -333,12 +609,12 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
         element,
       });
     },
-    [sendMessage]
+    [sendMessage, canEdit]
   );
 
   const updateElement = useCallback(
     (id: string, changes: Partial<CanvasElement>) => {
-      // Optimistic update
+      if (!canEdit) return;
       setElements((prev) =>
         prev.map((el) => (el.id === id ? { ...el, ...changes, updatedAt: Date.now() } : el))
       );
@@ -348,11 +624,12 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
         changes,
       });
     },
-    [sendMessage]
+    [sendMessage, canEdit]
   );
 
   const batchUpdateElements = useCallback(
     (updates: { id: string; changes: Partial<CanvasElement> }[]) => {
+      if (!canEdit) return;
       const map = new Map(updates.map((u) => [u.id, u.changes]));
       setElements((prev) =>
         prev.map((el) => {
@@ -365,11 +642,12 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
         updates,
       });
     },
-    [sendMessage]
+    [sendMessage, canEdit]
   );
 
   const deleteElements = useCallback(
     (ids: string[]) => {
+      if (!canEdit) return;
       const set = new Set(ids);
       setElements((prev) => prev.filter((el) => !set.has(el.id)));
       sendMessage({
@@ -377,18 +655,32 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
         ids,
       });
     },
-    [sendMessage]
+    [sendMessage, canEdit]
+  );
+
+  const replaceElements = useCallback(
+    (newElements: CanvasElement[]) => {
+      if (!canEdit) return;
+      setElements(newElements);
+      sendMessage({
+        type: 'elements-replace',
+        elements: newElements,
+      });
+    },
+    [sendMessage, canEdit]
   );
 
   const clearElements = useCallback(() => {
+    if (!canEdit) return;
     setElements([]);
     sendMessage({
       type: 'elements-clear',
     });
-  }, [sendMessage]);
+  }, [sendMessage, canEdit]);
 
   const loadTemplate = useCallback(
     (templateElements: CanvasElement[]) => {
+      if (!canEdit) return;
       setElements((prev) => {
         const m = new Map(prev.map((e) => [e.id, e]));
         for (const el of templateElements) {
@@ -401,39 +693,41 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
         elements: templateElements,
       });
     },
-    [sendMessage]
+    [sendMessage, canEdit]
   );
 
   const updateCode = useCallback(
     (newContent: string, newLanguage?: string) => {
+      if (!canEdit) return;
       setCode((prev) => ({
         content: newContent,
         language: newLanguage || prev.language,
-        lastUpdatedBy: user.name,
+        lastUpdatedBy: userRef.current.name,
       }));
       sendMessage({
         type: 'code-change',
         content: newContent,
         language: newLanguage || code.language,
-        userName: user.name,
+        userName: userRef.current.name,
       });
     },
-    [sendMessage, user.name, code.language]
+    [sendMessage, code.language, canEdit]
   );
 
   const updateNotes = useCallback(
     (newContent: string) => {
+      if (!canEdit) return;
       setNotes({
         content: newContent,
-        lastUpdatedBy: user.name,
+        lastUpdatedBy: userRef.current.name,
       });
       sendMessage({
         type: 'notes-change',
         content: newContent,
-        userName: user.name,
+        userName: userRef.current.name,
       });
     },
-    [sendMessage, user.name]
+    [sendMessage, canEdit]
   );
 
   const sendChatMessage = useCallback(
@@ -441,38 +735,52 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
       sendMessage({
         type: 'chat-message',
         text,
-        userName: user.name,
-        userColor: user.color,
+        userName: userRef.current.name,
+        userColor: userRef.current.color,
         fileAttachment,
       });
     },
-    [sendMessage, user.name, user.color]
+    [sendMessage]
   );
 
   const uploadFile = useCallback(
     (fileData: { name: string; size: number; fileType: string; dataUrl: string }) => {
+      if (!canEdit) return;
       sendMessage({
         type: 'file-upload',
         ...fileData,
-        uploadedBy: user.name,
+        uploadedBy: userRef.current.name,
       });
     },
-    [sendMessage, user.name]
+    [sendMessage, canEdit]
   );
 
   const deleteFile = useCallback(
     (fileId: string) => {
+      if (!canEdit) return;
       setFiles((prev) => prev.filter((f) => f.id !== fileId));
       sendMessage({
         type: 'file-delete',
         fileId,
       });
     },
-    [sendMessage]
+    [sendMessage, canEdit]
   );
 
   const updateVoiceState = useCallback(
     (voiceState: { isMuted?: boolean; isDeafened?: boolean; isSpeaking?: boolean }) => {
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userRef.current.id
+            ? {
+                ...u,
+                isMuted: voiceState.isMuted ?? u.isMuted,
+                isDeafened: voiceState.isDeafened ?? u.isDeafened,
+                isSpeaking: voiceState.isSpeaking ?? u.isSpeaking,
+              }
+            : u
+        )
+      );
       sendMessage({
         type: 'voice-state',
         ...voiceState,
@@ -487,11 +795,11 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
         type: 'user-ping',
         x,
         y,
-        userName: user.name,
-        userColor: user.color,
+        userName: userRef.current.name,
+        userColor: userRef.current.color,
       });
     },
-    [sendMessage, user.name, user.color]
+    [sendMessage]
   );
 
   const sendReaction = useCallback(
@@ -501,10 +809,10 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
         emoji,
         x,
         y,
-        userName: user.name,
+        userName: userRef.current.name,
       });
     },
-    [sendMessage, user.name]
+    [sendMessage]
   );
 
   const sendWebRTCSignal = useCallback(
@@ -520,6 +828,15 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
 
   return {
     isConnected,
+    syncedRoomName,
+    roomSettings,
+    roomsList,
+    serverLimits,
+    roomError,
+    clearRoomError: () => setRoomError(null),
+    currentUserRole,
+    canEdit,
+    canManage,
     elements,
     users,
     code,
@@ -528,11 +845,18 @@ export function useWebSocket({ roomId, roomName, user, onWebRTCSignal }: UseWebS
     chatMessages,
     pings,
     reactions,
+    remoteLaserPoints,
+    requestRoomsList,
+    updateRoomSettings,
+    updateUserRole,
+    kickUser,
     sendCursor,
+    sendLaserPoint,
     createElement,
     updateElement,
     batchUpdateElements,
     deleteElements,
+    replaceElements,
     clearElements,
     loadTemplate,
     updateCode,

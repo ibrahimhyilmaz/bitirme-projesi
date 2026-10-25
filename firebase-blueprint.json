@@ -1,0 +1,266 @@
+{
+  "entities": {
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator record indexed by user UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The UID of the admin user.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of admin record creation."
+        }
+      },
+      "required": ["uid", "createdAt"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "Collaborative whiteboard room with canvas elements, code editor state, notes, and access settings.",
+      "type": "object",
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "description": "Room identifier slug.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomName": {
+          "type": "string",
+          "description": "Human-readable room title.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the room creator/owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerName": {
+          "type": "string",
+          "description": "Display name of the room creator.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "isPublic": {
+          "type": "boolean",
+          "description": "Whether the room is listed and accessible to collaborators."
+        },
+        "isLocked": {
+          "type": "boolean",
+          "description": "Whether the room is locked against new edits or joins."
+        },
+        "maxUsers": {
+          "type": "number",
+          "description": "Maximum allowed concurrent participants (2 to 30)."
+        },
+        "defaultRole": {
+          "type": "string",
+          "description": "Default role assigned to joining participants.",
+          "enum": ["editor", "viewer"]
+        },
+        "codeContent": {
+          "type": "string",
+          "description": "Synchronized code editor content for this room.",
+          "maxLength": 50000
+        },
+        "codeLanguage": {
+          "type": "string",
+          "description": "Programming language selected in the room code editor.",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "notesContent": {
+          "type": "string",
+          "description": "Synchronized markdown notes for this room.",
+          "maxLength": 50000
+        },
+        "elementsCount": {
+          "type": "number",
+          "description": "Number of canvas elements stored in the room."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp."
+        }
+      },
+      "required": [
+        "roomId",
+        "roomName",
+        "ownerId",
+        "ownerName",
+        "isPublic",
+        "isLocked",
+        "maxUsers",
+        "defaultRole",
+        "codeContent",
+        "codeLanguage",
+        "notesContent",
+        "elementsCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CanvasItem": {
+      "title": "CanvasItem",
+      "description": "Individual whiteboard element persisted inside a room subcollection.",
+      "type": "object",
+      "properties": {
+        "elementId": {
+          "type": "string",
+          "description": "Unique identifier of the canvas element.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomId": {
+          "type": "string",
+          "description": "Parent room ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the user who created or updated this element.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "type": {
+          "type": "string",
+          "description": "Canvas element type.",
+          "enum": [
+            "pencil",
+            "highlighter",
+            "rectangle",
+            "rounded-rect",
+            "circle",
+            "diamond",
+            "triangle",
+            "star",
+            "arrow",
+            "line",
+            "sticky",
+            "text",
+            "image"
+          ]
+        },
+        "x": {
+          "type": "number",
+          "description": "X coordinate on canvas."
+        },
+        "y": {
+          "type": "number",
+          "description": "Y coordinate on canvas."
+        },
+        "width": {
+          "type": "number",
+          "description": "Element width."
+        },
+        "height": {
+          "type": "number",
+          "description": "Element height."
+        },
+        "rotation": {
+          "type": "number",
+          "description": "Element rotation in degrees."
+        },
+        "flipX": {
+          "type": "boolean",
+          "description": "Horizontal mirror state."
+        },
+        "flipY": {
+          "type": "boolean",
+          "description": "Vertical mirror state."
+        },
+        "color": {
+          "type": "string",
+          "description": "Stroke or text color.",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "fillColor": {
+          "type": "string",
+          "description": "Fill color.",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "strokeWidth": {
+          "type": "number",
+          "description": "Stroke thickness."
+        },
+        "text": {
+          "type": "string",
+          "description": "Text content for sticky notes, labels, and text elements.",
+          "maxLength": 2000
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Author display name.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp."
+        }
+      },
+      "required": [
+        "elementId",
+        "roomId",
+        "ownerId",
+        "type",
+        "x",
+        "y",
+        "width",
+        "height",
+        "rotation",
+        "flipX",
+        "flipY",
+        "color",
+        "fillColor",
+        "strokeWidth",
+        "text",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": "AdminRecord",
+      "description": "Trusted admin lookup records."
+    },
+    "/rooms/{roomId}": {
+      "schema": "Room",
+      "description": "Collaborative rooms storing room settings, code editor state, and shared notes."
+    },
+    "/rooms/{roomId}/elements/{elementId}": {
+      "schema": "CanvasItem",
+      "description": "Persisted canvas elements belonging to a specific room."
+    }
+  }
+}

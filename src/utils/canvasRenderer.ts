@@ -1,5 +1,16 @@
 import { CanvasElement, Point, UserPresence, UserPing, UserReaction } from '../types';
 
+export type TransformHandleType =
+  | 'rot'
+  | 'nw'
+  | 'n'
+  | 'ne'
+  | 'e'
+  | 'se'
+  | 's'
+  | 'sw'
+  | 'w';
+
 // Pre-cached image elements to avoid reloading on each render
 const imageCache = new Map<string, HTMLImageElement>();
 
@@ -35,6 +46,162 @@ export function canvasToScreen(canvasPoint: Point, pan: Point, zoom: number): Po
   };
 }
 
+export function rotatePointAroundCenter(p: Point, center: Point, angleDeg: number): Point {
+  if (!angleDeg) return p;
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const dx = p.x - center.x;
+  const dy = p.y - center.y;
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+}
+
+// Compute element bounding box in local (unrotated) coordinates
+export function getElementBounds(el: CanvasElement): {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  height: number;
+  cx: number;
+  cy: number;
+} {
+  if (el.points && el.points.length > 0) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of el.points) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+    const pad = Math.max(6, (el.strokeWidth || 4) / 2);
+    const bMinX = minX - pad;
+    const bMinY = minY - pad;
+    const bMaxX = maxX + pad;
+    const bMaxY = maxY + pad;
+    const width = Math.max(16, bMaxX - bMinX);
+    const height = Math.max(16, bMaxY - bMinY);
+    return {
+      minX: bMinX,
+      minY: bMinY,
+      maxX: bMinX + width,
+      maxY: bMinY + height,
+      width,
+      height,
+      cx: bMinX + width / 2,
+      cy: bMinY + height / 2,
+    };
+  }
+
+  if (el.type === 'text') {
+    const fontSize = el.fontSize || 20;
+    const lines = (el.text || 'Metin').split('\n');
+    const maxLineChars = Math.max(...lines.map((l) => l.length), 4);
+    const estW = el.width || Math.max(60, maxLineChars * fontSize * 0.58 + 12);
+    const estH = el.height || Math.max(fontSize * 1.4, lines.length * fontSize * 1.35 + 6);
+    return {
+      minX: el.x,
+      minY: el.y,
+      maxX: el.x + estW,
+      maxY: el.y + estH,
+      width: estW,
+      height: estH,
+      cx: el.x + estW / 2,
+      cy: el.y + estH / 2,
+    };
+  }
+
+  if (el.type === 'sticky') {
+    const w = Math.max(120, el.width || 180);
+    const h = Math.max(100, el.height || 150);
+    return {
+      minX: el.x,
+      minY: el.y,
+      maxX: el.x + w,
+      maxY: el.y + h,
+      width: w,
+      height: h,
+      cx: el.x + w / 2,
+      cy: el.y + h / 2,
+    };
+  }
+
+  const x = el.x;
+  const y = el.y;
+  const w = el.width ?? (el.type === 'image' ? 200 : 0);
+  const h = el.height ?? (el.type === 'image' ? 200 : 0);
+
+  const minX = Math.min(x, x + w);
+  const maxX = Math.max(x, x + w);
+  const minY = Math.min(y, y + h);
+  const maxY = Math.max(y, y + h);
+  const width = Math.max(12, maxX - minX);
+  const height = Math.max(12, maxY - minY);
+
+  return {
+    minX,
+    minY,
+    maxX: minX + width,
+    maxY: minY + height,
+    width,
+    height,
+    cx: minX + width / 2,
+    cy: minY + height / 2,
+  };
+}
+
+// Get handle positions in local unrotated space
+export function getLocalTransformHandles(
+  bounds: ReturnType<typeof getElementBounds>,
+  zoom: number
+): Record<TransformHandleType, Point> {
+  const rotOffset = 28 / zoom;
+  return {
+    rot: { x: bounds.cx, y: bounds.minY - rotOffset },
+    nw: { x: bounds.minX, y: bounds.minY },
+    n: { x: bounds.cx, y: bounds.minY },
+    ne: { x: bounds.maxX, y: bounds.minY },
+    e: { x: bounds.maxX, y: bounds.cy },
+    se: { x: bounds.maxX, y: bounds.maxY },
+    s: { x: bounds.cx, y: bounds.maxY },
+    sw: { x: bounds.minX, y: bounds.maxY },
+    w: { x: bounds.minX, y: bounds.cy },
+  };
+}
+
+// Check if canvas point hits any resize or rotation handle of the selected element
+export function hitTestTransformHandle(
+  canvasPoint: Point,
+  el: CanvasElement,
+  zoom: number
+): TransformHandleType | null {
+  if (el.isLocked) return null;
+  const bounds = getElementBounds(el);
+  const localPt = rotatePointAroundCenter(
+    canvasPoint,
+    { x: bounds.cx, y: bounds.cy },
+    -(el.rotation || 0)
+  );
+  const handles = getLocalTransformHandles(bounds, zoom);
+  const hitRadius = 10 / zoom;
+
+  const order: TransformHandleType[] = ['rot', 'nw', 'ne', 'se', 'sw', 'n', 'e', 's', 'w'];
+  for (const key of order) {
+    const h = handles[key];
+    if (Math.hypot(localPt.x - h.x, localPt.y - h.y) <= hitRadius) {
+      return key;
+    }
+  }
+  return null;
+}
+
 // Draw a single element onto the 2D context
 export function drawElement(
   ctx: CanvasRenderingContext2D,
@@ -57,11 +224,26 @@ export function drawElement(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  if (element.rotation) {
-    const cx = element.x + (element.width || 0) / 2;
-    const cy = element.y + (element.height || 0) / 2;
+  if (element.strokeStyle === 'dashed') {
+    ctx.setLineDash([strokeWidth * 3, strokeWidth * 2]);
+  } else if (element.strokeStyle === 'dotted') {
+    ctx.setLineDash([strokeWidth, strokeWidth * 2]);
+  } else {
+    ctx.setLineDash([]);
+  }
+
+  const bounds = getElementBounds(element);
+  const cx = bounds.cx;
+  const cy = bounds.cy;
+
+  if (element.rotation || element.flipX || element.flipY) {
     ctx.translate(cx, cy);
-    ctx.rotate((element.rotation * Math.PI) / 180);
+    if (element.rotation) {
+      ctx.rotate((element.rotation * Math.PI) / 180);
+    }
+    if (element.flipX || element.flipY) {
+      ctx.scale(element.flipX ? -1 : 1, element.flipY ? -1 : 1);
+    }
     ctx.translate(-cx, -cy);
   }
 
@@ -72,13 +254,14 @@ export function drawElement(
         if (element.points && element.points.length === 1) {
           ctx.beginPath();
           ctx.arc(element.points[0].x, element.points[0].y, strokeWidth / 2, 0, Math.PI * 2);
+          ctx.fillStyle = color;
           ctx.fill();
         }
         break;
       }
 
       if (element.type === 'highlighter') {
-        ctx.globalAlpha = 0.35;
+        ctx.globalAlpha = (element.opacity ?? 1) * 0.35;
         ctx.lineWidth = (strokeWidth || 4) * 3;
         ctx.lineCap = 'square';
       }
@@ -125,10 +308,10 @@ export function drawElement(
       const h = element.height || 0;
       const rx = Math.abs(w) / 2;
       const ry = Math.abs(h) / 2;
-      const cx = element.x + w / 2;
-      const cy = element.y + h / 2;
+      const elCx = element.x + w / 2;
+      const elCy = element.y + h / 2;
       ctx.beginPath();
-      ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
+      ctx.ellipse(elCx, elCy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
       if (fillColor && fillColor !== 'transparent') {
         ctx.fill();
       }
@@ -139,13 +322,13 @@ export function drawElement(
     case 'diamond': {
       const w = element.width || 0;
       const h = element.height || 0;
-      const cx = element.x + w / 2;
-      const cy = element.y + h / 2;
+      const elCx = element.x + w / 2;
+      const elCy = element.y + h / 2;
       ctx.beginPath();
-      ctx.moveTo(cx, element.y);
-      ctx.lineTo(element.x + w, cy);
-      ctx.lineTo(cx, element.y + h);
-      ctx.lineTo(element.x, cy);
+      ctx.moveTo(elCx, element.y);
+      ctx.lineTo(element.x + w, elCy);
+      ctx.lineTo(elCx, element.y + h);
+      ctx.lineTo(element.x, elCy);
       ctx.closePath();
       if (fillColor && fillColor !== 'transparent') {
         ctx.fill();
@@ -172,8 +355,8 @@ export function drawElement(
     case 'star': {
       const w = element.width || 0;
       const h = element.height || 0;
-      const cx = element.x + w / 2;
-      const cy = element.y + h / 2;
+      const elCx = element.x + w / 2;
+      const elCy = element.y + h / 2;
       const spikes = 5;
       const outerRadius = Math.min(Math.abs(w), Math.abs(h)) / 2;
       const innerRadius = outerRadius * 0.45;
@@ -181,18 +364,18 @@ export function drawElement(
       const step = Math.PI / spikes;
 
       ctx.beginPath();
-      ctx.moveTo(cx, cy - outerRadius);
+      ctx.moveTo(elCx, elCy - outerRadius);
       for (let i = 0; i < spikes; i++) {
-        let x = cx + Math.cos(rot) * outerRadius;
-        let y = cy + Math.sin(rot) * outerRadius;
+        let x = elCx + Math.cos(rot) * outerRadius;
+        let y = elCy + Math.sin(rot) * outerRadius;
         ctx.lineTo(x, y);
         rot += step;
-        x = cx + Math.cos(rot) * innerRadius;
-        y = cy + Math.sin(rot) * innerRadius;
+        x = elCx + Math.cos(rot) * innerRadius;
+        y = elCy + Math.sin(rot) * innerRadius;
         ctx.lineTo(x, y);
         rot += step;
       }
-      ctx.lineTo(cx, cy - outerRadius);
+      ctx.lineTo(elCx, elCy - outerRadius);
       ctx.closePath();
       if (fillColor && fillColor !== 'transparent') {
         ctx.fill();
@@ -225,6 +408,7 @@ export function drawElement(
       ctx.stroke();
 
       // Arrow head
+      ctx.setLineDash([]);
       const angle = Math.atan2(endY - startY, endX - startX);
       const headLength = Math.max(12, strokeWidth * 3.5);
 
@@ -246,9 +430,11 @@ export function drawElement(
 
     case 'sticky': {
       const w = Math.max(120, element.width || 180);
-      const h = Math.max(100, element.height || 180);
-      const bg = element.fillColor || '#fef08a'; // default soft yellow
+      const h = Math.max(100, element.height || 150);
+      const bg =
+        !element.fillColor || element.fillColor === 'transparent' ? '#fef08a' : element.fillColor;
 
+      ctx.setLineDash([]);
       // Sticky shadow
       ctx.shadowColor = 'rgba(0, 0, 0, 0.12)';
       ctx.shadowBlur = 10;
@@ -286,7 +472,14 @@ export function drawElement(
         ctx.fillStyle = element.color || '#1e293b';
         ctx.font = `500 ${element.fontSize || 15}px 'Plus Jakarta Sans', sans-serif`;
         ctx.textBaseline = 'top';
-        wrapText(ctx, element.text, element.x + 16, element.y + 34, w - 32, (element.fontSize || 15) * 1.4);
+        wrapText(
+          ctx,
+          element.text,
+          element.x + 16,
+          element.y + 34,
+          w - 32,
+          (element.fontSize || 15) * 1.4
+        );
       }
       break;
     }
@@ -316,12 +509,13 @@ export function drawElement(
           ctx.drawImage(img, element.x, element.y, w, h);
           ctx.strokeStyle = 'rgba(0,0,0,0.1)';
           ctx.lineWidth = 1;
+          ctx.setLineDash([]);
           ctx.strokeRect(element.x, element.y, w, h);
         } else {
-          // Placeholder while loading
           ctx.fillStyle = '#f1f5f9';
           ctx.fillRect(element.x, element.y, w, h);
           ctx.strokeStyle = '#cbd5e1';
+          ctx.setLineDash([]);
           ctx.strokeRect(element.x, element.y, w, h);
           ctx.fillStyle = '#64748b';
           ctx.font = '12px "Plus Jakarta Sans", sans-serif';
@@ -333,6 +527,109 @@ export function drawElement(
   }
 
   ctx.restore();
+}
+
+// Draw selection box with 8 resize handles and top rotation handle
+export function drawSelectionGizmo(
+  ctx: CanvasRenderingContext2D,
+  el: CanvasElement,
+  zoom: number,
+  isRotating: boolean = false
+) {
+  const bounds = getElementBounds(el);
+  const handles = getLocalTransformHandles(bounds, zoom);
+
+  ctx.save();
+  if (el.rotation) {
+    ctx.translate(bounds.cx, bounds.cy);
+    ctx.rotate((el.rotation * Math.PI) / 180);
+    ctx.translate(-bounds.cx, -bounds.cy);
+  }
+
+  const primaryColor = el.isLocked ? '#d97706' : '#2563eb';
+
+  // Main dashed bounding box
+  ctx.strokeStyle = primaryColor;
+  ctx.lineWidth = 1.5 / zoom;
+  ctx.setLineDash([5 / zoom, 4 / zoom]);
+  ctx.strokeRect(bounds.minX, bounds.minY, bounds.width, bounds.height);
+  ctx.setLineDash([]);
+
+  if (!el.isLocked) {
+    // Stem connecting top-center ('n') to rotation handle ('rot')
+    ctx.beginPath();
+    ctx.moveTo(handles.n.x, handles.n.y);
+    ctx.lineTo(handles.rot.x, handles.rot.y);
+    ctx.strokeStyle = primaryColor;
+    ctx.lineWidth = 1.5 / zoom;
+    ctx.stroke();
+
+    // Rotation circle handle
+    const rotRadius = 6.5 / zoom;
+    ctx.beginPath();
+    ctx.arc(handles.rot.x, handles.rot.y, rotRadius, 0, Math.PI * 2);
+    ctx.fillStyle = isRotating ? '#2563eb' : '#ffffff';
+    ctx.fill();
+    ctx.lineWidth = 2 / zoom;
+    ctx.strokeStyle = '#2563eb';
+    ctx.stroke();
+
+    // 8 Resize square handles
+    const handleSize = 7.5 / zoom;
+    const resizeKeys: TransformHandleType[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+    for (const k of resizeKeys) {
+      const h = handles[k];
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 1.5 / zoom;
+      ctx.beginPath();
+      ctx.roundRect(
+        h.x - handleSize / 2,
+        h.y - handleSize / 2,
+        handleSize,
+        handleSize,
+        1.5 / zoom
+      );
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+
+  // Draw angle / mirror status badge below element if rotated or mirrored
+  const hasRotation = Math.round(el.rotation || 0) !== 0;
+  const hasFlip = !!el.flipX || !!el.flipY;
+  if (hasRotation || hasFlip || isRotating) {
+    ctx.save();
+    const parts: string[] = [];
+    if (hasRotation || isRotating) {
+      const normDeg = (((Math.round(el.rotation || 0) % 360) + 360) % 360);
+      parts.push(`${normDeg}°`);
+    }
+    if (el.flipX) parts.push('Yatay Ayna');
+    if (el.flipY) parts.push('Dikey Ayna');
+
+    const label = parts.join(' · ');
+    ctx.font = `600 ${11 / zoom}px "JetBrains Mono", monospace`;
+    const tw = ctx.measureText(label).width;
+    const padX = 8 / zoom;
+    const badgeW = tw + padX * 2;
+    const badgeH = 20 / zoom;
+    const badgeX = bounds.cx - badgeW / 2;
+    const badgeY = bounds.maxY + 12 / zoom;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 5 / zoom);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, bounds.cx, badgeY + badgeH / 2);
+    ctx.restore();
+  }
 }
 
 // Text word wrapping helper
@@ -368,68 +665,52 @@ function wrapText(
   }
 }
 
-// Compute element bounding box for selection and collision detection
-export function getElementBounds(el: CanvasElement): { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number } {
-  if (el.points && el.points.length > 0) {
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const p of el.points) {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x);
-      maxY = Math.max(maxY, p.y);
-    }
-    const pad = Math.max(8, (el.strokeWidth || 4) / 2);
-    return {
-      minX: minX - pad,
-      minY: minY - pad,
-      maxX: maxX + pad,
-      maxY: maxY + pad,
-      width: Math.max(16, maxX - minX + pad * 2),
-      height: Math.max(16, maxY - minY + pad * 2),
-    };
-  }
-
-  const x = el.x;
-  const y = el.y;
-  const w = el.width || 0;
-  const h = el.height || 0;
-
-  const minX = Math.min(x, x + w);
-  const maxX = Math.max(x, x + w);
-  const minY = Math.min(y, y + h);
-  const maxY = Math.max(y, y + h);
-
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: Math.max(10, maxX - minX),
-    height: Math.max(10, maxY - minY),
-  };
-}
-
-// Check if a point hits an element
+// Check if a point hits an element (accounting for rotation and mirroring)
 export function isPointInsideElement(p: Point, el: CanvasElement): boolean {
   const bounds = getElementBounds(el);
-  const tolerance = Math.max(8, (el.strokeWidth || 4));
+  const tolerance = Math.max(8, el.strokeWidth || 4);
 
-  if (p.x < bounds.minX - tolerance || p.x > bounds.maxX + tolerance || p.y < bounds.minY - tolerance || p.y > bounds.maxY + tolerance) {
+  // Transform point into element's local unrotated space
+  let localP = rotatePointAroundCenter(
+    p,
+    { x: bounds.cx, y: bounds.cy },
+    -(el.rotation || 0)
+  );
+
+  if (el.flipX) {
+    localP = { x: 2 * bounds.cx - localP.x, y: localP.y };
+  }
+  if (el.flipY) {
+    localP = { x: localP.x, y: 2 * bounds.cy - localP.y };
+  }
+
+  if (
+    localP.x < bounds.minX - tolerance ||
+    localP.x > bounds.maxX + tolerance ||
+    localP.y < bounds.minY - tolerance ||
+    localP.y > bounds.maxY + tolerance
+  ) {
     return false;
   }
 
   if (el.type === 'pencil' || el.type === 'highlighter') {
-    if (!el.points) return false;
+    if (!el.points || el.points.length === 0) return false;
+    if (el.points.length === 1) {
+      return Math.hypot(localP.x - el.points[0].x, localP.y - el.points[0].y) <= tolerance + 4;
+    }
     for (let i = 0; i < el.points.length - 1; i++) {
       const p1 = el.points[i];
       const p2 = el.points[i + 1];
-      const d = distToSegment(p, p1, p2);
-      if (d <= tolerance + 4) return true;
+      const d = distToSegment(localP, p1, p2);
+      if (d <= tolerance + 6) return true;
     }
     return false;
+  }
+
+  if (el.type === 'line' || el.type === 'arrow') {
+    const start = { x: el.x, y: el.y };
+    const end = { x: el.x + (el.width || 0), y: el.y + (el.height || 0) };
+    return distToSegment(localP, start, end) <= tolerance + 6;
   }
 
   return true;
@@ -459,7 +740,7 @@ export function drawRemoteCursors(
     ctx.save();
     ctx.translate(screenPos.x, screenPos.y);
 
-    const userColor = user.color || '#3b82f6';
+    const userColor = user.color || '#2563eb';
 
     // Draw mouse pointer arrow
     ctx.fillStyle = userColor;
@@ -527,7 +808,7 @@ export function drawPings(
     ctx.translate(screenPos.x, screenPos.y);
 
     // Ripple circles
-    ctx.strokeStyle = ping.userColor || '#3b82f6';
+    ctx.strokeStyle = ping.userColor || '#2563eb';
     ctx.lineWidth = 3;
     ctx.globalAlpha = alpha;
     ctx.beginPath();
@@ -539,7 +820,7 @@ export function drawPings(
     ctx.stroke();
 
     // Center dot
-    ctx.fillStyle = ping.userColor || '#3b82f6';
+    ctx.fillStyle = ping.userColor || '#2563eb';
     ctx.beginPath();
     ctx.arc(0, 0, 6, 0, Math.PI * 2);
     ctx.fill();

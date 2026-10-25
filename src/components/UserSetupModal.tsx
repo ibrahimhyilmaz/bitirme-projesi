@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Users, ArrowRight } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 
 interface UserSetupModalProps {
   initialName: string;
@@ -26,6 +26,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   initialColor,
   initialRoomId,
   onJoin,
+  onClose,
   isInitialSetup = false,
 }) => {
   const [name, setName] = useState(initialName || '');
@@ -40,15 +41,27 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 select-none">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
       <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="p-6 bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex flex-col items-center text-center">
-          <div className="w-12 h-12 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center font-bold text-2xl shadow-inner mb-3">
+        <div className="relative p-6 bg-slate-900 text-white flex flex-col items-center text-center">
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              title="Kapat"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-xl shadow-xs mb-3">
             CB
           </div>
-          <h2 className="text-lg font-bold">CollabBoard'a Hoş Geldiniz</h2>
-          <p className="text-xs text-blue-100 mt-1 max-w-xs">
+          <h2 className="text-lg font-bold">
+            {isInitialSetup ? "CollabBoard'a Hoş Geldiniz" : 'Profil ve Oda Ayarları'}
+          </h2>
+          <p className="text-xs text-slate-300 mt-1 max-w-xs">
             Gerçek zamanlı işbirlikçi beyaz tahta, kod alanı ve entegre sesli sohbet çalışma alanı.
           </p>
         </div>
@@ -100,28 +113,30 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                 type="text"
                 required
                 value={roomId}
-                onChange={(e) => setRoomId(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ''))}
+                onChange={(e) =>
+                  setRoomId(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ''))
+                }
                 placeholder="Örn. sprint-planlama veya ana-oda"
                 className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
               />
               <button
                 type="button"
                 onClick={() => setRoomId(`oda-${Math.random().toString(36).substring(2, 7)}`)}
-                className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
                 title="Rastgele Kod Oluştur"
               >
                 Rastgele
               </button>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Bu kodu veya bağlantıyı paylaşarak arkadaşlarınızı davet edebilirsiniz.
+              Bu kodu veya bağlantıyı paylaşarak ekip arkadaşlarınızı davet edebilirsiniz.
             </p>
           </div>
 
           {/* Submit */}
           <button
             type="submit"
-            className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm shadow-sm transition-all flex items-center justify-center gap-2"
+            className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm shadow-xs transition-all flex items-center justify-center gap-2"
           >
             <span>{isInitialSetup ? 'Çalışma Alanına Katıl' : 'Değişiklikleri Kaydet'}</span>
             <ArrowRight className="w-4 h-4" />

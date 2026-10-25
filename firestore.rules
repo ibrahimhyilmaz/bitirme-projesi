@@ -1,0 +1,313 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'RepSouler42@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // 3. Entity Validation Blueprints (Anti-Update-Gap)
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['uid', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'createdAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidRoom(data) {
+      return data.keys().hasAll([
+          'roomId',
+          'roomName',
+          'ownerId',
+          'ownerName',
+          'isPublic',
+          'isLocked',
+          'maxUsers',
+          'defaultRole',
+          'codeContent',
+          'codeLanguage',
+          'notesContent',
+          'elementsCount',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'roomId',
+          'roomName',
+          'ownerId',
+          'ownerName',
+          'isPublic',
+          'isLocked',
+          'maxUsers',
+          'defaultRole',
+          'codeContent',
+          'codeLanguage',
+          'notesContent',
+          'elementsCount',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.roomId is string && data.roomId.size() >= 1 && data.roomId.size() <= 128 && data.roomId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.roomName is string && data.roomName.size() >= 1 && data.roomName.size() <= 120 &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 80 &&
+        data.isPublic is bool &&
+        data.isLocked is bool &&
+        data.maxUsers is int && data.maxUsers >= 2 && data.maxUsers <= 30 &&
+        data.defaultRole is string && data.defaultRole.size() <= 16 && (data.defaultRole == 'editor' || data.defaultRole == 'viewer') &&
+        data.codeContent is string && data.codeContent.size() <= 50000 &&
+        data.codeLanguage is string && data.codeLanguage.size() >= 1 && data.codeLanguage.size() <= 32 &&
+        data.notesContent is string && data.notesContent.size() <= 50000 &&
+        data.elementsCount is int && data.elementsCount >= 0 && data.elementsCount <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCanvasItem(data) {
+      return data.keys().hasAll([
+          'elementId',
+          'roomId',
+          'ownerId',
+          'type',
+          'x',
+          'y',
+          'width',
+          'height',
+          'rotation',
+          'flipX',
+          'flipY',
+          'color',
+          'fillColor',
+          'strokeWidth',
+          'text',
+          'createdBy',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'elementId',
+          'roomId',
+          'ownerId',
+          'type',
+          'x',
+          'y',
+          'width',
+          'height',
+          'rotation',
+          'flipX',
+          'flipY',
+          'color',
+          'fillColor',
+          'strokeWidth',
+          'text',
+          'createdBy',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.elementId is string && data.elementId.size() >= 1 && data.elementId.size() <= 128 && data.elementId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.roomId is string && data.roomId.size() >= 1 && data.roomId.size() <= 128 && data.roomId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.type is string && data.type.size() >= 1 && data.type.size() <= 32 && (
+          data.type == 'pencil' ||
+          data.type == 'highlighter' ||
+          data.type == 'rectangle' ||
+          data.type == 'rounded-rect' ||
+          data.type == 'circle' ||
+          data.type == 'diamond' ||
+          data.type == 'triangle' ||
+          data.type == 'star' ||
+          data.type == 'arrow' ||
+          data.type == 'line' ||
+          data.type == 'sticky' ||
+          data.type == 'text' ||
+          data.type == 'image'
+        ) &&
+        data.x is number &&
+        data.y is number &&
+        data.width is number &&
+        data.height is number &&
+        data.rotation is number &&
+        data.flipX is bool &&
+        data.flipY is bool &&
+        data.color is string && data.color.size() >= 1 && data.color.size() <= 32 &&
+        data.fillColor is string && data.fillColor.size() >= 1 && data.fillColor.size() <= 32 &&
+        data.strokeWidth is number && data.strokeWidth >= 1 && data.strokeWidth <= 64 &&
+        data.text is string && data.text.size() <= 2000 &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 80 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Match Blocks
+    match /admins/{adminId} {
+      allow get: if isVerifiedUser() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      allow list: if isAdmin() && resource.data.uid == request.auth.uid;
+      allow create: if isAdmin() && isValidId(adminId) && isValidAdminRecord(incoming()) && incoming().uid == adminId && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(adminId);
+    }
+
+    match /rooms/{roomId} {
+      allow get: if isValidId(roomId) && (resource == null || existing().isPublic == true || (isVerifiedUser() && (existing().ownerId == request.auth.uid || isAdmin())));
+      allow list: if resource.data.isPublic == true || (isVerifiedUser() && resource.data.ownerId == request.auth.uid);
+
+      allow create: if isVerifiedUser() &&
+        isValidId(roomId) &&
+        isValidRoom(incoming()) &&
+        incoming().roomId == roomId &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(roomId) &&
+        isValidRoom(incoming()) &&
+        incoming().roomId == existing().roomId &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().ownerName == existing().ownerName &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          // Action 1: Owner updates room settings (lock, capacity, default role, title)
+          (
+            existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'roomName',
+              'isPublic',
+              'isLocked',
+              'maxUsers',
+              'defaultRole',
+              'codeContent',
+              'codeLanguage',
+              'notesContent',
+              'elementsCount',
+              'updatedAt'
+            ])
+          ) ||
+          // Action 2: Collaborator updates workspace state (code, notes, elementsCount) when room is unlocked and defaultRole is editor
+          (
+            existing().isLocked == false &&
+            existing().defaultRole == 'editor' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'codeContent',
+              'codeLanguage',
+              'notesContent',
+              'elementsCount',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(roomId) && (existing().ownerId == request.auth.uid || isAdmin());
+
+      // Subcollection: Persisted Canvas Elements (Master Gate Pattern)
+      match /elements/{elementId} {
+        allow get: if isValidId(roomId) && isValidId(elementId) &&
+          exists(/databases/$(database)/documents/rooms/$(roomId)) &&
+          (
+            get(/databases/$(database)/documents/rooms/$(roomId)).data.isPublic == true ||
+            (isVerifiedUser() && get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid)
+          );
+
+        allow list: if resource.data.roomId == roomId;
+
+        allow create: if isVerifiedUser() &&
+          isValidId(roomId) &&
+          isValidId(elementId) &&
+          isValidCanvasItem(incoming()) &&
+          incoming().elementId == elementId &&
+          incoming().roomId == roomId &&
+          incoming().ownerId == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/rooms/$(roomId)) &&
+          (
+            isAdmin() ||
+            get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid ||
+            (
+              get(/databases/$(database)/documents/rooms/$(roomId)).data.isLocked == false &&
+              get(/databases/$(database)/documents/rooms/$(roomId)).data.defaultRole == 'editor'
+            )
+          );
+
+        allow update: if isVerifiedUser() &&
+          isValidId(roomId) &&
+          isValidId(elementId) &&
+          isValidCanvasItem(incoming()) &&
+          incoming().elementId == existing().elementId &&
+          incoming().roomId == existing().roomId &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/rooms/$(roomId)) && (
+            isAdmin() ||
+            (
+              (
+                get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid ||
+                (
+                  get(/databases/$(database)/documents/rooms/$(roomId)).data.isLocked == false &&
+                  get(/databases/$(database)/documents/rooms/$(roomId)).data.defaultRole == 'editor'
+                )
+              ) &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'x',
+                'y',
+                'width',
+                'height',
+                'rotation',
+                'flipX',
+                'flipY',
+                'color',
+                'fillColor',
+                'strokeWidth',
+                'text',
+                'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if isVerifiedUser() &&
+          isValidId(roomId) &&
+          isValidId(elementId) &&
+          exists(/databases/$(database)/documents/rooms/$(roomId)) && (
+            isAdmin() ||
+            existing().ownerId == request.auth.uid ||
+            get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid ||
+            (
+              get(/databases/$(database)/documents/rooms/$(roomId)).data.isLocked == false &&
+              get(/databases/$(database)/documents/rooms/$(roomId)).data.defaultRole == 'editor'
+            )
+          );
+      }
+    }
+  }
+}
