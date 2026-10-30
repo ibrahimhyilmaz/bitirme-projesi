@@ -195,7 +195,13 @@ export default function App() {
 
   // If user becomes a viewer, switch active tool to 'select' if currently on a drawing tool
   useEffect(() => {
-    if (!canEdit && activeTool !== 'select' && activeTool !== 'pan' && activeTool !== 'laser') {
+    if (
+      !canEdit &&
+      activeTool !== 'select' &&
+      activeTool !== 'pan' &&
+      activeTool !== 'laser' &&
+      activeTool !== 'ping'
+    ) {
       setActiveTool('select');
     }
   }, [canEdit, activeTool]);
@@ -426,7 +432,11 @@ export default function App() {
           setSelectedElementId(null);
           break;
         case 'e':
-          setActiveTool('eraser');
+          if (e.shiftKey) {
+            setActiveTool('point-eraser');
+          } else {
+            setActiveTool('eraser');
+          }
           setSelectedElementId(null);
           break;
         case 'r':
@@ -734,6 +744,7 @@ export default function App() {
           remoteLaserPoints={remoteLaserPoints}
           onCursorMove={sendCursor}
           onLaserMove={sendLaserPoint}
+          onPing={(pt) => sendPing(pt.x, pt.y)}
           onSaveHistorySnapshot={recordUndo}
           onCreateElement={handleCreateElement}
           onUpdateElement={handleUpdateElement}
@@ -741,6 +752,7 @@ export default function App() {
           onDeleteElements={handleDeleteElements}
           selectedElementId={selectedElementId}
           onSelectElement={setSelectedElementId}
+          onSelectTool={setActiveTool}
           zoom={zoom}
           setZoom={setZoom}
           pan={pan}

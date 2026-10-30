@@ -3,6 +3,8 @@ export type ToolType =
   | 'pencil'
   | 'highlighter'
   | 'eraser'
+  | 'point-eraser'
+  | 'ping'
   | 'rectangle'
   | 'rounded-rect'
   | 'circle'

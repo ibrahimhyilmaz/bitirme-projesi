@@ -21,7 +21,24 @@ import {
   hitTestTransformHandle,
   rotatePointAroundCenter,
   TransformHandleType,
+  smoothPoints,
+  sampleShapeToWorldPoints,
 } from '../utils/canvasRenderer';
+
+// Custom SVG Cursors for Pencil, Highlighter, Erasers, and Ping (matching button icons & sizing)
+const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/><path d='m15 5 4 4'/></g><g stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z' fill='%23ffffff'/><path d='m15 5 4 4'/></g></svg>") 2 18, crosshair`;
+
+const HIGHLIGHTER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h3l6-6'/><path d='m22 12-4.6 4.6a2.78 2.78 0 0 1-3.9 0L2.4 5.5a2.78 2.78 0 0 1 0-3.9l1.1-1.1a2.78 2.78 0 0 1 3.9 0l11.1 11.1a2.78 2.78 0 0 1 0 3.9'/></g><g stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h3l6-6' fill='%23fef08a'/><path d='m22 12-4.6 4.6a2.78 2.78 0 0 1-3.9 0L2.4 5.5a2.78 2.78 0 0 1 0-3.9l1.1-1.1a2.78 2.78 0 0 1 3.9 0l11.1 11.1a2.78 2.78 0 0 1 0 3.9' fill='%23ffffff'/></g></svg>") 3 17, crosshair`;
+
+const ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g><g stroke='%23e11d48' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21' fill='%23ffffff'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g></svg>") 6 18, auto`;
+
+const POINT_ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3'/><path d='M8.12 8.12 12 12'/><path d='M20 4 8.12 15.88'/><circle cx='6' cy='18' r='3'/><path d='M14.8 14.8 20 20'/></g><g stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3' fill='%23ffffff'/><path d='M8.12 8.12 12 12'/><path d='M20 4 8.12 15.88'/><circle cx='6' cy='18' r='3' fill='%23ffffff'/><path d='M14.8 14.8 20 20'/></g></svg>") 10 10, crosshair`;
+
+const PING_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g><g stroke='%23059669' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2' fill='%2310b981'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g></svg>") 10 10, crosshair`;
+
+const GRAB_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2'/><path d='M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2'/><path d='M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8'/><path d='M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15'/></g><g stroke='%230f172a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2'/><path d='M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2'/><path d='M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8'/><path d='M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15' fill='%23ffffff'/></g></svg>") 10 10, grab`;
+
+const GRABBING_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2'/><path d='M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2'/><path d='M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8'/><path d='M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15'/></g><g stroke='%232563eb' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2'/><path d='M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2'/><path d='M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8'/><path d='M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15' fill='%23dbeafe'/></g></svg>") 10 10, grabbing`;
 
 interface CanvasBoardProps {
   elements: CanvasElement[];
@@ -33,6 +50,7 @@ interface CanvasBoardProps {
     color: string;
   };
   activeTool: ToolType;
+  onSelectTool?: (tool: ToolType) => void;
   strokeColor: string;
   fillColor: string;
   strokeWidth: number;
@@ -44,6 +62,7 @@ interface CanvasBoardProps {
   remoteLaserPoints?: LaserStrokePoint[];
   onCursorMove: (cursor: Point, isDrawing: boolean, activeTool: string) => void;
   onLaserMove?: (point: Point) => void;
+  onPing?: (point: Point) => void;
   onSaveHistorySnapshot?: () => void;
   onCreateElement: (el: CanvasElement) => void;
   onUpdateElement: (id: string, changes: Partial<CanvasElement>) => void;
@@ -63,6 +82,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   users,
   currentUser,
   activeTool,
+  onSelectTool,
   strokeColor,
   fillColor,
   strokeWidth,
@@ -74,9 +94,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   remoteLaserPoints = [],
   onCursorMove,
   onLaserMove,
+  onPing,
   onSaveHistorySnapshot,
   onCreateElement,
   onUpdateElement,
+  onBatchUpdateElements,
   onDeleteElements,
   selectedElementId,
   onSelectElement,
@@ -114,12 +136,139 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   // Editing text or sticky note
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState<string>('');
+  const pendingNewTextRef = useRef<CanvasElement | null>(null);
 
   // Grid style
   const [gridStyle, setGridStyle] = useState<'dots' | 'grid' | 'none'>('dots');
 
   // Throttled cursor broadcast
   const lastCursorEmitRef = useRef<number>(0);
+
+  // Mouse position tracking for visible eraser contact circle & ping shortcut
+  const mouseScreenPosRef = useRef<Point | null>(null);
+  const lastCanvasPtRef = useRef<Point>({ x: 0, y: 0 });
+
+  // Precision / Point Eraser helper: slices freehand strokes or geometric shape outlines
+  const applyPointEraser = useCallback(
+    (canvasPt: Point) => {
+      if (!canEdit) return;
+      const eraserRadius = 16 / zoom;
+      const toDelete: string[] = [];
+      const toUpdate: { id: string; changes: Partial<CanvasElement> }[] = [];
+      const toCreate: CanvasElement[] = [];
+
+      for (const el of elements) {
+        if (el.isLocked) continue;
+
+        let strokePoints: Point[] | null = null;
+        let isClosedLoop = false;
+
+        if (el.type === 'pencil' || el.type === 'highlighter') {
+          if (!el.points || el.points.length === 0) continue;
+          strokePoints = el.points;
+          isClosedLoop = false;
+        } else {
+          // Geometric shapes: line, arrow, rectangle, rounded-rect, circle, diamond, triangle, star
+          const sampled = sampleShapeToWorldPoints(el);
+          if (!sampled || sampled.points.length === 0) continue;
+          strokePoints = sampled.points;
+          isClosedLoop = sampled.isClosed;
+        }
+
+        // Check if any point is within eraser radius
+        let hasHit = false;
+        for (let i = 0; i < strokePoints.length; i++) {
+          if (Math.hypot(strokePoints[i].x - canvasPt.x, strokePoints[i].y - canvasPt.y) <= eraserRadius) {
+            hasHit = true;
+            break;
+          }
+        }
+        if (!hasHit) continue;
+
+        // Break stroke into sub-segments of points outside eraser radius
+        const segments: Point[][] = [];
+        let currentSeg: Point[] = [];
+
+        for (const pt of strokePoints) {
+          const d = Math.hypot(pt.x - canvasPt.x, pt.y - canvasPt.y);
+          if (d > eraserRadius) {
+            currentSeg.push(pt);
+          } else {
+            if (currentSeg.length > 0) {
+              segments.push(currentSeg);
+              currentSeg = [];
+            }
+          }
+        }
+        if (currentSeg.length > 0) {
+          segments.push(currentSeg);
+        }
+
+        // For closed loops (e.g. circle, rectangle, triangle), if the seam wasn't erased,
+        // reconnect the last segment into the first segment to preserve continuous remaining arc/polyline
+        if (isClosedLoop && segments.length >= 2) {
+          const firstPt = strokePoints[0];
+          const lastPt = strokePoints[strokePoints.length - 1];
+          const firstSegStart = segments[0][0];
+          const lastSegEnd = segments[segments.length - 1][segments[segments.length - 1].length - 1];
+
+          if (
+            Math.hypot(firstSegStart.x - firstPt.x, firstSegStart.y - firstPt.y) < 2 &&
+            Math.hypot(lastSegEnd.x - lastPt.x, lastSegEnd.y - lastPt.y) < 2
+          ) {
+            const lastSeg = segments.pop()!;
+            segments[0] = [...lastSeg, ...segments[0]];
+          }
+        }
+
+        const validSegments = segments.filter((s) => s.length >= 2 || (s.length === 1 && strokePoints!.length === 1));
+
+        if (validSegments.length === 0) {
+          toDelete.push(el.id);
+        } else {
+          toUpdate.push({
+            id: el.id,
+            changes: {
+              type: 'pencil',
+              points: validSegments[0],
+              rotation: 0,
+              flipX: false,
+              flipY: false,
+              fillColor: 'transparent',
+              updatedAt: Date.now(),
+            },
+          });
+          for (let sIdx = 1; sIdx < validSegments.length; sIdx++) {
+            toCreate.push({
+              ...el,
+              id: `${el.id}-seg-${Date.now()}-${sIdx}-${Math.random().toString(36).substring(2, 6)}`,
+              type: 'pencil',
+              points: validSegments[sIdx],
+              rotation: 0,
+              flipX: false,
+              flipY: false,
+              fillColor: 'transparent',
+              updatedAt: Date.now(),
+            });
+          }
+        }
+      }
+
+      if (toDelete.length > 0) {
+        onDeleteElements(toDelete);
+        if (selectedElementId && toDelete.includes(selectedElementId)) {
+          onSelectElement(null);
+        }
+      }
+      if (toUpdate.length > 0) {
+        onBatchUpdateElements(toUpdate);
+      }
+      for (const c of toCreate) {
+        onCreateElement(c);
+      }
+    },
+    [canEdit, zoom, elements, onDeleteElements, onBatchUpdateElements, onCreateElement, selectedElementId, onSelectElement]
+  );
 
   // Main Render loop
   const render = useCallback(() => {
@@ -214,6 +363,29 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     drawReactions(ctx, reactions, pan, zoom);
     drawRemoteCursors(ctx, users, currentUser.id, pan, zoom);
 
+    // Visible Contact Area Indicator for Precision Eraser (Hassas Silgi temas alanı)
+    if (activeTool === 'point-eraser' && mouseScreenPosRef.current) {
+      const mousePt = mouseScreenPosRef.current;
+      const radius = 16;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(mousePt.x, mousePt.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
+      ctx.fill();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+
+      // Precision center dot
+      ctx.beginPath();
+      ctx.arc(mousePt.x, mousePt.y, 2, 0, Math.PI * 2);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fill();
+      ctx.restore();
+    }
+
     ctx.restore(); // Restore DPR
   }, [
     pan,
@@ -229,6 +401,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     reactions,
     users,
     currentUser.id,
+    activeTool,
   ]);
 
   // High DPI resize handler
@@ -268,6 +441,24 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
       if (e.code === 'Space' && !e.repeat) {
         isSpacePressedRef.current = true;
+      }
+
+      // Shortcut X or Q: Instant ping at current mouse pointer location
+      if (
+        (e.key.toLowerCase() === 'x' || e.key.toLowerCase() === 'q') &&
+        onPing
+      ) {
+        e.preventDefault();
+        const targetPt =
+          lastCanvasPtRef.current.x !== 0 || lastCanvasPtRef.current.y !== 0
+            ? lastCanvasPtRef.current
+            : screenToCanvas(
+                { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+                pan,
+                zoom
+              );
+        onPing(targetPt);
+        return;
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -369,6 +560,93 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
   };
 
+  // Save inline text / sticky editing
+  const handleSaveInlineText = () => {
+    if (!editingElementId) return;
+    const trimmed = editingText.trim();
+
+    if (pendingNewTextRef.current && pendingNewTextRef.current.id === editingElementId) {
+      const draft = pendingNewTextRef.current;
+      pendingNewTextRef.current = null;
+
+      if (!trimmed) {
+        // Did not enter any text; cleanly discard without creating element or polluting undo stack
+        setEditingElementId(null);
+        setEditingText('');
+        return;
+      }
+
+      // Calculate initial element box size to fit typed text cleanly
+      const fontSize = draft.fontSize || 20;
+      const lines = trimmed.split('\n');
+      const maxLineChars = Math.max(...lines.map((l) => l.length), 4);
+      const estW = Math.max(60, maxLineChars * fontSize * 0.58 + 16);
+      const estH = Math.max(fontSize * 1.4, lines.length * fontSize * 1.35 + 8);
+
+      const created: CanvasElement = {
+        ...draft,
+        text: editingText,
+        width: estW,
+        height: estH,
+        updatedAt: Date.now(),
+      };
+
+      onCreateElement(created);
+      onSelectElement(created.id);
+      if (onSelectTool) {
+        onSelectTool('select');
+      }
+    } else {
+      // Editing existing element (text or sticky note)
+      const targetEl = elements.find((el) => el.id === editingElementId);
+      if (targetEl) {
+        if (targetEl.type === 'text' && !trimmed) {
+          onDeleteElements([editingElementId]);
+          onSelectElement(null);
+        } else {
+          onUpdateElement(editingElementId, {
+            text: editingText,
+            updatedAt: Date.now(),
+          });
+          onSelectElement(editingElementId);
+          if (onSelectTool) {
+            onSelectTool('select');
+          }
+        }
+      }
+    }
+
+    setEditingElementId(null);
+    setEditingText('');
+  };
+
+  // Cancel inline text / sticky editing
+  const handleCancelInlineText = () => {
+    if (pendingNewTextRef.current) {
+      // Cleanly discard draft text without creating or modifying anything
+      pendingNewTextRef.current = null;
+    }
+    setEditingElementId(null);
+    setEditingText('');
+  };
+
+  // Calculate inline editor position in screen coordinates
+  const getEditingElementScreenRect = () => {
+    if (!editingElementId) return null;
+    const el =
+      pendingNewTextRef.current && pendingNewTextRef.current.id === editingElementId
+        ? pendingNewTextRef.current
+        : elements.find((e) => e.id === editingElementId);
+    if (!el) return null;
+
+    const screenX = el.x * zoom + pan.x;
+    const screenY = el.y * zoom + pan.y;
+    const screenW = (el.width || 180) * zoom;
+    const screenH = (el.height || 140) * zoom;
+
+    return { screenX, screenY, screenW, screenH, el };
+  };
+
   // Pointer Down
   const handlePointerDown = (e: React.PointerEvent) => {
     const container = containerRef.current;
@@ -389,18 +667,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     // If an inline text/sticky editor is currently open and the user clicks on the canvas outside it,
     // commit or clean up the current text edit first and return so we don't spawn a second text box.
     if (editingElementId) {
-      const trimmed = editingText.trim();
-      const targetEl = elements.find((el) => el.id === editingElementId);
-      if (targetEl) {
-        if (targetEl.type === 'text' && !trimmed) {
-          onDeleteElements([editingElementId]);
-          onSelectElement(null);
-        } else {
-          onUpdateElement(editingElementId, { text: editingText });
-        }
-      }
-      setEditingElementId(null);
-      setEditingText('');
+      handleSaveInlineText();
       return;
     }
 
@@ -410,6 +677,12 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     if (activeTool === 'laser') {
       setLaserPoints([{ x: canvasPt.x, y: canvasPt.y, time: Date.now() }]);
       if (onLaserMove) onLaserMove(canvasPt);
+      return;
+    }
+
+    // Handle Ping Tool click on canvas (allowed for viewers too)
+    if (activeTool === 'ping') {
+      if (onPing) onPing(canvasPt);
       return;
     }
 
@@ -463,13 +736,21 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Eraser Tool
+    // Handle Object Eraser Tool (deletes whole object)
     if (activeTool === 'eraser') {
       const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
       if (hitElement && !hitElement.isLocked) {
+        if (onSaveHistorySnapshot) onSaveHistorySnapshot();
         onDeleteElements([hitElement.id]);
         if (selectedElementId === hitElement.id) onSelectElement(null);
       }
+      return;
+    }
+
+    // Handle Precision / Point Eraser Tool (slices touched strokes / deletes touched parts)
+    if (activeTool === 'point-eraser') {
+      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+      applyPointEraser(canvasPt);
       return;
     }
 
@@ -500,9 +781,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Text placement
+    // Handle Text placement (draft mode: only committed when non-empty text is saved)
     if (activeTool === 'text') {
-      const newText: CanvasElement = {
+      const draftText: CanvasElement = {
         id: `text-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         type: 'text',
         x: canvasPt.x,
@@ -516,10 +797,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         createdBy: currentUser.name,
         updatedAt: Date.now(),
       };
-      onCreateElement(newText);
-      onSelectElement(newText.id);
+      pendingNewTextRef.current = draftText;
       isPointerDownRef.current = false;
-      setEditingElementId(newText.id);
+      setEditingElementId(draftText.id);
       setEditingText('');
       return;
     }
@@ -576,22 +856,28 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     if (!container) return;
     const rect = container.getBoundingClientRect();
     const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    const canvasPt = screenToCanvas(screenPt, pan, zoom);
 
-    // Throttle cursor emit
-    const now = Date.now();
-    if (now - lastCursorEmitRef.current > 35) {
-      lastCursorEmitRef.current = now;
-      onCursorMove(canvasPt, isPointerDownRef.current, activeTool);
-    }
-
-    // Handle Panning
+    // Handle Panning first so panning the canvas does not move or emit cursor positions
     if (isPanningRef.current) {
       setPan({
         x: e.clientX - panStartRef.current.x,
         y: e.clientY - panStartRef.current.y,
       });
       return;
+    }
+
+    const canvasPt = screenToCanvas(screenPt, pan, zoom);
+    const cursorPt = { x: screenPt.x / zoom, y: screenPt.y / zoom };
+
+    // Track pointer position for visible eraser contact circle & ping shortcut
+    mouseScreenPosRef.current = screenPt;
+    lastCanvasPtRef.current = canvasPt;
+
+    // Throttle cursor emit (independent of canvas pan offset)
+    const now = Date.now();
+    if (now - lastCursorEmitRef.current > 35) {
+      lastCursorEmitRef.current = now;
+      onCursorMove(cursorPt, isPointerDownRef.current, activeTool);
     }
 
     // Handle Active Transform Handle (Rotation or Resize)
@@ -666,11 +952,22 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           points: scaledPoints,
         });
       } else if (initEl.type === 'text') {
-        const scale = Math.max(0.5, newH / Math.max(1, initBounds.height));
-        const nextFontSize = Math.min(96, Math.max(10, Math.round((initEl.fontSize || 20) * scale)));
+        const scaleX = newW / Math.max(1, initBounds.width);
+        const scaleY = newH / Math.max(1, initBounds.height);
+        let scale = 1;
+        if (handle === 'e' || handle === 'w') {
+          scale = scaleX;
+        } else if (handle === 'n' || handle === 's') {
+          scale = scaleY;
+        } else {
+          scale = Math.abs(dx) > Math.abs(dy) ? scaleX : scaleY;
+        }
+        const nextFontSize = Math.min(128, Math.max(10, Math.round((initEl.fontSize || 20) * scale)));
         onUpdateElement(selectedElementId, {
           x: newMinX,
           y: newMinY,
+          width: newW,
+          height: newH,
           fontSize: nextFontSize,
         });
       } else {
@@ -725,12 +1022,19 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       setHoveredHandle(hitBody ? 'body' : null);
     }
 
-    // Handle Eraser drag
+    // Handle Object Eraser drag
     if (isPointerDownRef.current && activeTool === 'eraser') {
       const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
       if (hitElement && !hitElement.isLocked) {
         onDeleteElements([hitElement.id]);
+        if (selectedElementId === hitElement.id) onSelectElement(null);
       }
+      return;
+    }
+
+    // Handle Precision / Point Eraser drag
+    if (isPointerDownRef.current && activeTool === 'point-eraser') {
+      applyPointEraser(canvasPt);
       return;
     }
 
@@ -749,10 +1053,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       const curr = currentDrawingElementRef.current;
 
       if (curr.type === 'pencil' || curr.type === 'highlighter') {
-        const pts = [...(curr.points || []), canvasPt];
-        const updated = { ...curr, points: pts };
-        currentDrawingElementRef.current = updated;
-        setCurrentDrawingElement(updated);
+        const lastPt = curr.points && curr.points.length > 0 ? curr.points[curr.points.length - 1] : null;
+        if (!lastPt || Math.hypot(canvasPt.x - lastPt.x, canvasPt.y - lastPt.y) >= 2.0) {
+          const pts = [...(curr.points || []), canvasPt];
+          const updated = { ...curr, points: pts };
+          currentDrawingElementRef.current = updated;
+          setCurrentDrawingElement(updated);
+        }
       } else {
         let w = canvasPt.x - curr.x;
         let h = canvasPt.y - curr.y;
@@ -778,7 +1085,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     setIsRotatingActive(false);
 
     if (currentDrawingElementRef.current) {
-      const finished = currentDrawingElementRef.current;
+      let finished = currentDrawingElementRef.current;
       currentDrawingElementRef.current = null;
       setCurrentDrawingElement(null);
 
@@ -807,6 +1114,17 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         Math.abs(finished.width || 0) > 4 ||
         Math.abs(finished.height || 0) > 4
       ) {
+        // Vector smoothing with Chaikin algorithm
+        if (
+          (finished.type === 'pencil' || finished.type === 'highlighter') &&
+          finished.points &&
+          finished.points.length > 2
+        ) {
+          finished = {
+            ...finished,
+            points: smoothPoints(finished.points),
+          };
+        }
         onCreateElement(finished);
         onSelectElement(finished.id);
       }
@@ -826,51 +1144,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       setEditingElementId(hit.id);
       setEditingText(hit.text || '');
     }
-  };
-
-  // Save inline text / sticky editing
-  const handleSaveInlineText = () => {
-    if (!editingElementId) return;
-    const trimmed = editingText.trim();
-    const targetEl = elements.find((el) => el.id === editingElementId);
-    if (targetEl && targetEl.type === 'text' && !trimmed) {
-      onDeleteElements([editingElementId]);
-      onSelectElement(null);
-    } else {
-      onUpdateElement(editingElementId, {
-        text: editingText,
-        updatedAt: Date.now(),
-      });
-    }
-    setEditingElementId(null);
-    setEditingText('');
-  };
-
-  // Cancel inline text / sticky editing
-  const handleCancelInlineText = () => {
-    if (editingElementId) {
-      const targetEl = elements.find((el) => el.id === editingElementId);
-      if (targetEl && !targetEl.text?.trim()) {
-        onDeleteElements([editingElementId]);
-        onSelectElement(null);
-      }
-    }
-    setEditingElementId(null);
-    setEditingText('');
-  };
-
-  // Calculate inline editor position in screen coordinates
-  const getEditingElementScreenRect = () => {
-    if (!editingElementId) return null;
-    const el = elements.find((e) => e.id === editingElementId);
-    if (!el) return null;
-
-    const screenX = el.x * zoom + pan.x;
-    const screenY = el.y * zoom + pan.y;
-    const screenW = (el.width || 180) * zoom;
-    const screenH = (el.height || 140) * zoom;
-
-    return { screenX, screenY, screenW, screenH, el };
   };
 
   const editingInfo = getEditingElementScreenRect();
@@ -934,10 +1207,28 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
   };
 
-  const getCursorClass = () => {
+  const getCursorStyle = (): React.CSSProperties['cursor'] => {
     if (activeTool === 'pan' || isSpacePressedRef.current || isPanningRef.current) {
-      return 'cursor-grab active:cursor-grabbing';
+      return isPanningRef.current ? GRABBING_CURSOR : GRAB_CURSOR;
     }
+    if (activeTool === 'select') {
+      if (isRotatingActive || hoveredHandle === 'rot') return 'grabbing';
+      if (hoveredHandle === 'nw' || hoveredHandle === 'se') return 'nwse-resize';
+      if (hoveredHandle === 'ne' || hoveredHandle === 'sw') return 'nesw-resize';
+      if (hoveredHandle === 'n' || hoveredHandle === 's') return 'ns-resize';
+      if (hoveredHandle === 'e' || hoveredHandle === 'w') return 'ew-resize';
+      if (hoveredHandle === 'body') return 'move';
+      return 'default';
+    }
+    if (activeTool === 'pencil') return PENCIL_CURSOR;
+    if (activeTool === 'highlighter') return HIGHLIGHTER_CURSOR;
+    if (activeTool === 'eraser') return ERASER_CURSOR;
+    if (activeTool === 'point-eraser') return POINT_ERASER_CURSOR;
+    if (activeTool === 'ping') return PING_CURSOR;
+    return 'crosshair';
+  };
+
+  const getCursorClass = () => {
     if (activeTool === 'select') {
       if (isRotatingActive || hoveredHandle === 'rot') return 'cursor-grab active:cursor-grabbing';
       if (hoveredHandle === 'nw' || hoveredHandle === 'se') return 'cursor-nwse-resize';
@@ -947,7 +1238,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       if (hoveredHandle === 'body') return 'cursor-move';
       return 'cursor-default';
     }
-    return 'cursor-crosshair';
+    return '';
   };
 
   return (
@@ -957,9 +1248,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerLeave={() => {
+        mouseScreenPosRef.current = null;
+      }}
       onDoubleClick={handleDoubleClick}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
+      style={{ cursor: getCursorStyle() }}
       className={`relative w-full h-full overflow-hidden select-none touch-none ${
         gridStyle === 'dots' ? 'canvas-dots' : gridStyle === 'grid' ? 'canvas-grid' : 'bg-slate-50'
       } ${getCursorClass()}`}
@@ -988,9 +1283,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             onChange={(e) => {
               const val = e.target.value;
               setEditingText(val);
-              if (editingElementId) {
-                onUpdateElement(editingElementId, { text: val });
-              }
             }}
             onKeyDown={(e) => {
               e.stopPropagation();

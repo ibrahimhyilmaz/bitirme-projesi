@@ -202,6 +202,43 @@ export function hitTestTransformHandle(
   return null;
 }
 
+/**
+ * Smooths and vectorizes freehand point arrays using distance filtering
+ * and Chaikin corner-cutting algorithm for silky-smooth vector curves.
+ */
+export function smoothPoints(points: Point[]): Point[] {
+  if (!points || points.length <= 2) return points;
+
+  // 1. Distance filtering: remove points that are too close (< 2.5px) to eliminate hand jitter
+  const filtered: Point[] = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const prev = filtered[filtered.length - 1];
+    const curr = points[i];
+    if (Math.hypot(curr.x - prev.x, curr.y - prev.y) >= 2.5 || i === points.length - 1) {
+      filtered.push(curr);
+    }
+  }
+
+  if (filtered.length <= 2) return filtered;
+
+  // 2. Chaikin corner-cutting smoothing pass
+  const smoothed: Point[] = [filtered[0]];
+  for (let i = 0; i < filtered.length - 1; i++) {
+    const p0 = filtered[i];
+    const p1 = filtered[i + 1];
+    smoothed.push({
+      x: 0.75 * p0.x + 0.25 * p1.x,
+      y: 0.75 * p0.y + 0.25 * p1.y,
+    });
+    smoothed.push({
+      x: 0.25 * p0.x + 0.75 * p1.x,
+      y: 0.25 * p0.y + 0.75 * p1.y,
+    });
+  }
+  smoothed.push(filtered[filtered.length - 1]);
+  return smoothed;
+}
+
 // Draw a single element onto the 2D context
 export function drawElement(
   ctx: CanvasRenderingContext2D,
@@ -250,32 +287,41 @@ export function drawElement(
   switch (element.type) {
     case 'pencil':
     case 'highlighter': {
-      if (!element.points || element.points.length < 2) {
-        if (element.points && element.points.length === 1) {
-          ctx.beginPath();
-          ctx.arc(element.points[0].x, element.points[0].y, strokeWidth / 2, 0, Math.PI * 2);
-          ctx.fillStyle = color;
-          ctx.fill();
-        }
+      if (!element.points || element.points.length === 0) break;
+      if (element.points.length === 1) {
+        ctx.beginPath();
+        ctx.arc(element.points[0].x, element.points[0].y, (strokeWidth || 3) / 2, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
         break;
       }
 
       if (element.type === 'highlighter') {
         ctx.globalAlpha = (element.opacity ?? 1) * 0.35;
         ctx.lineWidth = (strokeWidth || 4) * 3;
-        ctx.lineCap = 'square';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+      } else {
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
       }
 
-      ctx.beginPath();
       const pts = element.points;
+      ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
 
-      for (let i = 1; i < pts.length - 1; i++) {
-        const xc = (pts[i].x + pts[i + 1].x) / 2;
-        const yc = (pts[i].y + pts[i + 1].y) / 2;
-        ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+      if (pts.length === 2) {
+        ctx.lineTo(pts[1].x, pts[1].y);
+      } else {
+        // High-precision vector smooth curve
+        let i = 1;
+        for (i = 1; i < pts.length - 1; i++) {
+          const xc = (pts[i].x + pts[i + 1].x) / 2;
+          const yc = (pts[i].y + pts[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+        }
+        ctx.quadraticCurveTo(pts[i - 1].x, pts[i - 1].y, pts[pts.length - 1].x, pts[pts.length - 1].y);
       }
-      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
       ctx.stroke();
       break;
     }
@@ -724,18 +770,21 @@ function distToSegment(p: Point, v: Point, w: Point): number {
   return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
 }
 
-// Draw live user cursors on canvas
+// Draw live user cursors on canvas (independent of local canvas pan offset)
 export function drawRemoteCursors(
   ctx: CanvasRenderingContext2D,
   users: UserPresence[],
   currentUserId: string,
-  pan: Point,
+  _pan: Point,
   zoom: number
 ) {
   for (const user of users) {
     if (user.id === currentUserId || !user.cursor) continue;
 
-    const screenPos = canvasToScreen(user.cursor, pan, zoom);
+    const screenPos = {
+      x: user.cursor.x * zoom,
+      y: user.cursor.y * zoom,
+    };
 
     ctx.save();
     ctx.translate(screenPos.x, screenPos.y);
@@ -924,3 +973,215 @@ export function exportCanvasAsDataUrl(
 
   return canvas.toDataURL(format, 0.95);
 }
+
+/**
+ * Samples perimeter / stroke of a geometric element into an array of points in world coordinates,
+ * taking into account width, height, stroke width, rotation, and mirror flips.
+ */
+export function sampleShapeToWorldPoints(el: CanvasElement): { points: Point[]; isClosed: boolean } | null {
+  if (el.points && el.points.length > 0) {
+    return { points: el.points, isClosed: false };
+  }
+
+  const w = el.width || 0;
+  const h = el.height || 0;
+  const rawPts: Point[] = [];
+  let isClosed = false;
+
+  const sampleLine = (p1: Point, p2: Point, step = 3) => {
+    const len = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const count = Math.max(1, Math.ceil(len / step));
+    for (let i = 0; i < count; i++) {
+      const t = i / count;
+      rawPts.push({
+        x: p1.x + t * (p2.x - p1.x),
+        y: p1.y + t * (p2.y - p1.y),
+      });
+    }
+  };
+
+  switch (el.type) {
+    case 'line': {
+      isClosed = false;
+      const p1 = { x: el.x, y: el.y };
+      const p2 = { x: el.x + w, y: el.y + h };
+      sampleLine(p1, p2, 3);
+      rawPts.push(p2);
+      break;
+    }
+
+    case 'arrow': {
+      isClosed = false;
+      const p1 = { x: el.x, y: el.y };
+      const p2 = { x: el.x + w, y: el.y + h };
+      sampleLine(p1, p2, 3);
+      rawPts.push(p2);
+
+      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      const headLength = Math.max(12, (el.strokeWidth || 3) * 3.5);
+      const wing1 = {
+        x: p2.x - headLength * Math.cos(angle - Math.PI / 7),
+        y: p2.y - headLength * Math.sin(angle - Math.PI / 7),
+      };
+      const wing2 = {
+        x: p2.x - headLength * Math.cos(angle + Math.PI / 7),
+        y: p2.y - headLength * Math.sin(angle + Math.PI / 7),
+      };
+      sampleLine(p2, wing1, 3);
+      sampleLine(wing1, wing2, 3);
+      sampleLine(wing2, p2, 3);
+      break;
+    }
+
+    case 'rectangle': {
+      isClosed = true;
+      const minX = Math.min(el.x, el.x + w);
+      const maxX = Math.max(el.x, el.x + w);
+      const minY = Math.min(el.y, el.y + h);
+      const maxY = Math.max(el.y, el.y + h);
+      const c0 = { x: minX, y: minY };
+      const c1 = { x: maxX, y: minY };
+      const c2 = { x: maxX, y: maxY };
+      const c3 = { x: minX, y: maxY };
+      sampleLine(c0, c1, 3);
+      sampleLine(c1, c2, 3);
+      sampleLine(c2, c3, 3);
+      sampleLine(c3, c0, 3);
+      rawPts.push(c0);
+      break;
+    }
+
+    case 'rounded-rect': {
+      isClosed = true;
+      const minX = Math.min(el.x, el.x + w);
+      const maxX = Math.max(el.x, el.x + w);
+      const minY = Math.min(el.y, el.y + h);
+      const maxY = Math.max(el.y, el.y + h);
+      const rw = maxX - minX;
+      const rh = maxY - minY;
+      const r = Math.min(16, rw / 4, rh / 4);
+
+      // Top edge
+      sampleLine({ x: minX + r, y: minY }, { x: maxX - r, y: minY }, 3);
+      // Top-right arc
+      for (let a = -Math.PI / 2; a <= 0; a += Math.PI / 8) {
+        rawPts.push({ x: maxX - r + r * Math.cos(a), y: minY + r + r * Math.sin(a) });
+      }
+      // Right edge
+      sampleLine({ x: maxX, y: minY + r }, { x: maxX, y: maxY - r }, 3);
+      // Bottom-right arc
+      for (let a = 0; a <= Math.PI / 2; a += Math.PI / 8) {
+        rawPts.push({ x: maxX - r + r * Math.cos(a), y: maxY - r + r * Math.sin(a) });
+      }
+      // Bottom edge
+      sampleLine({ x: maxX - r, y: maxY }, { x: minX + r, y: maxY }, 3);
+      // Bottom-left arc
+      for (let a = Math.PI / 2; a <= Math.PI; a += Math.PI / 8) {
+        rawPts.push({ x: minX + r + r * Math.cos(a), y: maxY - r + r * Math.sin(a) });
+      }
+      // Left edge
+      sampleLine({ x: minX, y: maxY - r }, { x: minX, y: minY + r }, 3);
+      // Top-left arc
+      for (let a = Math.PI; a <= (Math.PI * 3) / 2; a += Math.PI / 8) {
+        rawPts.push({ x: minX + r + r * Math.cos(a), y: minY + r + r * Math.sin(a) });
+      }
+      break;
+    }
+
+    case 'circle': {
+      isClosed = true;
+      const rx = Math.abs(w) / 2;
+      const ry = Math.abs(h) / 2;
+      const elCx = el.x + w / 2;
+      const elCy = el.y + h / 2;
+      const perim = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2);
+      const steps = Math.max(36, Math.min(360, Math.ceil(perim / 3)));
+      for (let i = 0; i <= steps; i++) {
+        const theta = (i / steps) * Math.PI * 2;
+        rawPts.push({
+          x: elCx + rx * Math.cos(theta),
+          y: elCy + ry * Math.sin(theta),
+        });
+      }
+      break;
+    }
+
+    case 'diamond': {
+      isClosed = true;
+      const elCx = el.x + w / 2;
+      const elCy = el.y + h / 2;
+      const v0 = { x: elCx, y: el.y };
+      const v1 = { x: el.x + w, y: elCy };
+      const v2 = { x: elCx, y: el.y + h };
+      const v3 = { x: el.x, y: elCy };
+      sampleLine(v0, v1, 3);
+      sampleLine(v1, v2, 3);
+      sampleLine(v2, v3, 3);
+      sampleLine(v3, v0, 3);
+      rawPts.push(v0);
+      break;
+    }
+
+    case 'triangle': {
+      isClosed = true;
+      const v0 = { x: el.x + w / 2, y: el.y };
+      const v1 = { x: el.x + w, y: el.y + h };
+      const v2 = { x: el.x, y: el.y + h };
+      sampleLine(v0, v1, 3);
+      sampleLine(v1, v2, 3);
+      sampleLine(v2, v0, 3);
+      rawPts.push(v0);
+      break;
+    }
+
+    case 'star': {
+      isClosed = true;
+      const elCx = el.x + w / 2;
+      const elCy = el.y + h / 2;
+      const spikes = 5;
+      const outerRadius = Math.min(Math.abs(w), Math.abs(h)) / 2;
+      const innerRadius = outerRadius * 0.45;
+      let rot = (Math.PI / 2) * 3;
+      const step = Math.PI / spikes;
+      const starVertices: Point[] = [];
+      for (let i = 0; i < spikes; i++) {
+        starVertices.push({
+          x: elCx + Math.cos(rot) * outerRadius,
+          y: elCy + Math.sin(rot) * outerRadius,
+        });
+        rot += step;
+        starVertices.push({
+          x: elCx + Math.cos(rot) * innerRadius,
+          y: elCy + Math.sin(rot) * innerRadius,
+        });
+        rot += step;
+      }
+      for (let i = 0; i < starVertices.length; i++) {
+        const next = starVertices[(i + 1) % starVertices.length];
+        sampleLine(starVertices[i], next, 3);
+      }
+      if (starVertices.length > 0) {
+        rawPts.push(starVertices[0]);
+      }
+      break;
+    }
+
+    default:
+      return null;
+  }
+
+  if (rawPts.length === 0) return null;
+
+  // Transform raw points to world coordinates using rotation and flip
+  const bounds = getElementBounds(el);
+  const worldPts = rawPts.map((pt) => {
+    let p = { ...pt };
+    if (el.flipX) p = { x: 2 * bounds.cx - p.x, y: p.y };
+    if (el.flipY) p = { x: p.x, y: 2 * bounds.cy - p.y };
+    if (el.rotation) p = rotatePointAroundCenter(p, { x: bounds.cx, y: bounds.cy }, el.rotation);
+    return p;
+  });
+
+  return { points: worldPts, isClosed };
+}
+

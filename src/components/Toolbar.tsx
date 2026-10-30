@@ -14,6 +14,7 @@ import {
   StickyNote,
   Type,
   Eraser,
+  Scissors,
   Flame,
   Radio,
   Undo2,
@@ -71,8 +72,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   canEdit = true,
 }) => {
   const [shapesMenuOpen, setShapesMenuOpen] = useState(false);
+  const [eraserMenuOpen, setEraserMenuOpen] = useState(false);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const shapesMenuRef = useRef<HTMLDivElement>(null);
+  const eraserMenuRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -139,6 +142,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const handleOutsideClick = (e: MouseEvent) => {
       if (shapesMenuRef.current && !shapesMenuRef.current.contains(e.target as Node)) {
         setShapesMenuOpen(false);
+      }
+      if (eraserMenuRef.current && !eraserMenuRef.current.contains(e.target as Node)) {
+        setEraserMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleOutsideClick);
@@ -416,18 +422,111 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <Highlighter className="w-4 h-4" />
           </button>
 
-          {/* Eraser */}
-          <button
-            onClick={() => onSelectTool('eraser')}
-            className={`p-2 rounded-lg transition-all ${
-              activeTool === 'eraser'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-            title="Silgi (E)"
-          >
-            <Eraser className="w-4 h-4" />
-          </button>
+          {/* Dual Eraser Dropdown (Object Eraser & Precision Point Eraser) */}
+          <div className="relative" ref={eraserMenuRef}>
+            <div className="flex items-center">
+              <button
+                onClick={() =>
+                  onSelectTool(activeTool === 'point-eraser' ? 'point-eraser' : 'eraser')
+                }
+                className={`p-2 rounded-lg transition-all ${
+                  activeTool === 'eraser' || activeTool === 'point-eraser'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+                title={
+                  activeTool === 'point-eraser'
+                    ? 'Hassas Silgi (Dokunduğu yeri siler / böler - Kısayol: Shift+E)'
+                    : 'Öğe Silgisi (Tek hamlede öğeyi siler - Kısayol: E)'
+                }
+              >
+                {activeTool === 'point-eraser' ? (
+                  <Scissors className="w-4 h-4" />
+                ) : (
+                  <Eraser className="w-4 h-4" />
+                )}
+              </button>
+              <button
+                onClick={() => setEraserMenuOpen(!eraserMenuOpen)}
+                className={`p-1 -ml-1 rounded transition-colors ${
+                  activeTool === 'eraser' || activeTool === 'point-eraser'
+                    ? 'text-blue-200 hover:text-white'
+                    : 'text-slate-400 hover:text-slate-700'
+                }`}
+                title="Silgi Türünü Değiştir (Öğe / Hassas)"
+              >
+                <ChevronDown className="w-3 h-3" />
+              </button>
+            </div>
+
+            {eraserMenuOpen && (
+              <div
+                className={`absolute ${
+                  isVertical
+                    ? openPopoverLeftward
+                      ? 'right-full mr-2 top-0'
+                      : 'left-full ml-2 top-0'
+                    : openPopoverUpward
+                    ? 'bottom-full mb-2 left-0'
+                    : 'top-full mt-2 left-0'
+                } bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 flex flex-col gap-1 z-50 w-60`}
+              >
+                <button
+                  onClick={() => {
+                    onSelectTool('eraser');
+                    setEraserMenuOpen(false);
+                  }}
+                  className={`flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
+                    activeTool === 'eraser'
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="p-1.5 rounded-md bg-rose-50 text-rose-600 mt-0.5">
+                    <Eraser className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800">Öğe Silgisi</span>
+                      <kbd className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">
+                        E
+                      </kbd>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                      Dokunulan şekil veya çizgiyi tek dokunuşta tamamen kaldırır.
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onSelectTool('point-eraser');
+                    setEraserMenuOpen(false);
+                  }}
+                  className={`flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
+                    activeTool === 'point-eraser'
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="p-1.5 rounded-md bg-amber-50 text-amber-600 mt-0.5">
+                    <Scissors className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800">Hassas Silgi</span>
+                      <kbd className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">
+                        Shift+E
+                      </kbd>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                      Yalnızca dokunduğu kısmı siler, serbest çizimleri böler.
+                    </p>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
 
           <div className={dividerClass} />
 
@@ -640,13 +739,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <Flame className="w-4 h-4" />
       </button>
 
-      {/* Live Ping Button */}
+      {/* Live Ping Tool Button */}
       <button
-        onClick={onPingClick}
-        className="p-2 rounded-lg text-slate-700 hover:bg-blue-50 hover:text-blue-600 transition-all"
-        title="Ekibe Konumu İşaret Et (Ping)"
+        onClick={() => onSelectTool('ping')}
+        className={`p-2 rounded-lg transition-all ${
+          activeTool === 'ping'
+            ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-500/30'
+            : 'text-slate-700 hover:bg-emerald-50 hover:text-emerald-600'
+        }`}
+        title="Konum İşareti / Ping (Tıkla ve haritada yeri seç - Kısayol: X veya Q)"
       >
-        <Radio className="w-4 h-4 text-blue-600" />
+        <Radio className="w-4 h-4" />
       </button>
 
       {canEdit && (
