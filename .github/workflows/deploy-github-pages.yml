@@ -26,11 +26,14 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install dependencies
-        run: npm install --no-package-lock
+      - name: Install dependencies with Bun
+        uses: oven-sh/setup-bun@v1
 
-      - name: Build static bundle for GitHub Pages
-        run: npm run build
+      - name: Install packages
+        run: bun install
+        
+      - name: Build project
+        run: bun run build
 
       - name: Copy index.html to 404.html for SPA routing
         run: cp dist/index.html dist/404.html
