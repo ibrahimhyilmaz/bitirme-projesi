@@ -28,7 +28,7 @@ import {
 // Custom SVG Cursors for Pencil, Highlighter, Erasers, and Ping (matching button icons & sizing)
 const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/><path d='m15 5 4 4'/></g><g stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z' fill='%23ffffff'/><path d='m15 5 4 4'/></g></svg>") 2 18, crosshair`;
 
-const HIGHLIGHTER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h3l6-6'/><path d='m22 12-4.6 4.6a2.78 2.78 0 0 1-3.9 0L2.4 5.5a2.78 2.78 0 0 1 0-3.9l1.1-1.1a2.78 2.78 0 0 1 3.9 0l11.1 11.1a2.78 2.78 0 0 1 0 3.9'/></g><g stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h3l6-6' fill='%23fef08a'/><path d='m22 12-4.6 4.6a2.78 2.78 0 0 1-3.9 0L2.4 5.5a2.78 2.78 0 0 1 0-3.9l1.1-1.1a2.78 2.78 0 0 1 3.9 0l11.1 11.1a2.78 2.78 0 0 1 0 3.9' fill='%23ffffff'/></g></svg>") 3 17, crosshair`;
+const HIGHLIGHTER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h9l3-3'/><path d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/></g><g stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h9l3-3' fill='%23fef08a'/><path d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4' fill='%23ffffff'/></g></svg>") 3 17, crosshair`;
 
 const ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g><g stroke='%23e11d48' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21' fill='%23ffffff'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g></svg>") 6 18, auto`;
 
@@ -1127,6 +1127,34 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
         onCreateElement(finished);
         onSelectElement(finished.id);
+        if (
+          finished.type !== 'pencil' &&
+          finished.type !== 'highlighter' &&
+          onSelectTool
+        ) {
+          onSelectTool('select');
+        }
+      } else {
+        // User single-clicked to place shape: provide default standard dimensions centered on click point
+        if (finished.type === 'arrow' || finished.type === 'line') {
+          finished.width = 130;
+          finished.height = 0;
+        } else if (finished.type === 'circle' || finished.type === 'star') {
+          finished.x -= 55;
+          finished.y -= 55;
+          finished.width = 110;
+          finished.height = 110;
+        } else {
+          finished.x -= 75;
+          finished.y -= 50;
+          finished.width = 150;
+          finished.height = 100;
+        }
+        onCreateElement(finished);
+        onSelectElement(finished.id);
+        if (onSelectTool) {
+          onSelectTool('select');
+        }
       }
     }
   };
@@ -1201,6 +1229,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           };
           onCreateElement(newImageEl);
           onSelectElement(newImageEl.id);
+          if (onSelectTool) {
+            onSelectTool('select');
+          }
         };
       };
       reader.readAsDataURL(file);

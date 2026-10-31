@@ -434,8 +434,12 @@ export default function App() {
         case 'e':
           if (e.shiftKey) {
             setActiveTool('point-eraser');
+            try {
+              localStorage.setItem('collab_last_eraser', 'point-eraser');
+            } catch {}
           } else {
-            setActiveTool('eraser');
+            const savedEraser = (localStorage.getItem('collab_last_eraser') as ToolType) || 'eraser';
+            setActiveTool(savedEraser === 'point-eraser' ? 'point-eraser' : 'eraser');
           }
           setSelectedElementId(null);
           break;
@@ -819,6 +823,10 @@ export default function App() {
           onElementsGenerated={(aiElements) => {
             recordUndo();
             loadTemplate(aiElements);
+            if (aiElements.length > 0) {
+              setSelectedElementId(aiElements[0].id);
+              setActiveTool('select');
+            }
           }}
           onClose={() => setIsAIPromptOpen(false)}
         />

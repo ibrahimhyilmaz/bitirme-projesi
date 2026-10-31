@@ -553,17 +553,18 @@ export function drawElement(
         const img = getCachedImage(element.imageUrl, onImageLoadNeedRedraw);
         if (img) {
           ctx.drawImage(img, element.x, element.y, w, h);
-          ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([]);
-          ctx.strokeRect(element.x, element.y, w, h);
+          // Only stroke if explicitly configured by the user (strokeWidth > 0 and color is set and not transparent)
+          if (element.strokeWidth && element.strokeWidth > 0 && element.color && element.color !== 'transparent') {
+            ctx.strokeStyle = element.color;
+            ctx.lineWidth = element.strokeWidth;
+            ctx.strokeRect(element.x, element.y, w, h);
+          }
         } else {
-          ctx.fillStyle = '#f1f5f9';
-          ctx.fillRect(element.x, element.y, w, h);
-          ctx.strokeStyle = '#cbd5e1';
-          ctx.setLineDash([]);
-          ctx.strokeRect(element.x, element.y, w, h);
-          ctx.fillStyle = '#64748b';
+          ctx.fillStyle = '#f8fafc';
+          ctx.beginPath();
+          ctx.roundRect(element.x, element.y, w, h, 8);
+          ctx.fill();
+          ctx.fillStyle = '#94a3b8';
           ctx.font = '12px "Plus Jakarta Sans", sans-serif';
           ctx.fillText('Görsel yükleniyor...', element.x + 12, element.y + 24);
         }

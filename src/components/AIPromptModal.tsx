@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Sparkles, Wand2, X, Loader2, ArrowRight } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Sparkles, Wand2, X, Loader2, ArrowRight, Shapes, Image as ImageIcon } from 'lucide-react';
 import { CanvasElement } from '../types';
 
 interface AIPromptModalProps {
@@ -10,36 +10,74 @@ interface AIPromptModalProps {
   onClose: () => void;
 }
 
-const QUICK_PROMPTS = [
+type GenerationMode = 'vector' | 'image';
+
+interface QuickPrompt {
+  label: string;
+  prompt: string;
+  mode: GenerationMode;
+}
+
+const QUICK_PROMPTS: QuickPrompt[] = [
   {
-    label: 'Mikroservis Mimarisi',
-    prompt:
-      'API Gateway, Auth Servisi, Sipariş Servisi, Ödeme Servisi ve Veritabanı kutularından oluşan renkli ve oklu bir mikroservis mimari diyagramı çiz.',
+    label: '🍎 Elma Çiz',
+    prompt: 'Kırmızı gövdesi, kahverengi sapı ve yeşil yaprağı olan parlak bir elma çiz.',
+    mode: 'vector',
   },
   {
-    label: 'Kullanıcı Giriş Akış Şeması',
-    prompt:
-      'Kullanıcı giriş ekranı, E-posta/Şifre kontrolü karar kutusu (diamond), Başarılı ise Ana Sayfa, Hatalı ise Şifre Sıfırlama adımlarını içeren akış şeması çiz.',
+    label: '🚗 Otomobil / Araba',
+    prompt: 'Tavanı, pencereleri, tekerlekleri ve farları olan modern mavi bir otomobil çiz.',
+    mode: 'vector',
   },
   {
-    label: 'Güneş Sistemi & Gezegenler',
-    prompt:
-      'Merkezde büyük sarı bir Güneş (daire ve yıldız), etrafında farklı boyut ve renklerde Dünya, Mars, Jüpiter ve Satürn gezegenleri ile yörünge okları çiz.',
+    label: '🐱 Şirin Kedi',
+    prompt: 'Kulakları, bıyıkları, yeşil gözleri ve burnu olan tatlı bir kedi yüzü çiz.',
+    mode: 'vector',
   },
   {
-    label: 'Ev ve Bahçe İllüstrasyonu',
-    prompt:
-      'Üçgen kırmızı çatılı, pencereli ve kapılı şirin bir ev, yanında yeşil ağaçlar ve üstte parlayan bir güneş çiz.',
+    label: '🌳 Elma Ağacı',
+    prompt: 'Kahverengi gövdesi, yeşil yaprak kümeleri ve üzerinde elmaları olan meyve ağacı çiz.',
+    mode: 'vector',
   },
   {
-    label: 'Proje Yol Haritası (Roadmap)',
-    prompt:
-      'Q1 Araştırma, Q2 Prototip, Q3 Beta Testi ve Q4 Lansman aşamalarını gösteren yatay akış diyagramı ve altlarında yapışkan notlar oluştur.',
+    label: '🚀 Uzay Roketi',
+    prompt: 'Gövdesi, penceresi, kanatçıkları ve altından alev fışkıran bir uzay roketi çiz.',
+    mode: 'vector',
   },
   {
-    label: 'Mobil Uygulama Wireframe',
-    prompt:
-      'Üst bar, profil kartı, 3 adet özellik kutusu ve alt navigasyon çubuğundan oluşan bir mobil uygulama ekran taslağı (wireframe) çiz.',
+    label: '🏠 Bahçeli Şirin Ev',
+    prompt: 'Kırmızı çatılı, bacalı, pencereli ve kapılı şirin bir ev ve güneş çiz.',
+    mode: 'vector',
+  },
+  {
+    label: '💻 Laptop & Kod',
+    prompt: 'Ekranında kod yazan modern bir laptop bilgisayar çiz.',
+    mode: 'vector',
+  },
+  {
+    label: '⚙️ Mikroservis Mimarisi',
+    prompt: 'API Gateway, Auth Servisi, Sipariş Servisi, Ödeme Servisi ve Veritabanı oklu mimari şeması çiz.',
+    mode: 'vector',
+  },
+  {
+    label: '🔄 Giriş Akış Şeması',
+    prompt: 'Kullanıcı giriş ekranı, şifre kontrolü karar kutusu (diamond) ve ana sayfa adımlarını içeren akış şeması çiz.',
+    mode: 'vector',
+  },
+  {
+    label: '🖼️ Spor Araba Görseli',
+    prompt: 'Kırmızı spor araba illüstrasyonu',
+    mode: 'image',
+  },
+  {
+    label: '🍎 Elma Resmi',
+    prompt: 'Taze kırmızı sulu elma çıkartması',
+    mode: 'image',
+  },
+  {
+    label: '🌸 Çiçek Bahçesi',
+    prompt: 'Renkli çiçek demeti illüstrasyonu',
+    mode: 'image',
   },
 ];
 
@@ -50,50 +88,138 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
   onElementsGenerated,
   onClose,
 }) => {
+  const [mode, setMode] = useState<GenerationMode>('vector');
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const handleGenerate = async (customPrompt?: string) => {
+  const handleClose = () => {
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch {}
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+    onClose();
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleGenerate = async (customPrompt?: string, customMode?: GenerationMode) => {
     const targetPrompt = (customPrompt ?? prompt).trim();
-    if (!targetPrompt || isLoading) return;
+    if (!targetPrompt) return;
 
+    const activeMode = customMode ?? mode;
+
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch {}
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsLoading(true);
     setError(null);
 
+    const clientTimeout = setTimeout(() => {
+      try {
+        controller.abort();
+      } catch {}
+    }, 16000);
+
     try {
-      const response = await fetch('/api/ai/generate-canvas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: targetPrompt,
-          centerX,
-          centerY,
-          author: authorName,
-        }),
-      });
+      if (activeMode === 'image') {
+        // AI Image / Visual Sticker Generation
+        const response = await fetch('/api/ai/generate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            prompt: targetPrompt,
+            centerX,
+            centerY,
+            author: authorName,
+          }),
+        });
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Yapay zeka şekil üretirken bir hata oluştu.');
-      }
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Görsel üretilirken bir hata oluştu.');
+        }
 
-      if (Array.isArray(data.elements) && data.elements.length > 0) {
-        onElementsGenerated(data.elements);
-        onClose();
+        if (data.element) {
+          onElementsGenerated([data.element]);
+          onClose();
+        } else {
+          setError('İstenilen nesne için görsel üretilemedi, lütfen tekrar deneyin.');
+        }
       } else {
-        setError('İstenilen açıklamaya uygun nesne üretilemedi, lütfen daha detaylı yazın.');
+        // AI Vector Canvas Drawing Generation
+        const response = await fetch('/api/ai/generate-canvas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            prompt: targetPrompt,
+            centerX,
+            centerY,
+            author: authorName,
+          }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Yapay zeka çizim üretirken bir hata oluştu.');
+        }
+
+        if (Array.isArray(data.elements) && data.elements.length > 0) {
+          onElementsGenerated(data.elements);
+          onClose();
+        } else {
+          setError('İstenilen açıklamaya uygun nesne üretilemedi, lütfen tekrar deneyin.');
+        }
       }
-    } catch (err) {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Bağlantı hatası oluştu.');
     } finally {
+      clearTimeout(clientTimeout);
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setIsLoading(false);
     }
   };
 
+  const currentModePrompts = QUICK_PROMPTS.filter((p) => p.mode === mode);
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 select-none">
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-xl w-full flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 select-none"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) {
+          handleClose();
+        }
+      }}
+    >
+      <div
+        className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-xl w-full flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="h-14 px-6 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2.5">
@@ -102,30 +228,73 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900">
-                Yapay Zeka ile Tahtada Şekil & Diyagram Oluştur
+                Yapay Zeka ile Çiz & Görsel Ekle
               </h2>
               <p className="text-[11px] text-slate-500">
-                İstediğiniz nesneyi, şemayı veya diyagramı yazın; tahtaya anında çizilsin.
+                İstediğiniz nesneyi yazın (ör. elma, araba, ev); anında tuvale aktarılsın.
               </p>
             </div>
           </div>
 
           <button
-            onClick={onClose}
-            disabled={isLoading}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
-            title="Kapat"
+            type="button"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              handleClose();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleClose();
+            }}
+            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+            title="Kapat (Vazgeç / Esc)"
           >
             <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Mode Selector Tabs */}
+        <div className="px-6 pt-4 pb-1 bg-white border-b border-slate-100 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMode('vector')}
+            disabled={isLoading}
+            className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              mode === 'vector'
+                ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-xs'
+                : 'text-slate-600 hover:bg-slate-50 border border-transparent'
+            }`}
+          >
+            <Shapes className="w-4 h-4 text-blue-600" />
+            <span>🎨 Şekillerle Çiz (Vektörel Çizim)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMode('image')}
+            disabled={isLoading}
+            className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              mode === 'image'
+                ? 'bg-purple-50 text-purple-700 border border-purple-200 shadow-xs'
+                : 'text-slate-600 hover:bg-slate-50 border border-transparent'
+            }`}
+          >
+            <ImageIcon className="w-4 h-4 text-purple-600" />
+            <span>🖼️ Görsel / Resim Ekle (AI İllüstrasyon)</span>
           </button>
         </div>
 
         {/* Body */}
         <div className="p-6 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Ne çizilmesini istiyorsunuz?
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-slate-700">
+                {mode === 'vector' ? 'Ne çizilmesini istiyorsunuz?' : 'Hangi görseli getirmek istiyorsunuz?'}
+              </label>
+              <span className="text-[11px] text-slate-400">
+                {mode === 'vector' ? 'Düzenlenebilir şekillerden oluşur' : 'Yüksek kaliteli çıkartma resmi'}
+              </span>
+            </div>
             <textarea
               autoFocus
               rows={3}
@@ -138,7 +307,11 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                 }
               }}
               disabled={isLoading}
-              placeholder="Örn: Mikroservis mimarisi çiz, kullanıcı giriş akış şeması oluştur, güneş sistemi çiz veya 4 adımlı proje yol haritası ekle..."
+              placeholder={
+                mode === 'vector'
+                  ? 'Örn: elma çiz, araba çiz, kedi çiz, bahçeli ev çiz veya mikroservis mimarisi oluştur...'
+                  : 'Örn: spor araba resmi, parlak kırmızı elma çıkartması, uzay roketi illüstrasyonu...'
+              }
               className="w-full p-3.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600 focus:ring-1 focus:ring-blue-600 resize-none select-text"
             />
           </div>
@@ -147,19 +320,19 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           <div>
             <div className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Hızlı Örnek Komutlar (Tıkla & Üret)</span>
+              <span>Hızlı Örnekler (Tıkla & Çizilsin)</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {QUICK_PROMPTS.map((item, idx) => (
+              {currentModePrompts.map((item, idx) => (
                 <button
                   key={idx}
                   type="button"
                   disabled={isLoading}
                   onClick={() => {
                     setPrompt(item.prompt);
-                    handleGenerate(item.prompt);
+                    handleGenerate(item.prompt, item.mode);
                   }}
-                  className="p-2.5 text-left rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all text-xs font-medium text-slate-700 hover:text-blue-700 disabled:opacity-50"
+                  className="p-2.5 text-left rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all text-xs font-medium text-slate-700 hover:text-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {item.label}
                 </button>
@@ -177,33 +350,50 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
         {/* Footer */}
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
           <span className="text-[11px] text-slate-500">
-            İpucu: <strong className="font-mono">Ctrl + Enter</strong> ile hızlıca üretebilirsiniz
+            {isLoading ? (
+              <span className="text-blue-600 font-medium flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {mode === 'vector' ? 'Şekiller hesaplanıp tuvale aktarılıyor...' : 'Görsel hazırlanıp tuvale aktarılıyor...'}
+              </span>
+            ) : (
+              <>İpucu: <strong className="font-mono">Ctrl + Enter</strong> ile hızlıca üretebilirsiniz</>
+            )}
           </span>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
-              disabled={isLoading}
-              className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-200/60 rounded-xl transition-colors"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                handleClose();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClose();
+              }}
+              className="px-4 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
             >
-              Vazgeç
+              {isLoading ? 'İptal Et' : 'Vazgeç'}
             </button>
             <button
               type="button"
               onClick={() => handleGenerate()}
               disabled={!prompt.trim() || isLoading}
-              className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl shadow-xs transition-all flex items-center gap-2"
+              className={`px-4 py-2 text-xs font-semibold text-white rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed ${
+                mode === 'image'
+                  ? 'bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300'
+                  : 'bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300'
+              }`}
             >
               {isLoading ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Tahtaya Çiziliyor...</span>
+                  <span>Tuvale Ekleniyor...</span>
                 </>
               ) : (
                 <>
                   <Wand2 className="w-3.5 h-3.5" />
-                  <span>Tahtada Oluştur</span>
+                  <span>{mode === 'vector' ? 'Tahtada Çiz' : 'Resmi Getir'}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </>
               )}

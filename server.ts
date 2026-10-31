@@ -1149,7 +1149,362 @@ wss.on('connection', (ws: WebSocket) => {
   });
 });
 
-// Fallback shape/diagram generator if API key is missing or network fails
+// Smart vector SVG illustration builder for visual objects & stickers
+function buildFallbackSvg(prompt: string): string {
+  const lower = prompt.toLowerCase().trim();
+
+  // 1. Apple (Elma)
+  if (lower.includes('elma') || lower.includes('apple')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="appleGrad" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#f87171"/>
+      <stop offset="60%" stop-color="#ef4444"/>
+      <stop offset="100%" stop-color="#991b1b"/>
+    </radialGradient>
+    <radialGradient id="leafGrad" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#86efac"/>
+      <stop offset="100%" stop-color="#15803d"/>
+    </radialGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <ellipse cx="200" cy="350" rx="100" ry="20" fill="#cbd5e1" opacity="0.6"/>
+  <!-- Leaf -->
+  <path d="M 200 110 C 230 60, 290 70, 280 115 C 250 140, 210 120, 200 110 Z" fill="url(#leafGrad)" stroke="#166534" stroke-width="3"/>
+  <path d="M 202 110 Q 240 95 278 115" stroke="#14532d" stroke-width="2" fill="none"/>
+  <!-- Stem -->
+  <path d="M 200 135 C 196 90, 220 60, 230 50" stroke="#78350f" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <!-- Apple Body (Twin heart lobes) -->
+  <path d="M 200 145 C 160 110, 80 125, 80 215 C 80 295, 150 340, 200 340 C 250 340, 320 295, 320 215 C 320 125, 240 110, 200 145 Z" fill="url(#appleGrad)" stroke="#7f1d1d" stroke-width="4" filter="url(#shadow)"/>
+  <!-- Apple Top Indent -->
+  <ellipse cx="200" cy="148" rx="22" ry="8" fill="#7f1d1d" opacity="0.45"/>
+  <!-- Gloss highlight -->
+  <ellipse cx="140" cy="190" rx="25" ry="50" transform="rotate(-25 140 190)" fill="#ffffff" opacity="0.45"/>
+  <ellipse cx="132" cy="170" rx="10" ry="20" transform="rotate(-25 132 170)" fill="#ffffff" opacity="0.75"/>
+</svg>`;
+  }
+
+  // 2. Car (Araba / Otomobil)
+  if (lower.includes('araba') || lower.includes('otomobil') || lower.includes('araç') || lower.includes('car')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="carBody" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="60%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+    <linearGradient id="carGlass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e0f2fe"/>
+      <stop offset="100%" stop-color="#7dd3fc"/>
+    </linearGradient>
+    <radialGradient id="wheelRim" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#94a3b8"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </radialGradient>
+  </defs>
+  <!-- Road shadow -->
+  <ellipse cx="200" cy="305" rx="170" ry="16" fill="#64748b" opacity="0.35"/>
+  <!-- Car Roof & Cabin -->
+  <path d="M 100 200 L 145 135 C 155 125, 170 120, 185 120 L 255 120 C 270 120, 285 125, 295 138 L 335 200 Z" fill="url(#carBody)" stroke="#1e3a8a" stroke-width="4"/>
+  <!-- Windows -->
+  <path d="M 148 190 L 160 140 L 210 140 L 210 190 Z" fill="url(#carGlass)" stroke="#0284c7" stroke-width="3"/>
+  <path d="M 220 190 L 220 140 L 260 140 L 290 190 Z" fill="url(#carGlass)" stroke="#0284c7" stroke-width="3"/>
+  <!-- Main Chassis -->
+  <rect x="40" y="190" width="320" height="70" rx="24" fill="url(#carBody)" stroke="#1e3a8a" stroke-width="4"/>
+  <!-- Headlight (Yellow front) -->
+  <path d="M 345 205 C 360 210, 360 225, 345 230 Z" fill="#facc15" stroke="#ca8a04" stroke-width="3"/>
+  <!-- Tail light (Red rear) -->
+  <path d="M 55 205 C 40 210, 40 225, 55 230 Z" fill="#ef4444" stroke="#b91c1c" stroke-width="3"/>
+  <!-- Side accent line -->
+  <line x1="60" y1="218" x2="330" y2="218" stroke="#60a5fa" stroke-width="3" stroke-linecap="round"/>
+  <!-- Left Wheel (Back) -->
+  <circle cx="115" cy="265" r="38" fill="#0f172a" stroke="#334155" stroke-width="4"/>
+  <circle cx="115" cy="265" r="22" fill="url(#wheelRim)" stroke="#cbd5e1" stroke-width="3"/>
+  <circle cx="115" cy="265" r="8" fill="#0f172a"/>
+  <!-- Right Wheel (Front) -->
+  <circle cx="280" cy="265" r="38" fill="#0f172a" stroke="#334155" stroke-width="4"/>
+  <circle cx="280" cy="265" r="22" fill="url(#wheelRim)" stroke="#cbd5e1" stroke-width="3"/>
+  <circle cx="280" cy="265" r="8" fill="#0f172a"/>
+</svg>`;
+  }
+
+  // 3. Cat (Kedi)
+  if (lower.includes('kedi') || lower.includes('cat')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="catGrad" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#fed7aa"/>
+      <stop offset="80%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#c2410c"/>
+    </radialGradient>
+  </defs>
+  <!-- Ears -->
+  <polygon points="100,180 80,70 180,130" fill="url(#catGrad)" stroke="#9a3412" stroke-width="5"/>
+  <polygon points="105,160 95,95 165,135" fill="#fbcfe8"/>
+  <polygon points="300,180 320,70 220,130" fill="url(#catGrad)" stroke="#9a3412" stroke-width="5"/>
+  <polygon points="295,160 305,95 235,135" fill="#fbcfe8"/>
+  <!-- Head -->
+  <ellipse cx="200" cy="210" rx="125" ry="105" fill="url(#catGrad)" stroke="#9a3412" stroke-width="5"/>
+  <!-- Eyes -->
+  <ellipse cx="150" cy="190" rx="18" ry="24" fill="#10b981" stroke="#047857" stroke-width="3"/>
+  <ellipse cx="150" cy="190" rx="7" ry="18" fill="#064e3b"/>
+  <circle cx="145" cy="182" r="5" fill="#ffffff"/>
+  <ellipse cx="250" cy="190" rx="18" ry="24" fill="#10b981" stroke="#047857" stroke-width="3"/>
+  <ellipse cx="250" cy="190" rx="7" ry="18" fill="#064e3b"/>
+  <circle cx="245" cy="182" r="5" fill="#ffffff"/>
+  <!-- Nose & Mouth -->
+  <polygon points="200,225 188,212 212,212" fill="#f43f5e"/>
+  <path d="M 200 225 Q 185 245 170 238" stroke="#7c2d12" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M 200 225 Q 215 245 230 238" stroke="#7c2d12" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <!-- Whiskers -->
+  <line x1="160" y1="225" x2="80" y2="215" stroke="#7c2d12" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="160" y1="235" x2="75" y2="245" stroke="#7c2d12" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="240" y1="225" x2="320" y2="215" stroke="#7c2d12" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="240" y1="235" x2="325" y2="245" stroke="#7c2d12" stroke-width="3.5" stroke-linecap="round"/>
+</svg>`;
+  }
+
+  // 4. Tree (Ağaç)
+  if (lower.includes('ağaç') || lower.includes('agac') || lower.includes('tree') || lower.includes('orman')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="canopy1" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#86efac"/>
+      <stop offset="60%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#15803d"/>
+    </radialGradient>
+    <linearGradient id="trunkGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#78350f"/>
+      <stop offset="50%" stop-color="#92400e"/>
+      <stop offset="100%" stop-color="#451a03"/>
+    </linearGradient>
+  </defs>
+  <!-- Ground -->
+  <ellipse cx="200" cy="355" rx="140" ry="20" fill="#bbf7d0"/>
+  <!-- Trunk -->
+  <path d="M 175 190 L 170 345 C 160 350, 150 355, 140 355 L 260 355 C 250 355, 240 350, 230 345 L 225 190 Z" fill="url(#trunkGrad)"/>
+  <!-- Canopy Clusters -->
+  <circle cx="140" cy="180" r="65" fill="url(#canopy1)"/>
+  <circle cx="260" cy="180" r="65" fill="url(#canopy1)"/>
+  <circle cx="160" cy="120" r="65" fill="url(#canopy1)"/>
+  <circle cx="240" cy="120" r="65" fill="url(#canopy1)"/>
+  <circle cx="200" cy="150" r="80" fill="url(#canopy1)"/>
+  <!-- Apples on tree -->
+  <circle cx="160" cy="140" r="12" fill="#ef4444" stroke="#991b1b" stroke-width="2"/>
+  <circle cx="230" cy="150" r="12" fill="#ef4444" stroke="#991b1b" stroke-width="2"/>
+  <circle cx="195" cy="100" r="12" fill="#ef4444" stroke="#991b1b" stroke-width="2"/>
+  <circle cx="210" cy="190" r="12" fill="#ef4444" stroke="#991b1b" stroke-width="2"/>
+</svg>`;
+  }
+
+  // 5. Rocket (Roket)
+  if (lower.includes('roket') || lower.includes('rocket') || lower.includes('uzay aracı')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="rocketBody" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="50%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <linearGradient id="fire" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="40%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+  </defs>
+  <!-- Stars in background -->
+  <circle cx="80" cy="80" r="3" fill="#fde047"/>
+  <circle cx="330" cy="95" r="4" fill="#fde047"/>
+  <circle cx="70" cy="220" r="2.5" fill="#fde047"/>
+  <circle cx="340" cy="250" r="3" fill="#fde047"/>
+  <!-- Exhaust Flame -->
+  <polygon points="175,270 200,370 225,270" fill="url(#fire)"/>
+  <polygon points="185,270 200,330 215,270" fill="#fef08a"/>
+  <!-- Fins -->
+  <polygon points="150,230 110,270 160,270" fill="#dc2626" stroke="#991b1b" stroke-width="3"/>
+  <polygon points="250,230 290,270 240,270" fill="#dc2626" stroke="#991b1b" stroke-width="3"/>
+  <!-- Fuselage -->
+  <path d="M 200 45 C 160 90, 150 200, 155 270 L 245 270 C 250 200, 240 90, 200 45 Z" fill="url(#rocketBody)" stroke="#475569" stroke-width="4"/>
+  <!-- Red Nose Cone -->
+  <path d="M 200 45 C 180 70, 170 100, 168 115 L 232 115 C 230 100, 220 70, 200 45 Z" fill="#ef4444"/>
+  <!-- Porthole Window -->
+  <circle cx="200" cy="165" r="26" fill="#38bdf8" stroke="#0284c7" stroke-width="5"/>
+  <circle cx="200" cy="165" r="20" fill="#bae6fd"/>
+  <circle cx="194" cy="158" r="6" fill="#ffffff"/>
+</svg>`;
+  }
+
+  // 6. Dog (Köpek)
+  if (lower.includes('köpek') || lower.includes('kopek') || lower.includes('dog') || lower.includes('puppy')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="dogFur" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#fed7aa"/>
+      <stop offset="80%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </radialGradient>
+  </defs>
+  <!-- Floppy Ears -->
+  <ellipse cx="110" cy="180" rx="40" ry="80" transform="rotate(-15 110 180)" fill="#c2410c" stroke="#9a3412" stroke-width="4"/>
+  <ellipse cx="290" cy="180" rx="40" ry="80" transform="rotate(15 290 180)" fill="#c2410c" stroke="#9a3412" stroke-width="4"/>
+  <!-- Head -->
+  <ellipse cx="200" cy="205" rx="115" ry="105" fill="url(#dogFur)" stroke="#9a3412" stroke-width="4"/>
+  <!-- Eyes -->
+  <ellipse cx="160" cy="185" rx="14" ry="20" fill="#0f172a"/>
+  <circle cx="156" cy="178" r="4.5" fill="#ffffff"/>
+  <ellipse cx="240" cy="185" rx="14" ry="20" fill="#0f172a"/>
+  <circle cx="236" cy="178" r="4.5" fill="#ffffff"/>
+  <!-- Snout Muzzle -->
+  <ellipse cx="200" cy="235" rx="48" ry="36" fill="#ffedd5" stroke="#ea580c" stroke-width="2"/>
+  <!-- Nose -->
+  <ellipse cx="200" cy="222" rx="18" ry="13" fill="#0f172a"/>
+  <circle cx="196" cy="218" r="3.5" fill="#ffffff" opacity="0.8"/>
+  <!-- Mouth & Tongue -->
+  <path d="M 200 234 L 200 250" stroke="#0f172a" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 200 250 Q 185 260 175 252" stroke="#0f172a" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M 200 250 Q 215 260 225 252" stroke="#0f172a" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <ellipse cx="200" cy="264" rx="14" ry="18" fill="#fb7185" stroke="#e11d48" stroke-width="2"/>
+</svg>`;
+  }
+
+  // 7. Bird (Kuş)
+  if (lower.includes('kuş') || lower.includes('kus') || lower.includes('bird')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="birdGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="60%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+  </defs>
+  <!-- Tail -->
+  <polygon points="90,260 50,300 120,270" fill="#0369a1"/>
+  <!-- Body -->
+  <ellipse cx="190" cy="220" rx="95" ry="75" fill="url(#birdGrad)" stroke="#075985" stroke-width="4"/>
+  <!-- Belly -->
+  <path d="M 170 240 Q 220 280 260 240 Q 210 230 170 240 Z" fill="#bae6fd"/>
+  <!-- Wing -->
+  <path d="M 140 210 C 120 230, 150 270, 210 240 C 220 210, 180 190, 140 210 Z" fill="#0284c7" stroke="#075985" stroke-width="3"/>
+  <!-- Head -->
+  <circle cx="270" cy="165" r="48" fill="url(#birdGrad)" stroke="#075985" stroke-width="4"/>
+  <!-- Beak -->
+  <polygon points="310,165 375,178 308,188" fill="#f59e0b" stroke="#d97706" stroke-width="2.5"/>
+  <!-- Eye -->
+  <circle cx="282" cy="155" r="9" fill="#0f172a"/>
+  <circle cx="280" cy="152" r="3" fill="#ffffff"/>
+  <!-- Little Feet -->
+  <line x1="170" y1="290" x2="160" y2="330" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+  <line x1="210" y1="290" x2="205" y2="330" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+</svg>`;
+  }
+
+  // 8. Fish (Balık)
+  if (lower.includes('balık') || lower.includes('balik') || lower.includes('fish')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="fishGrad" x1="0%" y1="0%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="50%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+  </defs>
+  <!-- Bubbles -->
+  <circle cx="340" cy="120" r="10" fill="#38bdf8" opacity="0.6"/>
+  <circle cx="365" cy="85" r="6" fill="#38bdf8" opacity="0.6"/>
+  <!-- Tail Fin -->
+  <polygon points="120,200 40,120 70,200 40,280" fill="#f97316" stroke="#c2410c" stroke-width="3"/>
+  <!-- Dorsal & Ventral Fins -->
+  <polygon points="190,130 230,80 270,130" fill="#fb923c" stroke="#c2410c" stroke-width="2.5"/>
+  <polygon points="190,270 230,310 260,270" fill="#fb923c" stroke="#c2410c" stroke-width="2.5"/>
+  <!-- Fish Body -->
+  <ellipse cx="220" cy="200" rx="110" ry="72" fill="url(#fishGrad)" stroke="#c2410c" stroke-width="4"/>
+  <!-- White Accent Stripe -->
+  <path d="M 215 132 Q 235 200 215 268" stroke="#ffffff" stroke-width="12" fill="none" opacity="0.9"/>
+  <!-- Eye -->
+  <circle cx="285" cy="185" r="12" fill="#ffffff" stroke="#c2410c" stroke-width="2"/>
+  <circle cx="288" cy="185" r="6" fill="#0f172a"/>
+  <!-- Smile -->
+  <path d="M 315 210 Q 300 220 290 215" stroke="#7c2d12" stroke-width="3" fill="none" stroke-linecap="round"/>
+</svg>`;
+  }
+
+  // 9. Coffee / Tea (Kahve / Çay / Fincan)
+  if (lower.includes('kahve') || lower.includes('çay') || lower.includes('cay') || lower.includes('fincan') || lower.includes('coffee') || lower.includes('tea')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="cupGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="50%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e2e8f0"/>
+    </linearGradient>
+  </defs>
+  <!-- Steam curls -->
+  <path d="M 160 140 Q 150 100 170 70" stroke="#94a3b8" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.75"/>
+  <path d="M 200 130 Q 215 90 195 60" stroke="#94a3b8" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.75"/>
+  <path d="M 240 140 Q 230 100 250 70" stroke="#94a3b8" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.75"/>
+  <!-- Saucer Plate -->
+  <ellipse cx="200" cy="315" rx="135" ry="22" fill="#cbd5e1" stroke="#94a3b8" stroke-width="3.5"/>
+  <ellipse cx="200" cy="310" rx="110" ry="16" fill="#f8fafc"/>
+  <!-- Cup Handle -->
+  <path d="M 260 190 C 340 190, 340 260, 255 260" stroke="#e2e8f0" stroke-width="18" fill="none" stroke-linecap="round"/>
+  <path d="M 260 190 C 340 190, 340 260, 255 260" stroke="#94a3b8" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Cup Body -->
+  <path d="M 120 170 L 135 285 C 138 300, 262 300, 265 285 L 280 170 Z" fill="url(#cupGrad)" stroke="#94a3b8" stroke-width="4"/>
+  <!-- Coffee liquid surface -->
+  <ellipse cx="200" cy="170" rx="80" ry="18" fill="#78350f" stroke="#451a03" stroke-width="2"/>
+  <ellipse cx="200" cy="170" rx="60" ry="12" fill="#92400e"/>
+</svg>`;
+  }
+
+  // 10. Pizza (Pizza)
+  if (lower.includes('pizza')) {
+    return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Crust -->
+  <path d="M 80 90 Q 200 50 320 90 L 200 350 Z" fill="#d97706" stroke="#b45309" stroke-width="4"/>
+  <!-- Cheese -->
+  <path d="M 95 105 Q 200 70 305 105 L 200 330 Z" fill="#fde047"/>
+  <!-- Pepperoni Slices -->
+  <circle cx="160" cy="140" r="22" fill="#dc2626" stroke="#991b1b" stroke-width="2"/>
+  <circle cx="240" cy="150" r="22" fill="#dc2626" stroke="#991b1b" stroke-width="2"/>
+  <circle cx="190" cy="210" r="20" fill="#dc2626" stroke="#991b1b" stroke-width="2"/>
+  <circle cx="210" cy="275" r="16" fill="#dc2626" stroke="#991b1b" stroke-width="2"/>
+  <!-- Basil Leaves -->
+  <ellipse cx="140" cy="190" rx="10" ry="6" transform="rotate(-30 140 190)" fill="#15803d"/>
+  <ellipse cx="250" cy="220" rx="10" ry="6" transform="rotate(40 250 220)" fill="#15803d"/>
+</svg>`;
+  }
+
+  // 11. Generic Aesthetic Vector Sticker for any other prompt (NO Card Background, NO Outer Frame, NO Text Banner!)
+  return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="stickerGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+    <radialGradient id="starShine" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="50%" stop-color="#fde047"/>
+      <stop offset="100%" stop-color="#eab308"/>
+    </radialGradient>
+  </defs>
+  <!-- Background Aura (soft, non-rectangular, seamless) -->
+  <circle cx="200" cy="200" r="140" fill="url(#stickerGlow)" opacity="0.18"/>
+  <circle cx="200" cy="200" r="105" fill="url(#stickerGlow)" opacity="0.3"/>
+  <!-- Central Crystal / Multi-Point Geometry -->
+  <polygon points="200,60 235,145 325,150 255,210 280,295 200,245 120,295 145,210 75,150 165,145" fill="url(#starShine)" stroke="#ca8a04" stroke-width="4"/>
+  <!-- Inner Core Diamond -->
+  <polygon points="200,130 240,200 200,270 160,200" fill="#ffffff" opacity="0.9"/>
+  <circle cx="200" cy="200" r="22" fill="url(#stickerGlow)"/>
+  <!-- Little Sparkles -->
+  <polygon points="100,100 105,115 120,120 105,125 100,140 95,125 80,120 95,115" fill="#fde047"/>
+  <polygon points="300,90 304,102 316,106 304,110 300,122 296,110 284,106 296,102" fill="#38bdf8"/>
+</svg>`;
+}
+
+// Smart procedural canvas vector generator covering physical objects, diagrams & flowcharts
 function buildFallbackCanvasElements(
   prompt: string,
   centerX: number,
@@ -1157,18 +1512,1970 @@ function buildFallbackCanvasElements(
   author: string
 ): CanvasElement[] {
   const now = Date.now();
-  const uid = () => `ai-${now}-${Math.random().toString(36).substring(2, 7)}`;
-  const lower = prompt.toLowerCase();
+  let counter = 0;
+  const uid = () => `ai-${now}-${++counter}-${Math.random().toString(36).substring(2, 6)}`;
+  const lower = prompt.toLowerCase().trim();
 
-  if (lower.includes('ev') || lower.includes('house')) {
+  // 1. Apple (Elma) - Real physical vector drawing of an apple with stem, leaf, highlight and label
+  if (lower.includes('elma') || lower.includes('apple')) {
+    return [
+      // Brown Stem
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 6,
+        y: centerY - 95,
+        width: 12,
+        height: 38,
+        color: '#451a03',
+        fillColor: '#78350f',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Green Leaf
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX + 4,
+        y: centerY - 95,
+        width: 42,
+        height: 28,
+        color: '#15803d',
+        fillColor: '#22c55e',
+        strokeWidth: 2.5,
+        rotation: 20,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Left Apple Lobe
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 80,
+        y: centerY - 65,
+        width: 105,
+        height: 125,
+        color: '#991b1b',
+        fillColor: '#ef4444',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right Apple Lobe
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 25,
+        y: centerY - 65,
+        width: 105,
+        height: 125,
+        color: '#991b1b',
+        fillColor: '#ef4444',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // White glossy shine highlight
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 55,
+        y: centerY - 45,
+        width: 25,
+        height: 45,
+        color: '#fecaca',
+        fillColor: '#ffffff',
+        opacity: 0.8,
+        strokeWidth: 1.5,
+        rotation: -25,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 2. Car (Araba / Otomobil) - Real physical vector drawing of a car with chassis, cabin, wheels, headlights
+  if (lower.includes('araba') || lower.includes('otomobil') || lower.includes('araç') || lower.includes('car')) {
+    return [
+      // Cabin / Roof
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 90,
+        y: centerY - 70,
+        width: 180,
+        height: 65,
+        color: '#1d4ed8',
+        fillColor: '#3b82f6',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Rear Window
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 75,
+        y: centerY - 60,
+        width: 65,
+        height: 45,
+        color: '#0284c7',
+        fillColor: '#bae6fd',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Front Windshield
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 5,
+        y: centerY - 60,
+        width: 70,
+        height: 45,
+        color: '#0284c7',
+        fillColor: '#bae6fd',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Main Chassis Body
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 160,
+        y: centerY - 15,
+        width: 320,
+        height: 70,
+        color: '#1e40af',
+        fillColor: '#2563eb',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Front Headlight (Yellow)
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 142,
+        y: centerY + 8,
+        width: 18,
+        height: 18,
+        color: '#ca8a04',
+        fillColor: '#fde047',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Rear Tail Light (Red)
+      {
+        id: uid(),
+        type: 'rectangle',
+        x: centerX - 160,
+        y: centerY + 8,
+        width: 12,
+        height: 22,
+        color: '#991b1b',
+        fillColor: '#ef4444',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Left Wheel Outer
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 110,
+        y: centerY + 28,
+        width: 58,
+        height: 58,
+        color: '#0f172a',
+        fillColor: '#1e293b',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Left Wheel Inner Rim
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 96,
+        y: centerY + 42,
+        width: 30,
+        height: 30,
+        color: '#64748b',
+        fillColor: '#cbd5e1',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right Wheel Outer
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 55,
+        y: centerY + 28,
+        width: 58,
+        height: 58,
+        color: '#0f172a',
+        fillColor: '#1e293b',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right Wheel Inner Rim
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 69,
+        y: centerY + 42,
+        width: 30,
+        height: 30,
+        color: '#64748b',
+        fillColor: '#cbd5e1',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Road ground line
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 190,
+        y: centerY + 88,
+        width: 380,
+        height: 0,
+        color: '#64748b',
+        strokeWidth: 3,
+        strokeStyle: 'dashed',
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 3. Cat (Kedi)
+  if (lower.includes('kedi') || lower.includes('cat')) {
+    return [
+      // Left Ear
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 75,
+        y: centerY - 100,
+        width: 50,
+        height: 50,
+        color: '#c2410c',
+        fillColor: '#fdba74',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right Ear
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX + 25,
+        y: centerY - 100,
+        width: 50,
+        height: 50,
+        color: '#c2410c',
+        fillColor: '#fdba74',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Cat Head
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 85,
+        y: centerY - 65,
+        width: 170,
+        height: 140,
+        color: '#9a3412',
+        fillColor: '#fed7aa',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Left Eye
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 50,
+        y: centerY - 28,
+        width: 24,
+        height: 30,
+        color: '#065f46',
+        fillColor: '#10b981',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right Eye
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 26,
+        y: centerY - 28,
+        width: 24,
+        height: 30,
+        color: '#065f46',
+        fillColor: '#10b981',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Pink Nose
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 12,
+        y: centerY + 12,
+        width: 24,
+        height: 16,
+        color: '#be185d',
+        fillColor: '#f472b6',
+        strokeWidth: 2,
+        rotation: 180,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Whiskers Left
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 25,
+        y: centerY + 18,
+        width: -70,
+        height: -10,
+        color: '#7c2d12',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 25,
+        y: centerY + 26,
+        width: -65,
+        height: 12,
+        color: '#7c2d12',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Whiskers Right
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 25,
+        y: centerY + 18,
+        width: 70,
+        height: -10,
+        color: '#7c2d12',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 25,
+        y: centerY + 26,
+        width: 65,
+        height: 12,
+        color: '#7c2d12',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 4. Tree (Ağaç)
+  if (lower.includes('ağaç') || lower.includes('agac') || lower.includes('tree') || lower.includes('orman')) {
+    return [
+      // Brown Trunk
+      {
+        id: uid(),
+        type: 'rectangle',
+        x: centerX - 24,
+        y: centerY - 10,
+        width: 48,
+        height: 130,
+        color: '#78350f',
+        fillColor: '#92400e',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Canopy Main Center
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 85,
+        y: centerY - 150,
+        width: 170,
+        height: 155,
+        color: '#15803d',
+        fillColor: '#22c55e',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Canopy Left
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 130,
+        y: centerY - 105,
+        width: 115,
+        height: 110,
+        color: '#166534',
+        fillColor: '#4ade80',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Canopy Right
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 15,
+        y: centerY - 105,
+        width: 115,
+        height: 110,
+        color: '#166534',
+        fillColor: '#4ade80',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Apples in tree
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 45,
+        y: centerY - 100,
+        width: 22,
+        height: 22,
+        color: '#991b1b',
+        fillColor: '#ef4444',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 35,
+        y: centerY - 75,
+        width: 22,
+        height: 22,
+        color: '#991b1b',
+        fillColor: '#ef4444',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 10,
+        y: centerY - 55,
+        width: 22,
+        height: 22,
+        color: '#991b1b',
+        fillColor: '#ef4444',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Grass mound
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 120,
+        y: centerY + 115,
+        width: 240,
+        height: 25,
+        color: '#16a34a',
+        fillColor: '#bbf7d0',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 5. Flower (Çiçek)
+  if (lower.includes('çiçek') || lower.includes('cicek') || lower.includes('flower') || lower.includes('gül')) {
+    return [
+      // Green Stem
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX,
+        y: centerY + 20,
+        width: 0,
+        height: 110,
+        color: '#15803d',
+        strokeWidth: 5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Green Leaf Left
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 45,
+        y: centerY + 65,
+        width: 45,
+        height: 25,
+        color: '#15803d',
+        fillColor: '#4ade80',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Green Leaf Right
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX,
+        y: centerY + 80,
+        width: 45,
+        height: 25,
+        color: '#15803d',
+        fillColor: '#4ade80',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Petals
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 25,
+        y: centerY - 95,
+        width: 50,
+        height: 50,
+        color: '#e11d48',
+        fillColor: '#fb7185',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 25,
+        y: centerY - 5,
+        width: 50,
+        height: 50,
+        color: '#e11d48',
+        fillColor: '#fb7185',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 70,
+        y: centerY - 50,
+        width: 50,
+        height: 50,
+        color: '#e11d48',
+        fillColor: '#fb7185',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 20,
+        y: centerY - 50,
+        width: 50,
+        height: 50,
+        color: '#e11d48',
+        fillColor: '#fb7185',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Center Yellow Circle
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 25,
+        y: centerY - 50,
+        width: 50,
+        height: 50,
+        color: '#d97706',
+        fillColor: '#fde047',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 6. Rocket (Roket)
+  if (lower.includes('roket') || lower.includes('rocket') || lower.includes('uzay aracı')) {
+    return [
+      // Nose Cone
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 45,
+        y: centerY - 150,
+        width: 90,
+        height: 65,
+        color: '#b91c1c',
+        fillColor: '#ef4444',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Fuselage Body
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 45,
+        y: centerY - 85,
+        width: 90,
+        height: 140,
+        color: '#334155',
+        fillColor: '#f8fafc',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Window Porthole
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 25,
+        y: centerY - 50,
+        width: 50,
+        height: 50,
+        color: '#0284c7',
+        fillColor: '#38bdf8',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Left Fin
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 85,
+        y: centerY + 15,
+        width: 40,
+        height: 55,
+        color: '#b91c1c',
+        fillColor: '#dc2626',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right Fin
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX + 45,
+        y: centerY + 15,
+        width: 40,
+        height: 55,
+        color: '#b91c1c',
+        fillColor: '#dc2626',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Flame Exhaust
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 30,
+        y: centerY + 55,
+        width: 60,
+        height: 75,
+        color: '#ea580c',
+        fillColor: '#f97316',
+        strokeWidth: 2.5,
+        rotation: 180,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 18,
+        y: centerY + 55,
+        width: 36,
+        height: 50,
+        color: '#ca8a04',
+        fillColor: '#fde047',
+        strokeWidth: 2,
+        rotation: 180,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 7. House (Ev / Bahçe)
+  if (lower.includes('ev') || lower.includes('house') || lower.includes('bahçe') || lower.includes('bina')) {
+    return [
+      // Chimney
+      {
+        id: uid(),
+        type: 'rectangle',
+        x: centerX + 50,
+        y: centerY - 130,
+        width: 30,
+        height: 50,
+        color: '#991b1b',
+        fillColor: '#b91c1c',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Roof Triangle
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 120,
+        y: centerY - 140,
+        width: 240,
+        height: 110,
+        color: '#dc2626',
+        fillColor: '#fee2e2',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // House Body
+      {
+        id: uid(),
+        type: 'rectangle',
+        x: centerX - 100,
+        y: centerY - 30,
+        width: 200,
+        height: 160,
+        color: '#1e293b',
+        fillColor: '#fef9c3',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Door
+      {
+        id: uid(),
+        type: 'rectangle',
+        x: centerX - 25,
+        y: centerY + 50,
+        width: 50,
+        height: 80,
+        color: '#92400e',
+        fillColor: '#fde68a',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Window Left
+      {
+        id: uid(),
+        type: 'rectangle',
+        x: centerX - 80,
+        y: centerY - 5,
+        width: 40,
+        height: 40,
+        color: '#0284c7',
+        fillColor: '#bae6fd',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Window Right
+      {
+        id: uid(),
+        type: 'rectangle',
+        x: centerX + 40,
+        y: centerY - 5,
+        width: 40,
+        height: 40,
+        color: '#0284c7',
+        fillColor: '#bae6fd',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Sun in sky
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 140,
+        y: centerY - 150,
+        width: 65,
+        height: 65,
+        color: '#f59e0b',
+        fillColor: '#fef08a',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 8. Sun / Solar System (Güneş / Gezegen / Uzay)
+  if (lower.includes('güneş') || lower.includes('gezegen') || lower.includes('uzay') || lower.includes('solar') || lower.includes('mars') || lower.includes('dünya')) {
+    return [
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 240,
+        y: centerY - 70,
+        width: 140,
+        height: 140,
+        color: '#d97706',
+        fillColor: '#fde047',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 60,
+        y: centerY - 25,
+        width: 50,
+        height: 50,
+        color: '#0284c7',
+        fillColor: '#38bdf8',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 30,
+        y: centerY - 18,
+        width: 36,
+        height: 36,
+        color: '#dc2626',
+        fillColor: '#f87171',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 110,
+        y: centerY - 50,
+        width: 100,
+        height: 100,
+        color: '#ea580c',
+        fillColor: '#fed7aa',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 9. Laptop / Computer (Bilgisayar)
+  if (lower.includes('bilgisayar') || lower.includes('laptop') || lower.includes('computer') || lower.includes('kod')) {
+    return [
+      // Monitor / Display Frame
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 120,
+        y: centerY - 110,
+        width: 240,
+        height: 145,
+        color: '#334155',
+        fillColor: '#1e293b',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Screen Display Inner
+      {
+        id: uid(),
+        type: 'rectangle',
+        x: centerX - 105,
+        y: centerY - 95,
+        width: 210,
+        height: 115,
+        color: '#0f172a',
+        fillColor: '#0f172a',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Code Text
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 90,
+        y: centerY - 78,
+        color: '#38bdf8',
+        text: 'const canvas = new Whiteboard();',
+        fontSize: 13,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 90,
+        y: centerY - 54,
+        color: '#4ade80',
+        text: 'await canvas.renderAI(prompt); 🚀',
+        fontSize: 13,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Keyboard Base
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 150,
+        y: centerY + 35,
+        width: 300,
+        height: 25,
+        color: '#64748b',
+        fillColor: '#cbd5e1',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Trackpad
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 30,
+        y: centerY + 40,
+        width: 60,
+        height: 15,
+        color: '#94a3b8',
+        fillColor: '#e2e8f0',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 10. Airplane (Uçak)
+  if (lower.includes('uçak') || lower.includes('ucak') || lower.includes('airplane') || lower.includes('plane')) {
+    return [
+      // Fuselage Body
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 160,
+        y: centerY - 25,
+        width: 320,
+        height: 52,
+        color: '#2563eb',
+        fillColor: '#f8fafc',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Cockpit Window
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 110,
+        y: centerY - 18,
+        width: 42,
+        height: 36,
+        color: '#0284c7',
+        fillColor: '#38bdf8',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Main Wings
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 40,
+        y: centerY - 120,
+        width: 80,
+        height: 95,
+        color: '#1d4ed8',
+        fillColor: '#60a5fa',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Tail Fin
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 160,
+        y: centerY - 80,
+        width: 50,
+        height: 55,
+        color: '#b91c1c',
+        fillColor: '#ef4444',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 11. Heart (Kalp)
+  if (lower.includes('kalp') || lower.includes('heart') || lower.includes('sevgi')) {
+    return [
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 75,
+        y: centerY - 70,
+        width: 85,
+        height: 85,
+        color: '#be123c',
+        fillColor: '#e11d48',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 10,
+        y: centerY - 70,
+        width: 85,
+        height: 85,
+        color: '#be123c',
+        fillColor: '#e11d48',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 72,
+        y: centerY - 15,
+        width: 144,
+        height: 105,
+        color: '#be123c',
+        fillColor: '#e11d48',
+        strokeWidth: 3,
+        rotation: 180,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 12. Star (Yıldız)
+  if (lower.includes('yıldız') || lower.includes('yildiz') || lower.includes('star')) {
+    return [
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX - 90,
+        y: centerY - 90,
+        width: 180,
+        height: 180,
+        color: '#d97706',
+        fillColor: '#fde047',
+        strokeWidth: 4,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX + 95,
+        y: centerY - 95,
+        width: 50,
+        height: 50,
+        color: '#ea580c',
+        fillColor: '#fef08a',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX - 135,
+        y: centerY + 40,
+        width: 45,
+        height: 45,
+        color: '#ea580c',
+        fillColor: '#fef08a',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 35,
+        y: centerY + 115,
+        color: '#b45309',
+        text: 'Yıldız ⭐',
+        fontSize: 20,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 13. Dog (Köpek) - Puppy face & floppy ears
+  if (lower.includes('köpek') || lower.includes('kopek') || lower.includes('dog') || lower.includes('puppy')) {
+    return [
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 95,
+        y: centerY - 70,
+        width: 45,
+        height: 90,
+        color: '#9a3412',
+        fillColor: '#c2410c',
+        strokeWidth: 3,
+        rotation: -20,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 50,
+        y: centerY - 70,
+        width: 45,
+        height: 90,
+        color: '#9a3412',
+        fillColor: '#c2410c',
+        strokeWidth: 3,
+        rotation: 20,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 80,
+        y: centerY - 60,
+        width: 160,
+        height: 140,
+        color: '#c2410c',
+        fillColor: '#fed7aa',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 45,
+        y: centerY - 25,
+        width: 20,
+        height: 24,
+        color: '#0f172a',
+        fillColor: '#0f172a',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 25,
+        y: centerY - 25,
+        width: 20,
+        height: 24,
+        color: '#0f172a',
+        fillColor: '#0f172a',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 40,
+        y: centerY + 5,
+        width: 80,
+        height: 60,
+        color: '#fb923c',
+        fillColor: '#ffedd5',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 16,
+        y: centerY + 12,
+        width: 32,
+        height: 22,
+        color: '#0f172a',
+        fillColor: '#0f172a',
+        strokeWidth: 2,
+        rotation: 180,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 12,
+        y: centerY + 42,
+        width: 24,
+        height: 30,
+        color: '#e11d48',
+        fillColor: '#fb7185',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 14. Bird (Kuş)
+  if (lower.includes('kuş') || lower.includes('kus') || lower.includes('bird')) {
     return [
       {
         id: uid(),
         type: 'triangle',
         x: centerX - 110,
-        y: centerY - 140,
-        width: 220,
+        y: centerY + 10,
+        width: 45,
+        height: 35,
+        color: '#0369a1',
+        fillColor: '#0284c7',
+        strokeWidth: 2.5,
+        rotation: -45,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 70,
+        y: centerY - 40,
+        width: 140,
+        height: 100,
+        color: '#0369a1',
+        fillColor: '#38bdf8',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 30,
+        y: centerY - 65,
+        width: 60,
+        height: 60,
+        color: '#0369a1',
+        fillColor: '#38bdf8',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX + 80,
+        y: centerY - 45,
+        width: 35,
+        height: 22,
+        color: '#d97706',
+        fillColor: '#f59e0b',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 55,
+        y: centerY - 50,
+        width: 12,
+        height: 12,
+        color: '#0f172a',
+        fillColor: '#0f172a',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 35,
+        y: centerY - 15,
+        width: 65,
+        height: 45,
+        color: '#0284c7',
+        fillColor: '#0ea5e9',
+        strokeWidth: 2.5,
+        rotation: -15,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 15. Fish (Balık)
+  if (lower.includes('balık') || lower.includes('balik') || lower.includes('fish')) {
+    return [
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 120,
+        y: centerY - 35,
+        width: 50,
+        height: 70,
+        color: '#c2410c',
+        fillColor: '#f97316',
+        strokeWidth: 3,
+        rotation: -90,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 80,
+        y: centerY - 45,
+        width: 160,
+        height: 90,
+        color: '#ea580c',
+        fillColor: '#fb923c',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 15,
+        y: centerY - 75,
+        width: 40,
+        height: 35,
+        color: '#c2410c',
+        fillColor: '#f97316',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 45,
+        y: centerY - 20,
+        width: 14,
+        height: 14,
+        color: '#0f172a',
+        fillColor: '#ffffff',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 50,
+        y: centerY - 17,
+        width: 6,
+        height: 6,
+        color: '#0f172a',
+        fillColor: '#0f172a',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 95,
+        y: centerY - 35,
+        width: 16,
+        height: 16,
+        color: '#0284c7',
+        fillColor: '#e0f2fe',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 16. Bicycle (Bisiklet)
+  if (lower.includes('bisiklet') || lower.includes('bicycle') || lower.includes('bike')) {
+    return [
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 120,
+        y: centerY + 10,
+        width: 70,
+        height: 70,
+        color: '#0f172a',
+        fillColor: '#f8fafc',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 50,
+        y: centerY + 10,
+        width: 70,
+        height: 70,
+        color: '#0f172a',
+        fillColor: '#f8fafc',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 85,
+        y: centerY + 45,
+        width: 60,
+        height: -55,
+        color: '#dc2626',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 25,
+        y: centerY - 10,
+        width: 70,
+        height: 0,
+        color: '#dc2626',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 45,
+        y: centerY - 10,
+        width: 40,
+        height: 55,
+        color: '#dc2626',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 85,
+        y: centerY + 45,
+        width: 80,
+        height: 0,
+        color: '#dc2626',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 40,
+        y: centerY - 25,
+        width: 32,
+        height: 10,
+        color: '#0f172a',
+        fillColor: '#1e293b',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 17. Coffee / Tea (Kahve / Çay / Fincan)
+  if (lower.includes('kahve') || lower.includes('çay') || lower.includes('cay') || lower.includes('fincan') || lower.includes('coffee') || lower.includes('tea')) {
+    return [
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 90,
+        y: centerY + 40,
+        width: 180,
+        height: 30,
+        color: '#94a3b8',
+        fillColor: '#e2e8f0',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 40,
+        y: centerY - 30,
+        width: 50,
+        height: 50,
+        color: '#64748b',
+        fillColor: 'transparent',
+        strokeWidth: 5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 60,
+        y: centerY - 50,
+        width: 120,
+        height: 90,
+        color: '#64748b',
+        fillColor: '#f8fafc',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 54,
+        y: centerY - 56,
+        width: 108,
+        height: 22,
+        color: '#451a03',
+        fillColor: '#78350f',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 20,
+        y: centerY - 65,
+        width: 5,
+        height: -30,
+        color: '#94a3b8',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 10,
+        y: centerY - 65,
+        width: -5,
+        height: -35,
+        color: '#94a3b8',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 18. Pizza (Pizza)
+  if (lower.includes('pizza')) {
+    return [
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 85,
+        y: centerY - 85,
+        width: 170,
+        height: 170,
+        color: '#b45309',
+        fillColor: '#fde047',
+        strokeWidth: 4,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 30,
+        y: centerY - 35,
+        width: 26,
+        height: 26,
+        color: '#991b1b',
+        fillColor: '#dc2626',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 10,
+        y: centerY - 30,
+        width: 26,
+        height: 26,
+        color: '#991b1b',
+        fillColor: '#dc2626',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 10,
+        y: centerY + 15,
+        width: 22,
+        height: 22,
+        color: '#991b1b',
+        fillColor: '#dc2626',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 90,
+        y: centerY - 90,
+        width: 180,
+        height: 18,
+        color: '#b45309',
+        fillColor: '#d97706',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 19. Person / Stick Figure (İnsan / Çöp adam)
+  if (lower.includes('çöp adam') || lower.includes('adam') || lower.includes('insan') || lower.includes('person')) {
+    return [
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 25,
+        y: centerY - 90,
+        width: 50,
+        height: 50,
+        color: '#1e293b',
+        fillColor: '#fed7aa',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX,
+        y: centerY - 40,
+        width: 0,
+        height: 75,
+        color: '#1e293b',
+        strokeWidth: 4,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX,
+        y: centerY - 20,
+        width: -45,
+        height: 30,
+        color: '#1e293b',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX,
+        y: centerY - 20,
+        width: 45,
+        height: -30,
+        color: '#1e293b',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX,
+        y: centerY + 35,
+        width: -35,
+        height: 60,
+        color: '#1e293b',
+        strokeWidth: 4,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX,
+        y: centerY + 35,
+        width: 35,
+        height: 60,
+        color: '#1e293b',
+        strokeWidth: 4,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+
+  // 13. Person / Stick figure (Çöp Adam / İnsan)
+  if (lower.includes('çöp adam') || lower.includes('insan') || lower.includes('adam') || lower.includes('kişi')) {
+    return [
+      // Head
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 35,
+        y: centerY - 130,
+        width: 70,
+        height: 70,
+        color: '#1e293b',
+        fillColor: '#fed7aa',
+        strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Body
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX,
+        y: centerY - 60,
+        width: 0,
         height: 110,
+        color: '#1e293b',
+        strokeWidth: 4.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Arms
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 70,
+        y: centerY - 20,
+        width: 140,
+        height: 0,
+        color: '#1e293b',
+        strokeWidth: 4.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Left Leg
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX,
+        y: centerY + 50,
+        width: -45,
+        height: 90,
+        color: '#1e293b',
+        strokeWidth: 4.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right Leg
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX,
+        y: centerY + 50,
+        width: 45,
+        height: 90,
+        color: '#1e293b',
+        strokeWidth: 4.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Text
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 45,
+        y: centerY + 160,
+        color: '#1e293b',
+        text: 'İnsan / Figür 🧍',
+        fontSize: 20,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 14. User Login & Flowchart
+  if (lower.includes('giriş') || lower.includes('login') || lower.includes('akış') || lower.includes('flowchart') || lower.includes('auth')) {
+    return [
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 90,
+        y: centerY - 160,
+        width: 180,
+        height: 55,
+        color: '#2563eb',
+        fillColor: '#dbeafe',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 65,
+        y: centerY - 142,
+        color: '#1e3a8a',
+        text: 'Giriş Ekranı',
+        fontSize: 16,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'arrow',
+        x: centerX,
+        y: centerY - 105,
+        width: 0,
+        height: 45,
+        color: '#475569',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'diamond',
+        x: centerX - 80,
+        y: centerY - 60,
+        width: 160,
+        height: 85,
+        color: '#d97706',
+        fillColor: '#fef3c7',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 60,
+        y: centerY - 25,
+        color: '#92400e',
+        text: 'Bilgiler Doğru mu?',
+        fontSize: 14,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'arrow',
+        x: centerX + 80,
+        y: centerY - 18,
+        width: 70,
+        height: 0,
+        color: '#059669',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX + 95,
+        y: centerY - 38,
+        color: '#059669',
+        text: 'Evet',
+        fontSize: 13,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 155,
+        y: centerY - 45,
+        width: 160,
+        height: 55,
+        color: '#059669',
+        fillColor: '#d1fae5',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX + 185,
+        y: centerY - 28,
+        color: '#065f46',
+        text: 'Ana Panel (Home)',
+        fontSize: 15,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'arrow',
+        x: centerX,
+        y: centerY + 25,
+        width: 0,
+        height: 50,
+        color: '#dc2626',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX + 8,
+        y: centerY + 45,
+        color: '#dc2626',
+        text: 'Hayır',
+        fontSize: 13,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 90,
+        y: centerY + 80,
+        width: 180,
+        height: 55,
         color: '#dc2626',
         fillColor: '#fee2e2',
         strokeWidth: 3,
@@ -1177,141 +3484,335 @@ function buildFallbackCanvasElements(
       },
       {
         id: uid(),
-        type: 'rectangle',
-        x: centerX - 90,
-        y: centerY - 30,
-        width: 180,
-        height: 150,
-        color: '#1e293b',
-        fillColor: '#fef9c3',
-        strokeWidth: 3,
-        createdBy: author,
-        updatedAt: now,
-      },
-      {
-        id: uid(),
-        type: 'rectangle',
-        x: centerX - 25,
-        y: centerY + 45,
-        width: 50,
-        height: 75,
-        color: '#92400e',
-        fillColor: '#fde68a',
-        strokeWidth: 2,
-        createdBy: author,
-        updatedAt: now,
-      },
-      {
-        id: uid(),
-        type: 'rectangle',
-        x: centerX - 70,
-        y: centerY - 5,
-        width: 38,
-        height: 38,
-        color: '#0284c7',
-        fillColor: '#bae6fd',
-        strokeWidth: 2,
-        createdBy: author,
-        updatedAt: now,
-      },
-      {
-        id: uid(),
-        type: 'rectangle',
-        x: centerX + 32,
-        y: centerY - 5,
-        width: 38,
-        height: 38,
-        color: '#0284c7',
-        fillColor: '#bae6fd',
-        strokeWidth: 2,
+        type: 'text',
+        x: centerX - 65,
+        y: centerY + 98,
+        color: '#991b1b',
+        text: 'Hata & Şifre Sıfırla',
+        fontSize: 15,
         createdBy: author,
         updatedAt: now,
       },
     ];
   }
 
-  // Default structured diagram for prompt
+  // 15. Microservices / Cloud Architecture
+  if (lower.includes('mikroservis') || lower.includes('mimari') || lower.includes('architecture') || lower.includes('api') || lower.includes('cloud') || lower.includes('servis')) {
+    return [
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 240,
+        y: centerY - 40,
+        width: 130,
+        height: 80,
+        color: '#2563eb',
+        fillColor: '#dbeafe',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 225,
+        y: centerY - 5,
+        color: '#1e40af',
+        text: 'API Gateway',
+        fontSize: 15,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'arrow',
+        x: centerX - 110,
+        y: centerY - 20,
+        width: 80,
+        height: -60,
+        color: '#475569',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'arrow',
+        x: centerX - 110,
+        y: centerY,
+        width: 80,
+        height: 0,
+        color: '#475569',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'arrow',
+        x: centerX - 110,
+        y: centerY + 20,
+        width: 80,
+        height: 60,
+        color: '#475569',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 25,
+        y: centerY - 110,
+        width: 140,
+        height: 60,
+        color: '#7c3aed',
+        fillColor: '#ede9fe',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 10,
+        y: centerY - 85,
+        color: '#5b21b6',
+        text: 'Auth Servisi',
+        fontSize: 14,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 25,
+        y: centerY - 30,
+        width: 140,
+        height: 60,
+        color: '#059669',
+        fillColor: '#d1fae5',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 15,
+        y: centerY - 5,
+        color: '#065f46',
+        text: 'Sipariş Servisi',
+        fontSize: 14,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 25,
+        y: centerY + 50,
+        width: 140,
+        height: 60,
+        color: '#ea580c',
+        fillColor: '#ffedd5',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX - 15,
+        y: centerY + 75,
+        color: '#9a3412',
+        text: 'Ödeme Servisi',
+        fontSize: 14,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'arrow',
+        x: centerX + 115,
+        y: centerY,
+        width: 60,
+        height: 0,
+        color: '#475569',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rectangle',
+        x: centerX + 180,
+        y: centerY - 50,
+        width: 130,
+        height: 100,
+        color: '#0891b2',
+        fillColor: '#cffafe',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'text',
+        x: centerX + 200,
+        y: centerY - 5,
+        color: '#155e75',
+        text: 'Veritabanı',
+        fontSize: 15,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // 16. Roadmap / Timeline
+  if (lower.includes('roadmap') || lower.includes('yol haritası') || lower.includes('sprint') || lower.includes('plan') || lower.includes('aşama')) {
+    return [
+      {
+        id: uid(),
+        type: 'sticky',
+        x: centerX - 270,
+        y: centerY - 80,
+        width: 160,
+        height: 140,
+        fillColor: '#fef08a',
+        color: '#0f172a',
+        fontSize: 14,
+        text: 'Q1: Keşif & Tasarım\n• Pazar araştırması\n• Wireframe & Prototip\n• Mimari tasarım',
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'arrow',
+        x: centerX - 105,
+        y: centerY - 10,
+        width: 35,
+        height: 0,
+        color: '#475569',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'sticky',
+        x: centerX - 65,
+        y: centerY - 80,
+        width: 160,
+        height: 140,
+        fillColor: '#bae6fd',
+        color: '#0f172a',
+        fontSize: 14,
+        text: 'Q2: Geliştirme\n• Backend & API\n• Tuval & Senkronizasyon\n• Birim testleri',
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'arrow',
+        x: centerX + 100,
+        y: centerY - 10,
+        width: 35,
+        height: 0,
+        color: '#475569',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'sticky',
+        x: centerX + 140,
+        y: centerY - 80,
+        width: 160,
+        height: 140,
+        fillColor: '#bbf7d0',
+        color: '#0f172a',
+        fontSize: 14,
+        text: 'Q3: Lansman\n• Beta testi\n• Güvenlik denetimi\n• Canlıya geçiş 🎉',
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // Generic Harmonious Geometric Artwork (NO card box, NO outer frame, NO text labels!)
   return [
     {
       id: uid(),
-      type: 'rounded-rect',
-      x: centerX - 130,
-      y: centerY - 120,
-      width: 260,
-      height: 70,
-      color: '#2563eb',
-      fillColor: '#dbeafe',
+      type: 'diamond',
+      x: centerX - 90,
+      y: centerY - 90,
+      width: 180,
+      height: 180,
+      color: '#6366f1',
+      fillColor: '#e0e7ff',
       strokeWidth: 3,
       createdBy: author,
       updatedAt: now,
     },
     {
       id: uid(),
-      type: 'text',
-      x: centerX - 105,
-      y: centerY - 96,
-      fontSize: 18,
-      color: '#1e3a8a',
-      text: prompt.slice(0, 28),
-      createdBy: author,
-      updatedAt: now,
-    },
-    {
-      id: uid(),
-      type: 'arrow',
+      type: 'circle',
       x: centerX - 60,
-      y: centerY - 50,
-      width: -90,
-      height: 70,
-      color: '#475569',
-      strokeWidth: 3,
+      y: centerY - 60,
+      width: 120,
+      height: 120,
+      color: '#0284c7',
+      fillColor: '#bae6fd',
+      strokeWidth: 2.5,
       createdBy: author,
       updatedAt: now,
     },
     {
       id: uid(),
-      type: 'arrow',
-      x: centerX + 60,
-      y: centerY - 50,
-      width: 90,
+      type: 'star',
+      x: centerX - 35,
+      y: centerY - 35,
+      width: 70,
       height: 70,
-      color: '#475569',
-      strokeWidth: 3,
-      createdBy: author,
-      updatedAt: now,
-    },
-    {
-      id: uid(),
-      type: 'sticky',
-      x: centerX - 260,
-      y: centerY + 25,
-      width: 190,
-      height: 140,
+      color: '#f59e0b',
       fillColor: '#fef08a',
-      color: '#0f172a',
-      fontSize: 15,
-      text: `1. Aşama\n${prompt.slice(0, 40)} için başlangıç bileşeni`,
+      strokeWidth: 3,
       createdBy: author,
       updatedAt: now,
     },
     {
       id: uid(),
-      type: 'sticky',
-      x: centerX + 70,
-      y: centerY + 25,
-      width: 190,
-      height: 140,
-      fillColor: '#bbf7d0',
-      color: '#0f172a',
-      fontSize: 15,
-      text: `2. Aşama\nUygulama ve doğrulama adımları`,
+      type: 'star',
+      x: centerX - 105,
+      y: centerY - 80,
+      width: 30,
+      height: 30,
+      color: '#8b5cf6',
+      fillColor: '#ede9fe',
+      strokeWidth: 2,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX + 80,
+      y: centerY + 55,
+      width: 30,
+      height: 30,
+      color: '#8b5cf6',
+      fillColor: '#ede9fe',
+      strokeWidth: 2,
       createdBy: author,
       updatedAt: now,
     },
   ];
 }
 
-// Gemini AI Canvas Object & Diagram Generator Endpoint
+// Gemini AI Canvas Vector Object & Diagram Generator Endpoint
 app.post('/api/ai/generate-canvas', async (req, res) => {
   const {
     prompt,
@@ -1325,9 +3826,15 @@ app.post('/api/ai/generate-canvas', async (req, res) => {
     return;
   }
 
+  const trimmedPrompt = prompt.trim();
+  const isDiagram =
+    /şema|diyagram|akış|flowchart|mimari|architecture|erd|uml|süreç|process|roadmap|tablo|graph/i.test(
+      trimmedPrompt
+    );
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    const fallbackElements = buildFallbackCanvasElements(prompt.trim(), centerX, centerY, author);
+    const fallbackElements = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author);
     res.json({ elements: fallbackElements, source: 'fallback' });
     return;
   }
@@ -1342,32 +3849,33 @@ app.post('/api/ai/generate-canvas', async (req, res) => {
       },
     });
 
-    const systemInstruction = `Sen profesyonel bir beyaz tahta (whiteboard) grafik, şekil ve diyagram tasarım motorusun.
-Kullanıcının istediği şekli, nesneyi, illüstrasyonu, mimari diyagramı, akış şemasını veya zihin haritasını doğrudan tuval (canvas) üzerinde çizilecek vektörel öğeler dizisi olarak üretirsin.
+    const systemInstruction = isDiagram
+      ? `Sen profesyonel bir beyaz tahta (whiteboard) diyagram ve şema mimarısın.
+Kullanıcının isteğini doğrudan tuvalde düzenlenebilir akış şeması öğeleri (rounded-rect, diamond, sticky, arrow, text) olarak tasarla.
+Merkez koordinatı: (centerX = ${Math.round(centerX)}, centerY = ${Math.round(centerY)}).`
+      : `Sen profesyonel bir beyaz tahta (whiteboard) illüstratör ve vektör grafik motorusun.
+Kullanıcının istediği "${trimmedPrompt}" nesnesini, doğrudan tuval (canvas) üzerinde çizilecek vektörel geometrik parçalar dizisi olarak üretirsin.
 
 Merkez koordinatı: (centerX = ${Math.round(centerX)}, centerY = ${Math.round(centerY)}).
-Tüm öğeleri bu merkez etrafında dengeli, estetik ve üst üste binmeyecek şekilde konumlandır (x: ${Math.round(centerX - 420)} ile ${Math.round(centerX + 420)} arası, y: ${Math.round(centerY - 300)} ile ${Math.round(centerY + 300)} arası).
+Tüm öğeleri bu merkezin etrafında dengeli, orantılı ve simetrik konumlandır (örneğin genişlik 160px ise x koordinatları centerX - 80 civarında başlamalı).
 
-Desteklenen öğe tipleri (type):
-- "rectangle": Dikdörtgen (x, y sol üst köşe; width, height pozitif)
-- "rounded-rect": Yuvarlatılmış kutu / düğüm (x, y, width, height)
-- "circle": Daire veya elips (x, y sol üst köşe; width, height çap)
-- "diamond": Eşkenar dörtgen / karar kutusu (x, y, width, height)
-- "triangle": Üçgen / çatı / ok ucu (x, y, width, height)
-- "star": 5 köşeli yıldız (x, y, width, height)
-- "arrow": Yönlü bağlantı oku (x, y başlangıç noktası; width = bitişX - başlangıçX, height = bitişY - başlangıçY)
-- "line": Düz çizgi (x, y başlangıç noktası; width = dx, height = dy)
-- "sticky": Yapışkan not kartı (x, y, width: min 170, height: min 130, fillColor: "#fef08a" | "#bbf7d0" | "#bae6fd" | "#fed7aa" | "#fbcfe8" | "#e9d5ff", text: içerik yazısı)
-- "text": Başlık veya etiket yazısı (x, y, text, fontSize: 14-28, color). Bir kutunun içine metin yazmak istiyorsan önce "rounded-rect" veya "rectangle" oluştur, hemen ardından kutunun içinde yer alan koordinata ayrı bir "text" öğesi ekle!
+HAYATİ VE KESİN KURALLAR:
+1. ETİKET / BAŞLIK / YAZI KESİNLİKLE YASAKTIR: Çizimin altına, üstüne, içine veya kenarına nesnenin adını veya ne olduğunu belirten hiçbir "text" (yazı) öğesi EKLEME! Kullanıcı ne istediğini biliyor (örneğin "Elma", "Araba", "Kedi" yazısı ASLA KOYMA). Yalnızca saf geometrik şekillerden oluşan çizim yap.
+2. ÇERÇEVE / KART KUTUSU YASAKTIR: Çizimin etrafına sınır çizgisi, kart kutusu, arka plan kutusu (bounding box) veya çerçeve ÇİZME. Sadece nesnenin kendi parçalarını çiz.
+3. GERÇEKÇİ GEOMETRİK PARÇA BİRLEŞİMİ:
+   İstenilen nesneyi oluşturan gerçek parçaları hayal et ve orantılı koordinatlarla birleştir:
+   - Örneğin Araba: tekerlekler için daireler (dış lastik ve iç jant), şasi için rounded-rect, kabin/tavan için rounded-rect, pencereler için açık mavi kutular, farlar için sarı daireler.
+   - Örneğin Kedi/Köpek: kafa ve gövde için daireler, kulaklar için üçgenler/yuvarlatılmış kutular, gözler ve burun için küçük daire/üçgenler, bıyıklar için çizgiler.
+   - Örneğin Elma/Meyve: gövde için daire/elips loblar, sap için kahverengi ince kutu, yaprak için yeşil üçgen, parlama için beyaz elips.
+   - Örneğin Uçak/Gemi/Tren/Bisiklet/Kahve/Pizza: ana gövde, detaylar, pencereler, parçalar.
+4. RENKLER: Her parça için gerçekçi, canlı ve doğal renkler (color: kenar çizgisi, fillColor: iç dolgu rengi) seç.
+5. 6 ila 20 adet özenle konumlandırılmış parça üret.`;
 
-Kurallar:
-1. Kullanıcı bir nesne/çizim (ör. araba, ev, roket, güneş sistemi, ağaç, robot, yıldız, kalp, kedi vb.) isterse geometrik şekilleri (circle, triangle, rectangle, rounded-rect, star, line, arrow) ve uygun renkleri (color, fillColor, rotation) birleştirerek zengin ve tanınabilir bir görsel kompozisyon oluştur.
-2. Kullanıcı bir akış şeması, mimari diyagram, algoritma, yol haritası veya tablo isterse kutuları (rounded-rect, diamond, sticky), metin etiketlerini (text) ve aralarındaki bağlantı oklarını (arrow) eksiksiz oluştur.
-3. En az 4, en fazla 24 öğe üret. Renkler modern ve yüksek kontrastlı olsun (ör. #2563eb, #059669, #d97706, #dc2626, #7c3aed, #0f172a ve pastel dolgular #dbeafe, #dcfce7, #fef9c3, #fee2e2, #ede9fe).`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: `Kullanıcı İsteği: "${prompt.trim()}"\nMerkez noktası (${Math.round(centerX)}, ${Math.round(centerY)}) etrafında bu isteği karşılayan beyaz tahta öğelerini JSON olarak üret.`,
+    const generatePromise = ai.models.generateContent({
+      model: 'gemini-3.1-flash-lite',
+      contents: isDiagram
+        ? `Kullanıcı Şema İsteği: "${trimmedPrompt}"`
+        : `Kullanıcı Çizim İsteği: "${trimmedPrompt}". Bu nesnenin kendisini şekillerle çiz. Kesinlikle şema kutusu veya yazı etiketi koyma!`,
       config: {
         systemInstruction,
         responseMimeType: 'application/json',
@@ -1376,7 +3884,7 @@ Kurallar:
           properties: {
             summary: {
               type: Type.STRING,
-              description: 'Oluşturulan şekil veya diyagramın kısa Türkçe açıklaması',
+              description: 'Oluşturulan çizim veya nesnenin kısa Türkçe açıklaması',
             },
             elements: {
               type: Type.ARRAY,
@@ -1412,6 +3920,20 @@ Kurallar:
       },
     });
 
+    let timer: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error('AI generation timeout'));
+      }, 12000);
+    });
+
+    let response;
+    try {
+      response = await Promise.race([generatePromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+
     const rawText = response.text || '{}';
     const parsed = JSON.parse(rawText);
     const rawElements = Array.isArray(parsed.elements) ? parsed.elements : [];
@@ -1430,7 +3952,7 @@ Kurallar:
     ]);
 
     const now = Date.now();
-    const sanitized: CanvasElement[] = rawElements
+    let sanitized: CanvasElement[] = rawElements
       .filter((el: Record<string, unknown>) => el && typeof el.type === 'string' && allowedTypes.has(el.type))
       .map((el: Record<string, unknown>, idx: number) => ({
         id: `ai-${now}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
@@ -1455,23 +3977,167 @@ Kurallar:
         updatedAt: now,
       }));
 
+    // Post-processing: If it's a physical drawing, strip any unwanted text labels or framing cards
+    if (!isDiagram) {
+      sanitized = sanitized.filter((el) => {
+        if (el.type === 'text') {
+          const t = (el.text || '').toLowerCase().trim();
+          const p = trimmedPrompt.toLowerCase();
+          if (
+            t.length < 30 ||
+            t.includes(p) ||
+            p.includes(t) ||
+            t.includes('çizim') ||
+            t.includes('öğe') ||
+            /^[a-zA-ZçğıöşüÇĞİÖŞÜ\s\d🍎🚗🐱🐶🌳🚀🏠⭐❤️✨]+$/.test(t)
+          ) {
+            return false;
+          }
+        }
+        // Remove large outer card box
+        if (
+          (el.type === 'rectangle' || el.type === 'rounded-rect') &&
+          (el.width || 0) >= 220 &&
+          (el.height || 0) >= 180 &&
+          (el.fillColor === '#ffffff' ||
+            el.fillColor === '#eff6ff' ||
+            el.fillColor === '#f8fafc' ||
+            el.fillColor === '#f1f5f9')
+        ) {
+          return false;
+        }
+        return true;
+      });
+    }
+
     if (sanitized.length === 0) {
-      const fallback = buildFallbackCanvasElements(prompt.trim(), centerX, centerY, author);
-      res.json({ elements: fallback, summary: 'Şablon oluşturuldu' });
+      const fallback = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author);
+      res.json({ elements: fallback, summary: `${trimmedPrompt} tuvale çizildi.` });
       return;
     }
 
     res.json({
       elements: sanitized,
-      summary: parsed.summary || `${sanitized.length} nesne tahtaya eklendi.`,
+      summary: parsed.summary || `${sanitized.length} parça tahtaya çizildi.`,
     });
-  } catch (err) {
-    console.error('Gemini canvas generation error:', err);
-    const fallback = buildFallbackCanvasElements(prompt.trim(), centerX, centerY, author);
+  } catch (err: unknown) {
+    if (res.headersSent) return;
+    console.warn('Gemini canvas generation fallback triggered:', (err as Error)?.message || err);
+    const fallback = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author);
     res.json({
       elements: fallback,
-      summary: 'Akıllı diyagram tahtaya eklendi.',
+      summary: `${trimmedPrompt} tuvale çizildi.`,
     });
+  }
+});
+
+// Gemini AI Visual Illustration & Image Sticker Generator Endpoint
+app.post('/api/ai/generate-image', async (req, res) => {
+  const {
+    prompt,
+    centerX = 500,
+    centerY = 350,
+    author = 'AI Görsel',
+  } = req.body || {};
+
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+    res.status(400).json({ error: 'Lütfen oluşturulacak görsel için bir açıklama girin.' });
+    return;
+  }
+
+  const trimmedPrompt = prompt.trim();
+  const width = 300;
+  const height = 300;
+  const now = Date.now();
+  const elementId = `ai-img-${now}-${Math.random().toString(36).substring(2, 6)}`;
+
+  const createResult = (svgCode: string, summary: string) => ({
+    element: {
+      id: elementId,
+      type: 'image' as const,
+      x: Math.round(centerX - width / 2),
+      y: Math.round(centerY - height / 2),
+      width,
+      height,
+      strokeWidth: 0,
+      color: 'transparent',
+      fillColor: 'transparent',
+      imageUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svgCode)}`,
+      rotation: 0,
+      flipX: false,
+      flipY: false,
+      createdBy: author,
+      updatedAt: now,
+    },
+    summary,
+  });
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    const fallbackSvg = buildFallbackSvg(trimmedPrompt);
+    res.json(createResult(fallbackSvg, `${trimmedPrompt} görseli tahtaya eklendi.`));
+    return;
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const generatePromise = ai.models.generateContent({
+      model: 'gemini-3.1-flash-lite',
+      contents: `Sen yetenekli bir SVG illüstratörüsün. Kullanıcının istediği "${trimmedPrompt}" nesnesi için modern, temiz, zengin renkli ve gölgeli bir vektörel SVG çizimi oluştur.
+HAYATİ VE ZORUNLU KURALLAR:
+1. ARKA PLAN TAMAMEN ŞEFFAF OLMALIDIR: Kesinlikle arka planı kaplayan <rect> (dikdörtgen), kart arka planı, kutu veya çerçeve ÇİZMEYİN.
+2. DIŞ ÇERÇEVE YASAKTIR: Görselin veya nesnenin etrafında KESİNLİKLE hiçbir dış çerçeve (border/frame/outline kutusu) olmamalıdır.
+3. YAZI/METİN YASAKTIR: Görselin içine, altına veya üstüne KESİNLİKLE metin, yazı, etiket veya isim YAZMAYIN.
+4. SADECE DOĞRUDAN NESNENİN KENDİSİNİ ÇİZİN: Çizim tamamen nesnenin kendi formundan ve detaylarından oluşmalıdır.
+5. SADECE geçerli bir <svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">...</svg> XML kodu döndür. Markdown codeblock (\`\`\`xml) veya hiçbir açıklama ekleme.`,
+    });
+
+    let timer: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error('AI image generation timeout'));
+      }, 12000);
+    });
+
+    let response;
+    try {
+      response = await Promise.race([generatePromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+
+    let rawSvg = (response.text || '').trim();
+    // Strip markdown fences if present
+    rawSvg = rawSvg.replace(/^```(xml|svg)?/i, '').replace(/```$/i, '').trim();
+
+    if (rawSvg.includes('<svg') && rawSvg.includes('</svg>')) {
+      const startIdx = rawSvg.indexOf('<svg');
+      const endIdx = rawSvg.lastIndexOf('</svg>') + 6;
+      let cleanSvg = rawSvg.slice(startIdx, endIdx);
+
+      // Strip any text elements and any full-width background card rectangles
+      cleanSvg = cleanSvg.replace(/<text[\s\S]*?<\/text>/gi, '');
+      cleanSvg = cleanSvg.replace(/<rect[^>]*(?:width=["'](?:400|100%)["'][^>]*height=["'](?:400|100%)["']|height=["'](?:400|100%)["'][^>]*width=["'](?:400|100%)["'])[^>]*\/?>/gi, '');
+
+      res.json(createResult(cleanSvg, `${trimmedPrompt} görseli tahtaya eklendi.`));
+      return;
+    }
+
+    const fallbackSvg = buildFallbackSvg(trimmedPrompt);
+    res.json(createResult(fallbackSvg, `${trimmedPrompt} görseli tahtaya eklendi.`));
+  } catch (err: unknown) {
+    if (res.headersSent) return;
+    console.warn('Gemini image generation fallback triggered:', (err as Error)?.message || err);
+    const fallbackSvg = buildFallbackSvg(trimmedPrompt);
+    res.json(createResult(fallbackSvg, `${trimmedPrompt} görseli tahtaya eklendi.`));
   }
 });
 

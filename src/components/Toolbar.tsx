@@ -79,6 +79,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
+  // Track which eraser variant was last used ('eraser' vs 'point-eraser')
+  const [lastEraserTool, setLastEraserTool] = useState<'eraser' | 'point-eraser'>(() => {
+    try {
+      const saved = localStorage.getItem('collab_last_eraser');
+      if (saved === 'point-eraser' || saved === 'eraser') return saved;
+    } catch {
+      // Ignore storage error
+    }
+    return activeTool === 'point-eraser' ? 'point-eraser' : 'eraser';
+  });
+
+  // Keep lastEraserTool updated whenever an eraser is active
+  useEffect(() => {
+    if (activeTool === 'eraser' || activeTool === 'point-eraser') {
+      setLastEraserTool(activeTool);
+      try {
+        localStorage.setItem('collab_last_eraser', activeTool);
+      } catch {
+        // Ignore storage error
+      }
+    }
+  }, [activeTool]);
+
   // Draggable state (null = default top-center docked position)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
     try {
@@ -252,6 +275,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   const getShapeIcon = () => {
     switch (activeTool) {
+      case 'rounded-rect':
+        return (
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="5" ry="5"/>
+          </svg>
+        );
       case 'circle':
         return <Circle className="w-4 h-4" />;
       case 'diamond':
@@ -426,21 +455,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <div className="relative" ref={eraserMenuRef}>
             <div className="flex items-center">
               <button
-                onClick={() =>
-                  onSelectTool(activeTool === 'point-eraser' ? 'point-eraser' : 'eraser')
-                }
+                onClick={() => onSelectTool(lastEraserTool)}
                 className={`p-2 rounded-lg transition-all ${
                   activeTool === 'eraser' || activeTool === 'point-eraser'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                 }`}
                 title={
-                  activeTool === 'point-eraser'
-                    ? 'Hassas Silgi (Dokunduğu yeri siler / böler - Kısayol: Shift+E)'
+                  lastEraserTool === 'point-eraser'
+                    ? 'Hassas Silgi (Dokunduğu yeri siler / böler - Kısayol: E veya Shift+E)'
                     : 'Öğe Silgisi (Tek hamlede öğeyi siler - Kısayol: E)'
                 }
               >
-                {activeTool === 'point-eraser' ? (
+                {lastEraserTool === 'point-eraser' ? (
                   <Scissors className="w-4 h-4" />
                 ) : (
                   <Eraser className="w-4 h-4" />
@@ -473,6 +500,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               >
                 <button
                   onClick={() => {
+                    setLastEraserTool('eraser');
+                    try {
+                      localStorage.setItem('collab_last_eraser', 'eraser');
+                    } catch {
+                      // ignore
+                    }
                     onSelectTool('eraser');
                     setEraserMenuOpen(false);
                   }}
@@ -500,6 +533,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
                 <button
                   onClick={() => {
+                    setLastEraserTool('point-eraser');
+                    try {
+                      localStorage.setItem('collab_last_eraser', 'point-eraser');
+                    } catch {
+                      // ignore
+                    }
                     onSelectTool('point-eraser');
                     setEraserMenuOpen(false);
                   }}
@@ -555,7 +594,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     : openPopoverUpward
                     ? 'bottom-full mb-2 left-0'
                     : 'top-full mt-2 left-0'
-                } bg-white border border-slate-200 rounded-xl shadow-xl p-2 grid grid-cols-3 gap-1 z-50 w-48`}
+                } bg-white border border-slate-200 rounded-xl shadow-xl p-2 grid grid-cols-3 gap-1 z-50 w-60`}
               >
                 <button
                   onClick={() => {
@@ -567,6 +606,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       ? 'bg-blue-50 text-blue-600'
                       : 'text-slate-700 hover:bg-slate-100'
                   }`}
+                  title="Kare / Keskin Köşeli Dikdörtgen (R)"
                 >
                   <Square className="w-4 h-4" />
                   <span>Kare</span>
@@ -582,9 +622,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       ? 'bg-blue-50 text-blue-600'
                       : 'text-slate-700 hover:bg-slate-100'
                   }`}
+                  title="Yuvarlak Köşeli Kare (Köşeleri Keskin Olmayan Kare)"
                 >
-                  <Square className="w-4 h-4 rounded-xs" />
-                  <span>Yuvarlak</span>
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="5" ry="5"/>
+                  </svg>
+                  <span>Yuvarlak Köşeli</span>
                 </button>
 
                 <button
@@ -597,6 +640,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       ? 'bg-blue-50 text-blue-600'
                       : 'text-slate-700 hover:bg-slate-100'
                   }`}
+                  title="Daire / Çember (O)"
                 >
                   <Circle className="w-4 h-4" />
                   <span>Daire</span>
