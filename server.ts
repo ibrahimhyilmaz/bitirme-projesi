@@ -1150,7 +1150,7 @@ wss.on('connection', (ws: WebSocket) => {
 });
 
 // Smart vector SVG illustration builder for visual objects & stickers
-function buildFallbackSvg(prompt: string): string {
+function buildFallbackSvg(prompt: string, thinkingLevel: string = 'standard'): string {
   const lower = prompt.toLowerCase().trim();
 
   // 1. Apple (Elma)
@@ -1509,16 +1509,17 @@ function buildFallbackCanvasElements(
   prompt: string,
   centerX: number,
   centerY: number,
-  author: string
+  author: string,
+  thinkingLevel: string = 'standard'
 ): CanvasElement[] {
   const now = Date.now();
   let counter = 0;
   const uid = () => `ai-${now}-${++counter}-${Math.random().toString(36).substring(2, 6)}`;
   const lower = prompt.toLowerCase().trim();
 
-  // 1. Apple (Elma) - Real physical vector drawing of an apple with stem, leaf, highlight and label
+  // 1. Apple (Elma) - Progressive vector drawing (5 to 38 pieces based on thinkingLevel)
   if (lower.includes('elma') || lower.includes('apple')) {
-    return [
+    const list: CanvasElement[] = [
       // Brown Stem
       {
         id: uid(),
@@ -1593,53 +1594,428 @@ function buildFallbackCanvasElements(
         updatedAt: now,
       },
     ];
+
+    if (thinkingLevel === 'quick') return list;
+
+    // Standard additions (adds 7 pieces -> total 12)
+    list.unshift({
+      id: uid(),
+      type: 'circle',
+      x: centerX - 75,
+      y: centerY + 45,
+      width: 150,
+      height: 25,
+      color: '#cbd5e1',
+      fillColor: '#e2e8f0',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    });
+    list.push(
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 12,
+        y: centerY - 85,
+        width: 25,
+        height: -10,
+        color: '#14532d',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 15,
+        y: centerY - 72,
+        width: 30,
+        height: 12,
+        color: '#7f1d1d',
+        fillColor: '#991b1b',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 60,
+        y: centerY - 55,
+        width: 120,
+        height: 110,
+        color: '#b91c1c',
+        fillColor: '#dc2626',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 48,
+        y: centerY - 38,
+        width: 12,
+        height: 22,
+        color: '#ffffff',
+        fillColor: '#ffffff',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 10,
+        y: centerY + 10,
+        width: 30,
+        height: 35,
+        color: '#f87171',
+        fillColor: '#fca5a5',
+        opacity: 0.6,
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 10,
+        y: centerY - 92,
+        width: 8,
+        height: 15,
+        color: '#292524',
+        fillColor: '#451a03',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      }
+    );
+
+    if (thinkingLevel === 'standard') return list;
+
+    // Detailed additions (+10 pieces -> total 22)
+    list.unshift({
+      id: uid(),
+      type: 'circle',
+      x: centerX - 95,
+      y: centerY + 48,
+      width: 190,
+      height: 28,
+      color: '#94a3b8',
+      fillColor: '#cbd5e1',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    });
+    list.push(
+      {
+        id: uid(),
+        type: 'triangle',
+        x: centerX - 32,
+        y: centerY - 100,
+        width: 28,
+        height: 20,
+        color: '#15803d',
+        fillColor: '#4ade80',
+        strokeWidth: 2,
+        rotation: -25,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 25,
+        y: centerY - 92,
+        width: -15,
+        height: -6,
+        color: '#14532d',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 40,
+        y: centerY - 25,
+        width: 80,
+        height: 80,
+        color: '#dc2626',
+        fillColor: '#f87171',
+        opacity: 0.4,
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 20,
+        y: centerY - 20,
+        width: 16,
+        height: 16,
+        color: '#450a0a',
+        fillColor: '#ffffff',
+        strokeWidth: 1.5,
+        opacity: 0.9,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 24,
+        y: centerY - 18,
+        width: 6,
+        height: 6,
+        color: '#ffffff',
+        fillColor: '#ffffff',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 35,
+        y: centerY + 25,
+        width: 70,
+        height: 22,
+        color: '#b91c1c',
+        fillColor: '#fca5a5',
+        opacity: 0.5,
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX - 65,
+        y: centerY - 30,
+        width: 14,
+        height: 14,
+        color: '#ffffff',
+        fillColor: '#ffffff',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 2,
+        y: centerY - 80,
+        width: 5,
+        height: 18,
+        color: '#a16207',
+        fillColor: '#ca8a04',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      }
+    );
+
+    if (thinkingLevel === 'detailed') return list;
+
+    // Masterpiece additions (+16 pieces -> total 38 pieces)
+    list.unshift({
+      id: uid(),
+      type: 'circle',
+      x: centerX - 120,
+      y: centerY + 52,
+      width: 240,
+      height: 32,
+      color: '#e2e8f0',
+      fillColor: '#f1f5f9',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    });
+    list.push(
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 65,
+        y: centerY - 45,
+        width: 130,
+        height: 110,
+        color: '#7f1d1d',
+        fillColor: '#991b1b',
+        opacity: 0.35,
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 50,
+        y: centerY - 35,
+        width: 100,
+        height: 90,
+        color: '#991b1b',
+        fillColor: '#b91c1c',
+        opacity: 0.45,
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 35,
+        y: centerY - 25,
+        width: 70,
+        height: 70,
+        color: '#b91c1c',
+        fillColor: '#ef4444',
+        opacity: 0.55,
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 10,
+        y: centerY - 5,
+        width: 12,
+        height: 12,
+        color: '#3f0c0c',
+        fillColor: '#ffffff',
+        strokeWidth: 1.5,
+        opacity: 0.85,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 7,
+        y: centerY - 3,
+        width: 4,
+        height: 4,
+        color: '#ffffff',
+        fillColor: '#ffffff',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX - 42,
+        y: centerY - 40,
+        width: 16,
+        height: 16,
+        color: '#ffffff',
+        fillColor: '#ffffff',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX + 30,
+        y: centerY + 5,
+        width: 10,
+        height: 10,
+        color: '#fecaca',
+        fillColor: '#ffffff',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 55,
+        y: centerY + 28,
+        width: 110,
+        height: 18,
+        color: '#f87171',
+        fillColor: '#fecaca',
+        opacity: 0.4,
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 4,
+        y: centerY - 96,
+        width: 4,
+        height: 12,
+        color: '#a16207',
+        fillColor: '#ca8a04',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 20,
+        y: centerY - 88,
+        width: 10,
+        height: 6,
+        color: '#14532d',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 26,
+        y: centerY - 84,
+        width: 8,
+        height: 6,
+        color: '#14532d',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 35,
+        y: centerY - 40,
+        width: 35,
+        height: 50,
+        color: '#ef4444',
+        fillColor: '#f87171',
+        opacity: 0.35,
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX - 18,
+        y: centerY - 62,
+        width: 12,
+        height: 12,
+        color: '#ffffff',
+        fillColor: '#ffffff',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      }
+    );
+
+    return list;
   }
 
-  // 2. Car (Araba / Otomobil) - Real physical vector drawing of a car with chassis, cabin, wheels, headlights
+  // 2. Car (Araba / Otomobil) - Progressive vector drawing (6 to 42 pieces based on thinkingLevel)
   if (lower.includes('araba') || lower.includes('otomobil') || lower.includes('araç') || lower.includes('car')) {
-    return [
-      // Cabin / Roof
-      {
-        id: uid(),
-        type: 'rounded-rect',
-        x: centerX - 90,
-        y: centerY - 70,
-        width: 180,
-        height: 65,
-        color: '#1d4ed8',
-        fillColor: '#3b82f6',
-        strokeWidth: 3,
-        createdBy: author,
-        updatedAt: now,
-      },
-      // Rear Window
-      {
-        id: uid(),
-        type: 'rounded-rect',
-        x: centerX - 75,
-        y: centerY - 60,
-        width: 65,
-        height: 45,
-        color: '#0284c7',
-        fillColor: '#bae6fd',
-        strokeWidth: 2,
-        createdBy: author,
-        updatedAt: now,
-      },
-      // Front Windshield
-      {
-        id: uid(),
-        type: 'rounded-rect',
-        x: centerX + 5,
-        y: centerY - 60,
-        width: 70,
-        height: 45,
-        color: '#0284c7',
-        fillColor: '#bae6fd',
-        strokeWidth: 2,
-        createdBy: author,
-        updatedAt: now,
-      },
+    const list: CanvasElement[] = [
       // Main Chassis Body
       {
         id: uid(),
@@ -1651,6 +2027,20 @@ function buildFallbackCanvasElements(
         color: '#1e40af',
         fillColor: '#2563eb',
         strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Cabin / Roof
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 90,
+        y: centerY - 70,
+        width: 180,
+        height: 65,
+        color: '#1d4ed8',
+        fillColor: '#3b82f6',
+        strokeWidth: 3,
         createdBy: author,
         updatedAt: now,
       },
@@ -1696,20 +2086,6 @@ function buildFallbackCanvasElements(
         createdBy: author,
         updatedAt: now,
       },
-      // Left Wheel Inner Rim
-      {
-        id: uid(),
-        type: 'circle',
-        x: centerX - 96,
-        y: centerY + 42,
-        width: 30,
-        height: 30,
-        color: '#64748b',
-        fillColor: '#cbd5e1',
-        strokeWidth: 2.5,
-        createdBy: author,
-        updatedAt: now,
-      },
       // Right Wheel Outer
       {
         id: uid(),
@@ -1721,6 +2097,80 @@ function buildFallbackCanvasElements(
         color: '#0f172a',
         fillColor: '#1e293b',
         strokeWidth: 3.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+
+    if (thinkingLevel === 'quick') return list;
+
+    // Standard additions (adds 8 pieces -> total 14)
+    list.unshift({
+      id: uid(),
+      type: 'line',
+      x: centerX - 190,
+      y: centerY + 88,
+      width: 380,
+      height: 0,
+      color: '#64748b',
+      strokeWidth: 3,
+      strokeStyle: 'dashed',
+      createdBy: author,
+      updatedAt: now,
+    });
+    list.push(
+      // Rear Window
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 75,
+        y: centerY - 60,
+        width: 65,
+        height: 45,
+        color: '#0284c7',
+        fillColor: '#bae6fd',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Front Windshield
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 5,
+        y: centerY - 60,
+        width: 70,
+        height: 45,
+        color: '#0284c7',
+        fillColor: '#bae6fd',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Door seam line
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 5,
+        y: centerY - 15,
+        width: 0,
+        height: 60,
+        color: '#1e3a8a',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Left Wheel Inner Rim
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 96,
+        y: centerY + 42,
+        width: 30,
+        height: 30,
+        color: '#64748b',
+        fillColor: '#cbd5e1',
+        strokeWidth: 2.5,
         createdBy: author,
         updatedAt: now,
       },
@@ -1738,21 +2188,437 @@ function buildFallbackCanvasElements(
         createdBy: author,
         updatedAt: now,
       },
-      // Road ground line
+      // Side accent stripe
       {
         id: uid(),
         type: 'line',
-        x: centerX - 190,
-        y: centerY + 88,
-        width: 380,
+        x: centerX - 140,
+        y: centerY + 18,
+        width: 270,
         height: 0,
-        color: '#64748b',
+        color: '#60a5fa',
         strokeWidth: 3,
-        strokeStyle: 'dashed',
         createdBy: author,
         updatedAt: now,
       },
-    ];
+      // Side mirror
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 68,
+        y: centerY - 25,
+        width: 18,
+        height: 12,
+        color: '#1d4ed8',
+        fillColor: '#3b82f6',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      }
+    );
+
+    if (thinkingLevel === 'standard') return list;
+
+    // Detailed additions (+10 pieces -> total 24)
+    list.unshift({
+      id: uid(),
+      type: 'circle',
+      x: centerX - 170,
+      y: centerY + 78,
+      width: 340,
+      height: 22,
+      color: '#475569',
+      fillColor: '#94a3b8',
+      opacity: 0.5,
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    });
+    list.push(
+      // Front bumper splitter
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 120,
+        y: centerY + 48,
+        width: 48,
+        height: 10,
+        color: '#0f172a',
+        fillColor: '#1e293b',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Rear spoiler
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 165,
+        y: centerY - 35,
+        width: 45,
+        height: 10,
+        color: '#0f172a',
+        fillColor: '#1e293b',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Rear spoiler strut
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 150,
+        y: centerY - 25,
+        width: 0,
+        height: 12,
+        color: '#0f172a',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Windshield glare reflection 1
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 18,
+        y: centerY - 55,
+        width: 35,
+        height: 35,
+        color: '#ffffff',
+        opacity: 0.8,
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Windshield glare reflection 2
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 32,
+        y: centerY - 55,
+        width: 25,
+        height: 25,
+        color: '#ffffff',
+        opacity: 0.6,
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Left wheel hub cap
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 86,
+        y: centerY + 52,
+        width: 10,
+        height: 10,
+        color: '#0f172a',
+        fillColor: '#3b82f6',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right wheel hub cap
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 79,
+        y: centerY + 52,
+        width: 10,
+        height: 10,
+        color: '#0f172a',
+        fillColor: '#3b82f6',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Exhaust pipe
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 172,
+        y: centerY + 45,
+        width: 16,
+        height: 8,
+        color: '#475569',
+        fillColor: '#94a3b8',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Door handle
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 10,
+        y: centerY - 3,
+        width: 18,
+        height: 5,
+        color: '#0f172a',
+        fillColor: '#1e293b',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      }
+    );
+
+    if (thinkingLevel === 'detailed') return list;
+
+    // Masterpiece additions (+18 pieces -> total 42 pieces)
+    list.unshift({
+      id: uid(),
+      type: 'circle',
+      x: centerX - 195,
+      y: centerY + 82,
+      width: 390,
+      height: 28,
+      color: '#cbd5e1',
+      fillColor: '#e2e8f0',
+      opacity: 0.6,
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    });
+    list.push(
+      // Left brake caliper (Red sports brake)
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 105,
+        y: centerY + 42,
+        width: 10,
+        height: 18,
+        color: '#991b1b',
+        fillColor: '#ef4444',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right brake caliper (Red sports brake)
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 60,
+        y: centerY + 42,
+        width: 10,
+        height: 18,
+        color: '#991b1b',
+        fillColor: '#ef4444',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Left alloy wheel star spoke
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX - 94,
+        y: centerY + 44,
+        width: 26,
+        height: 26,
+        color: '#e2e8f0',
+        fillColor: '#f8fafc',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Right alloy wheel star spoke
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX + 71,
+        y: centerY + 44,
+        width: 26,
+        height: 26,
+        color: '#e2e8f0',
+        fillColor: '#f8fafc',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Dual LED projector headlight inner
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 146,
+        y: centerY + 12,
+        width: 10,
+        height: 10,
+        color: '#ca8a04',
+        fillColor: '#ffffff',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Headlight glow halo
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 138,
+        y: centerY + 4,
+        width: 26,
+        height: 26,
+        color: '#fef08a',
+        fillColor: '#fef08a',
+        opacity: 0.35,
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Metallic hood glare line
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX + 70,
+        y: centerY - 10,
+        width: 75,
+        height: 0,
+        color: '#93c5fd',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Metallic roof glare line
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 80,
+        y: centerY - 67,
+        width: 160,
+        height: 0,
+        color: '#93c5fd',
+        strokeWidth: 2.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Second spoiler strut
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 135,
+        y: centerY - 25,
+        width: 0,
+        height: 12,
+        color: '#0f172a',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Exhaust fire / glow tip
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX - 180,
+        y: centerY + 46,
+        width: 8,
+        height: 6,
+        color: '#ea580c',
+        fillColor: '#fb923c',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Steering wheel silhouette inside cabin
+      {
+        id: uid(),
+        type: 'circle',
+        x: centerX + 45,
+        y: centerY - 40,
+        width: 16,
+        height: 16,
+        color: '#0f172a',
+        fillColor: 'transparent',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Seat headrest silhouette inside cabin
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX + 15,
+        y: centerY - 46,
+        width: 15,
+        height: 20,
+        color: '#1e293b',
+        fillColor: '#0f172a',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Aerodynamic side skirt
+      {
+        id: uid(),
+        type: 'rounded-rect',
+        x: centerX - 45,
+        y: centerY + 48,
+        width: 95,
+        height: 8,
+        color: '#0f172a',
+        fillColor: '#1e293b',
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Taillight reflector accent
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 158,
+        y: centerY + 24,
+        width: 8,
+        height: 0,
+        color: '#ffffff',
+        opacity: 0.8,
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Sparkle on body
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX + 110,
+        y: centerY - 15,
+        width: 14,
+        height: 14,
+        color: '#ffffff',
+        fillColor: '#ffffff',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Sparkle on rim
+      {
+        id: uid(),
+        type: 'star',
+        x: centerX + 60,
+        y: centerY + 36,
+        width: 12,
+        height: 12,
+        color: '#ffffff',
+        fillColor: '#ffffff',
+        strokeWidth: 1,
+        createdBy: author,
+        updatedAt: now,
+      },
+      // Speed road reflection streak
+      {
+        id: uid(),
+        type: 'line',
+        x: centerX - 130,
+        y: centerY + 94,
+        width: 260,
+        height: 0,
+        color: '#38bdf8',
+        opacity: 0.5,
+        strokeWidth: 1.5,
+        createdBy: author,
+        updatedAt: now,
+      }
+    );
+
+    return list;
   }
 
   // 3. Cat (Kedi)
@@ -3742,8 +4608,8 @@ function buildFallbackCanvasElements(
     ];
   }
 
-  // Generic Harmonious Geometric Artwork (NO card box, NO outer frame, NO text labels!)
-  return [
+  // Generic Harmonious Geometric Artwork scaled across thinkingLevel (NO card box, NO outer frame, NO text labels!)
+  const genericList: CanvasElement[] = [
     {
       id: uid(),
       type: 'diamond',
@@ -3752,7 +4618,7 @@ function buildFallbackCanvasElements(
       width: 180,
       height: 180,
       color: '#6366f1',
-      fillColor: '#e0e7ff',
+      fillColor: '#818cf8',
       strokeWidth: 3,
       createdBy: author,
       updatedAt: now,
@@ -3765,7 +4631,7 @@ function buildFallbackCanvasElements(
       width: 120,
       height: 120,
       color: '#0284c7',
-      fillColor: '#bae6fd',
+      fillColor: '#38bdf8',
       strokeWidth: 2.5,
       createdBy: author,
       updatedAt: now,
@@ -3777,8 +4643,8 @@ function buildFallbackCanvasElements(
       y: centerY - 35,
       width: 70,
       height: 70,
-      color: '#f59e0b',
-      fillColor: '#fef08a',
+      color: '#d97706',
+      fillColor: '#fde047',
       strokeWidth: 3,
       createdBy: author,
       updatedAt: now,
@@ -3790,8 +4656,8 @@ function buildFallbackCanvasElements(
       y: centerY - 80,
       width: 30,
       height: 30,
-      color: '#8b5cf6',
-      fillColor: '#ede9fe',
+      color: '#7c3aed',
+      fillColor: '#a78bfa',
       strokeWidth: 2,
       createdBy: author,
       updatedAt: now,
@@ -3803,13 +4669,538 @@ function buildFallbackCanvasElements(
       y: centerY + 55,
       width: 30,
       height: 30,
-      color: '#8b5cf6',
-      fillColor: '#ede9fe',
+      color: '#7c3aed',
+      fillColor: '#a78bfa',
+      strokeWidth: 2,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 15,
+      y: centerY - 15,
+      width: 30,
+      height: 30,
+      color: '#ffffff',
+      fillColor: '#ffffff',
       strokeWidth: 2,
       createdBy: author,
       updatedAt: now,
     },
   ];
+
+  if (thinkingLevel === 'quick') return genericList;
+
+  // Standard additions (adds 8 pieces -> total 14)
+  genericList.unshift({
+    id: uid(),
+    type: 'circle',
+    x: centerX - 110,
+    y: centerY + 70,
+    width: 220,
+    height: 25,
+    color: '#cbd5e1',
+    fillColor: '#e2e8f0',
+    strokeWidth: 1.5,
+    createdBy: author,
+    updatedAt: now,
+  });
+  genericList.push(
+    {
+      id: uid(),
+      type: 'triangle',
+      x: centerX - 40,
+      y: centerY - 120,
+      width: 80,
+      height: 40,
+      color: '#4f46e5',
+      fillColor: '#6366f1',
+      strokeWidth: 2.5,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'triangle',
+      x: centerX - 40,
+      y: centerY + 80,
+      width: 80,
+      height: 40,
+      color: '#4f46e5',
+      fillColor: '#6366f1',
+      strokeWidth: 2.5,
+      rotation: 180,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'rounded-rect',
+      x: centerX - 45,
+      y: centerY - 45,
+      width: 90,
+      height: 90,
+      color: '#e11d48',
+      fillColor: '#fb7185',
+      strokeWidth: 2,
+      rotation: 45,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 40,
+      y: centerY - 40,
+      width: 80,
+      height: 80,
+      color: '#ffffff',
+      fillColor: 'transparent',
+      strokeWidth: 2,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 6,
+      y: centerY - 6,
+      width: 12,
+      height: 12,
+      color: '#b45309',
+      fillColor: '#f59e0b',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX + 75,
+      y: centerY - 75,
+      width: 25,
+      height: 25,
+      color: '#0284c7',
+      fillColor: '#7dd3fc',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX - 100,
+      y: centerY + 50,
+      width: 25,
+      height: 25,
+      color: '#0284c7',
+      fillColor: '#7dd3fc',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    }
+  );
+
+  if (thinkingLevel === 'standard') return genericList;
+
+  // Detailed additions (+12 pieces -> total 26)
+  genericList.unshift({
+    id: uid(),
+    type: 'circle',
+    x: centerX - 140,
+    y: centerY + 78,
+    width: 280,
+    height: 30,
+    color: '#94a3b8',
+    fillColor: '#cbd5e1',
+    opacity: 0.5,
+    strokeWidth: 1,
+    createdBy: author,
+    updatedAt: now,
+  });
+  genericList.push(
+    {
+      id: uid(),
+      type: 'diamond',
+      x: centerX - 125,
+      y: centerY - 125,
+      width: 250,
+      height: 250,
+      color: '#818cf8',
+      fillColor: 'transparent',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 85,
+      y: centerY - 85,
+      width: 170,
+      height: 170,
+      color: '#38bdf8',
+      fillColor: 'transparent',
+      strokeWidth: 1.5,
+      strokeStyle: 'dashed',
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'triangle',
+      x: centerX - 120,
+      y: centerY - 30,
+      width: 60,
+      height: 60,
+      color: '#059669',
+      fillColor: '#34d399',
+      strokeWidth: 2,
+      rotation: -90,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'triangle',
+      x: centerX + 60,
+      y: centerY - 30,
+      width: 60,
+      height: 60,
+      color: '#059669',
+      fillColor: '#34d399',
+      strokeWidth: 2,
+      rotation: 90,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX - 18,
+      y: centerY - 18,
+      width: 36,
+      height: 36,
+      color: '#b45309',
+      fillColor: '#fef08a',
+      strokeWidth: 2,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 5,
+      y: centerY - 5,
+      width: 10,
+      height: 10,
+      color: '#ffffff',
+      fillColor: '#ffffff',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 130,
+      y: centerY - 15,
+      width: 16,
+      height: 16,
+      color: '#6366f1',
+      fillColor: '#a5b4fc',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX + 115,
+      y: centerY - 15,
+      width: 16,
+      height: 16,
+      color: '#6366f1',
+      fillColor: '#a5b4fc',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 8,
+      y: centerY - 135,
+      width: 16,
+      height: 16,
+      color: '#6366f1',
+      fillColor: '#a5b4fc',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 8,
+      y: centerY + 120,
+      width: 16,
+      height: 16,
+      color: '#6366f1',
+      fillColor: '#a5b4fc',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX - 6,
+      y: centerY - 6,
+      width: 12,
+      height: 12,
+      color: '#ffffff',
+      fillColor: '#ffffff',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    }
+  );
+
+  if (thinkingLevel === 'detailed') return genericList;
+
+  // Masterpiece additions (+18 pieces -> total 44 pieces)
+  genericList.unshift({
+    id: uid(),
+    type: 'circle',
+    x: centerX - 170,
+    y: centerY + 85,
+    width: 340,
+    height: 35,
+    color: '#e2e8f0',
+    fillColor: '#f8fafc',
+    opacity: 0.7,
+    strokeWidth: 1,
+    createdBy: author,
+    updatedAt: now,
+  });
+  genericList.push(
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 150,
+      y: centerY - 150,
+      width: 300,
+      height: 300,
+      color: '#c7d2fe',
+      fillColor: 'transparent',
+      strokeWidth: 1.5,
+      strokeStyle: 'dotted',
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX - 75,
+      y: centerY - 75,
+      width: 150,
+      height: 150,
+      color: '#ca8a04',
+      fillColor: 'transparent',
+      strokeWidth: 2,
+      rotation: 15,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX - 75,
+      y: centerY - 75,
+      width: 150,
+      height: 150,
+      color: '#ca8a04',
+      fillColor: 'transparent',
+      strokeWidth: 2,
+      rotation: 45,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'diamond',
+      x: centerX - 45,
+      y: centerY - 45,
+      width: 90,
+      height: 90,
+      color: '#e11d48',
+      fillColor: '#f43f5e',
+      strokeWidth: 2,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 30,
+      y: centerY - 30,
+      width: 60,
+      height: 60,
+      color: '#fbbf24',
+      fillColor: '#fef3c7',
+      strokeWidth: 2,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 18,
+      y: centerY - 18,
+      width: 36,
+      height: 36,
+      color: '#2563eb',
+      fillColor: '#3b82f6',
+      strokeWidth: 2,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX - 12,
+      y: centerY - 12,
+      width: 24,
+      height: 24,
+      color: '#ffffff',
+      fillColor: '#ffffff',
+      strokeWidth: 1.5,
+      createdBy: author,
+      updatedAt: now,
+    },
+    // 8 Orbital gemstone sparkle points
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX + 55,
+      y: centerY + 55,
+      width: 16,
+      height: 16,
+      color: '#f59e0b',
+      fillColor: '#fef08a',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX - 70,
+      y: centerY - 70,
+      width: 16,
+      height: 16,
+      color: '#f59e0b',
+      fillColor: '#fef08a',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX + 55,
+      y: centerY - 70,
+      width: 16,
+      height: 16,
+      color: '#f59e0b',
+      fillColor: '#fef08a',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX - 70,
+      y: centerY + 55,
+      width: 16,
+      height: 16,
+      color: '#f59e0b',
+      fillColor: '#fef08a',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX + 135,
+      y: centerY - 8,
+      width: 12,
+      height: 12,
+      color: '#38bdf8',
+      fillColor: '#bae6fd',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 145,
+      y: centerY - 8,
+      width: 12,
+      height: 12,
+      color: '#38bdf8',
+      fillColor: '#bae6fd',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 6,
+      y: centerY - 150,
+      width: 12,
+      height: 12,
+      color: '#38bdf8',
+      fillColor: '#bae6fd',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'circle',
+      x: centerX - 6,
+      y: centerY + 138,
+      width: 12,
+      height: 12,
+      color: '#38bdf8',
+      fillColor: '#bae6fd',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: uid(),
+      type: 'star',
+      x: centerX - 5,
+      y: centerY - 5,
+      width: 10,
+      height: 10,
+      color: '#ffffff',
+      fillColor: '#ffffff',
+      strokeWidth: 1,
+      createdBy: author,
+      updatedAt: now,
+    }
+  );
+
+  return genericList;
 }
 
 // Gemini AI Canvas Vector Object & Diagram Generator Endpoint
@@ -3819,6 +5210,8 @@ app.post('/api/ai/generate-canvas', async (req, res) => {
     centerX = 500,
     centerY = 350,
     author = 'AI Asistanı',
+    thinkingLevel = 'standard',
+    targetDuration = 20,
   } = req.body || {};
 
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -3832,9 +5225,19 @@ app.post('/api/ai/generate-canvas', async (req, res) => {
       trimmedPrompt
     );
 
+  const durationSec = Number(targetDuration) || 20;
+  const timeoutMs =
+    thinkingLevel === 'masterpiece' || durationSec >= 55
+      ? 75000
+      : thinkingLevel === 'detailed' || durationSec >= 30
+      ? 48000
+      : thinkingLevel === 'quick' || durationSec <= 15
+      ? 22000
+      : 32000;
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    const fallbackElements = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author);
+    const fallbackElements = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author, thinkingLevel);
     res.json({ elements: fallbackElements, source: 'fallback' });
     return;
   }
@@ -3849,6 +5252,34 @@ app.post('/api/ai/generate-canvas', async (req, res) => {
       },
     });
 
+    let depthInstruction = '';
+    let targetPieceCount = '10 ila 18';
+
+    if (thinkingLevel === 'masterpiece' || durationSec >= 55) {
+      targetPieceCount = '35 ila 55';
+      depthInstruction = `
+ZAMAN VE DERİN DÜŞÜNME SEVİYESİ: EN ÜST SEVİYE BAŞYAPIT & DERİN DÜŞÜNME (1 DAKİKA / 60 SANİYE).
+Kullanıcı en üst düzey usta işi başyapıtı talep etti.
+- 35 ila 55 adet incelikli, birbiriyle uyumlu geometrik parça üret.
+- Nesnenin 3B hacmini hissettiren çoklu katmanlar, zemin temas gölgesi, ışık parlamaları, gölgelendirmeler, ince hatlar ve zengin detaylar ekle.`;
+    } else if (thinkingLevel === 'detailed' || durationSec >= 30) {
+      targetPieceCount = '20 ila 32';
+      depthInstruction = `
+ZAMAN VE DERİN DÜŞÜNME SEVİYESİ: AYRINTILI & ZENGİN (35 SANİYE).
+- 20 ila 32 adet özenle konumlandırılmış geometrik parça üret.
+- Zengin renk tonları, alt zemin gölgesi ve ince detaylar ekle.`;
+    } else if (thinkingLevel === 'quick' || durationSec <= 15) {
+      targetPieceCount = '5 ila 8';
+      depthInstruction = `
+ZAMAN VE DERİN DÜŞÜNME SEVİYESİ: HIZLI & TASLAK (10 SANİYE).
+- Yalnızca 5 ila 8 adet temel geometrik parça ile nesneyi en yalın, hızlı ve net minimalist taslak haliyle çiz.`;
+    } else {
+      targetPieceCount = '10 ila 18';
+      depthInstruction = `
+ZAMAN VE DERİN DÜŞÜNME SEVİYESİ: STANDART DENGELİ (20 SANİYE).
+- 10 ila 18 adet geometrik parça kullan. Dengeli, orantılı ve net olsun.`;
+    }
+
     const systemInstruction = isDiagram
       ? `Sen profesyonel bir beyaz tahta (whiteboard) diyagram ve şema mimarısın.
 Kullanıcının isteğini doğrudan tuvalde düzenlenebilir akış şeması öğeleri (rounded-rect, diamond, sticky, arrow, text) olarak tasarla.
@@ -3858,84 +5289,109 @@ Kullanıcının istediği "${trimmedPrompt}" nesnesini, doğrudan tuval (canvas)
 
 Merkez koordinatı: (centerX = ${Math.round(centerX)}, centerY = ${Math.round(centerY)}).
 Tüm öğeleri bu merkezin etrafında dengeli, orantılı ve simetrik konumlandır (örneğin genişlik 160px ise x koordinatları centerX - 80 civarında başlamalı).
+${depthInstruction}
 
 HAYATİ VE KESİN KURALLAR:
 1. ETİKET / BAŞLIK / YAZI KESİNLİKLE YASAKTIR: Çizimin altına, üstüne, içine veya kenarına nesnenin adını veya ne olduğunu belirten hiçbir "text" (yazı) öğesi EKLEME! Kullanıcı ne istediğini biliyor (örneğin "Elma", "Araba", "Kedi" yazısı ASLA KOYMA). Yalnızca saf geometrik şekillerden oluşan çizim yap.
 2. ÇERÇEVE / KART KUTUSU YASAKTIR: Çizimin etrafına sınır çizgisi, kart kutusu, arka plan kutusu (bounding box) veya çerçeve ÇİZME. Sadece nesnenin kendi parçalarını çiz.
-3. GERÇEKÇİ GEOMETRİK PARÇA BİRLEŞİMİ:
-   İstenilen nesneyi oluşturan gerçek parçaları hayal et ve orantılı koordinatlarla birleştir:
+3. TÜM PARÇALARIN GERÇEK GENİŞLİK, YÜKSEKLİK VE RENKLERİ OLMALIDIR:
+   - type: circle, rounded-rect, rectangle, triangle, diamond, star, arrow, line
+   - width ve height değerleri kesinlikle pozitif, gerçek boyutlar olmalıdır.
+   - color: kenar çizgi rengi (örn #1e293b, #0f172a, #b91c1c).
+   - fillColor: İÇ DOLGU RENGİ KESİNLİKLE OPAK VE CANLI OLMALIDIR (örn #ef4444, #3b82f6, #fde047, #22c55e). Şekilleri asla boş/saydam bırakma!
+4. GERÇEKÇİ GEOMETRİK PARÇA BİRLEŞİMİ:
+   İstenilen nesneyi oluşturan gerçek parçaları hayal et ve orantılı koordinatlarla birleştir (${targetPieceCount} parça):
    - Örneğin Araba: tekerlekler için daireler (dış lastik ve iç jant), şasi için rounded-rect, kabin/tavan için rounded-rect, pencereler için açık mavi kutular, farlar için sarı daireler.
    - Örneğin Kedi/Köpek: kafa ve gövde için daireler, kulaklar için üçgenler/yuvarlatılmış kutular, gözler ve burun için küçük daire/üçgenler, bıyıklar için çizgiler.
-   - Örneğin Elma/Meyve: gövde için daire/elips loblar, sap için kahverengi ince kutu, yaprak için yeşil üçgen, parlama için beyaz elips.
-   - Örneğin Uçak/Gemi/Tren/Bisiklet/Kahve/Pizza: ana gövde, detaylar, pencereler, parçalar.
-4. RENKLER: Her parça için gerçekçi, canlı ve doğal renkler (color: kenar çizgisi, fillColor: iç dolgu rengi) seç.
-5. 6 ila 20 adet özenle konumlandırılmış parça üret.`;
+   - Örneğin Elma/Meyve: gövde için daire/elips loblar, sap için kahverengi kutu, yaprak için yeşil üçgen, parlama için beyaz elips.`;
 
-    const generatePromise = ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite',
-      contents: isDiagram
-        ? `Kullanıcı Şema İsteği: "${trimmedPrompt}"`
-        : `Kullanıcı Çizim İsteği: "${trimmedPrompt}". Bu nesnenin kendisini şekillerle çiz. Kesinlikle şema kutusu veya yazı etiketi koyma!`,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summary: {
-              type: Type.STRING,
-              description: 'Oluşturulan çizim veya nesnenin kısa Türkçe açıklaması',
-            },
-            elements: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  type: {
-                    type: Type.STRING,
-                    description:
-                      'rectangle, rounded-rect, circle, diamond, triangle, star, arrow, line, sticky, veya text',
-                  },
-                  x: { type: Type.NUMBER },
-                  y: { type: Type.NUMBER },
-                  width: { type: Type.NUMBER },
-                  height: { type: Type.NUMBER },
-                  color: { type: Type.STRING },
-                  fillColor: { type: Type.STRING },
-                  strokeWidth: { type: Type.NUMBER },
-                  strokeStyle: {
-                    type: Type.STRING,
-                    description: 'solid, dashed, veya dotted',
-                  },
-                  text: { type: Type.STRING },
-                  fontSize: { type: Type.NUMBER },
-                  rotation: { type: Type.NUMBER },
+    const schemaConfig = {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          summary: {
+            type: Type.STRING,
+            description: 'Oluşturulan çizim veya nesnenin kısa Türkçe açıklaması',
+          },
+          elements: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                type: {
+                  type: Type.STRING,
+                  description:
+                    'circle, rounded-rect, rectangle, triangle, diamond, star, arrow, line, sticky, veya text',
                 },
-                required: ['type', 'x', 'y'],
+                x: { type: Type.NUMBER },
+                y: { type: Type.NUMBER },
+                width: { type: Type.NUMBER },
+                height: { type: Type.NUMBER },
+                color: { type: Type.STRING },
+                fillColor: { type: Type.STRING },
+                strokeWidth: { type: Type.NUMBER },
+                rotation: { type: Type.NUMBER },
               },
+              required: ['type', 'x', 'y', 'width', 'height', 'color', 'fillColor'],
             },
           },
-          required: ['elements'],
         },
+        required: ['elements'],
       },
-    });
+    };
 
-    let timer: NodeJS.Timeout | null = null;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error('AI generation timeout'));
-      }, 12000);
-    });
+    const promptText = isDiagram
+      ? `Kullanıcı Şema İsteği: "${trimmedPrompt}". Düşünme Seviyesi: ${thinkingLevel}.`
+      : `Kullanıcı Çizim İsteği: "${trimmedPrompt}". Düşünme Seviyesi: ${thinkingLevel} (~${durationSec} saniye). Hedef: ${targetPieceCount} parça. Bu nesnenin kendisini zengin renkli geometrik şekillerle çiz. Kesinlikle çerçeve kutusu veya yazı etiketi koyma!`;
 
-    let response;
-    try {
-      response = await Promise.race([generatePromise, timeoutPromise]);
-    } finally {
-      if (timer) clearTimeout(timer);
+    // Multi-model resilient strategy with budget tracking
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
+    let responseText = '';
+    const loopStartTime = Date.now();
+
+    for (const modelName of modelsToTry) {
+      const elapsed = Date.now() - loopStartTime;
+      const remainingMs = timeoutMs - elapsed;
+      if (remainingMs < 5000) {
+        break;
+      }
+      const attemptTimeoutMs = Math.min(remainingMs, timeoutMs);
+
+      try {
+        let timer: NodeJS.Timeout | null = null;
+        const generatePromise = ai.models.generateContent({
+          model: modelName,
+          contents: promptText,
+          config: schemaConfig,
+        });
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`Timeout on ${modelName}`));
+          }, attemptTimeoutMs);
+        });
+
+        const resObj = await Promise.race([generatePromise, timeoutPromise]);
+        if (timer) clearTimeout(timer);
+        if (resObj && resObj.text) {
+          responseText = resObj.text;
+          break;
+        }
+      } catch (mErr) {
+        console.log(`[AI Canvas] Model ${modelName} notice:`, (mErr as Error)?.message || mErr);
+      }
     }
 
-    const rawText = response.text || '{}';
-    const parsed = JSON.parse(rawText);
+    if (!responseText) {
+      console.log('[AI Canvas] Model response unavailable, using quality-tiered procedural engine for:', trimmedPrompt);
+      const fallback = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author, thinkingLevel);
+      res.json({ elements: fallback, summary: `${trimmedPrompt} tuvale çizildi.` });
+      return;
+    }
+
+    const parsed = JSON.parse(responseText);
     const rawElements = Array.isArray(parsed.elements) ? parsed.elements : [];
 
     const allowedTypes = new Set([
@@ -3954,28 +5410,47 @@ HAYATİ VE KESİN KURALLAR:
     const now = Date.now();
     let sanitized: CanvasElement[] = rawElements
       .filter((el: Record<string, unknown>) => el && typeof el.type === 'string' && allowedTypes.has(el.type))
-      .map((el: Record<string, unknown>, idx: number) => ({
-        id: `ai-${now}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-        type: el.type as CanvasElement['type'],
-        x: Number(el.x) || centerX,
-        y: Number(el.y) || centerY,
-        width: el.width !== undefined ? Number(el.width) : el.type === 'sticky' ? 180 : 120,
-        height: el.height !== undefined ? Number(el.height) : el.type === 'sticky' ? 150 : 80,
-        color: typeof el.color === 'string' && el.color ? el.color : '#0f172a',
-        fillColor:
-          typeof el.fillColor === 'string' && el.fillColor ? el.fillColor : 'transparent',
-        strokeWidth: Number(el.strokeWidth) || 3,
-        strokeStyle:
-          el.strokeStyle === 'dashed' || el.strokeStyle === 'dotted' ? el.strokeStyle : 'solid',
-        opacity: 1,
-        text: typeof el.text === 'string' ? el.text : undefined,
-        fontSize: Number(el.fontSize) || (el.type === 'sticky' ? 15 : 18),
-        rotation: Number(el.rotation) || 0,
-        flipX: false,
-        flipY: false,
-        createdBy: author,
-        updatedAt: now,
-      }));
+      .map((el: Record<string, unknown>, idx: number) => {
+        const stroke = typeof el.color === 'string' && el.color ? el.color : '#0f172a';
+        let fill = typeof el.fillColor === 'string' && el.fillColor ? el.fillColor.trim() : '';
+
+        // Guarantee solid visible fill for closed shapes
+        if (!fill || fill === 'transparent') {
+          if (
+            el.type === 'circle' ||
+            el.type === 'rectangle' ||
+            el.type === 'rounded-rect' ||
+            el.type === 'triangle' ||
+            el.type === 'diamond' ||
+            el.type === 'star'
+          ) {
+            fill = stroke !== '#0f172a' ? stroke : '#3b82f6';
+          } else {
+            fill = 'transparent';
+          }
+        }
+
+        return {
+          id: `ai-${now}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+          type: el.type as CanvasElement['type'],
+          x: Number(el.x) || centerX,
+          y: Number(el.y) || centerY,
+          width: el.width !== undefined && Number(el.width) > 0 ? Number(el.width) : el.type === 'sticky' ? 180 : 80,
+          height: el.height !== undefined && Number(el.height) > 0 ? Number(el.height) : el.type === 'sticky' ? 150 : 80,
+          color: stroke,
+          fillColor: fill,
+          strokeWidth: Number(el.strokeWidth) || 2.5,
+          strokeStyle: 'solid',
+          opacity: 1,
+          text: typeof el.text === 'string' ? el.text : undefined,
+          fontSize: 16,
+          rotation: Number(el.rotation) || 0,
+          flipX: false,
+          flipY: false,
+          createdBy: author,
+          updatedAt: now,
+        };
+      });
 
     // Post-processing: If it's a physical drawing, strip any unwanted text labels or framing cards
     if (!isDiagram) {
@@ -4011,7 +5486,7 @@ HAYATİ VE KESİN KURALLAR:
     }
 
     if (sanitized.length === 0) {
-      const fallback = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author);
+      const fallback = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author, thinkingLevel);
       res.json({ elements: fallback, summary: `${trimmedPrompt} tuvale çizildi.` });
       return;
     }
@@ -4023,7 +5498,7 @@ HAYATİ VE KESİN KURALLAR:
   } catch (err: unknown) {
     if (res.headersSent) return;
     console.warn('Gemini canvas generation fallback triggered:', (err as Error)?.message || err);
-    const fallback = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author);
+    const fallback = buildFallbackCanvasElements(trimmedPrompt, centerX, centerY, author, thinkingLevel);
     res.json({
       elements: fallback,
       summary: `${trimmedPrompt} tuvale çizildi.`,
@@ -4038,6 +5513,8 @@ app.post('/api/ai/generate-image', async (req, res) => {
     centerX = 500,
     centerY = 350,
     author = 'AI Görsel',
+    thinkingLevel = 'standard',
+    targetDuration = 20,
   } = req.body || {};
 
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -4050,6 +5527,16 @@ app.post('/api/ai/generate-image', async (req, res) => {
   const height = 300;
   const now = Date.now();
   const elementId = `ai-img-${now}-${Math.random().toString(36).substring(2, 6)}`;
+
+  const durationSec = Number(targetDuration) || 20;
+  const timeoutMs =
+    thinkingLevel === 'masterpiece' || durationSec >= 55
+      ? 75000
+      : thinkingLevel === 'detailed' || durationSec >= 30
+      ? 48000
+      : thinkingLevel === 'quick' || durationSec <= 15
+      ? 22000
+      : 32000;
 
   const createResult = (svgCode: string, summary: string) => ({
     element: {
@@ -4074,7 +5561,7 @@ app.post('/api/ai/generate-image', async (req, res) => {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    const fallbackSvg = buildFallbackSvg(trimmedPrompt);
+    const fallbackSvg = buildFallbackSvg(trimmedPrompt, thinkingLevel);
     res.json(createResult(fallbackSvg, `${trimmedPrompt} görseli tahtaya eklendi.`));
     return;
   }
@@ -4089,32 +5576,63 @@ app.post('/api/ai/generate-image', async (req, res) => {
       },
     });
 
-    const generatePromise = ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite',
-      contents: `Sen yetenekli bir SVG illüstratörüsün. Kullanıcının istediği "${trimmedPrompt}" nesnesi için modern, temiz, zengin renkli ve gölgeli bir vektörel SVG çizimi oluştur.
+    let depthSvgInstruction = '';
+    if (thinkingLevel === 'masterpiece' || durationSec >= 55) {
+      depthSvgInstruction = 'KALİTE VE DÜŞÜNME SEVİYESİ: EN ÜST SEVİYE BAŞYAPIT (1 DAKİKA). Sanatsal bir başyapıt kalitesinde, incelikli gölgelendirmeler, sofistike çoklu degrade (gradient) geçişleri, ışık oyunları ve zengin detaylarla dolu profesyonel bir SVG illüstrasyonu oluştur.';
+    } else if (thinkingLevel === 'detailed' || durationSec >= 30) {
+      depthSvgInstruction = 'KALİTE VE DÜŞÜNME SEVİYESİ: AYRINTILI (35 SANİYE). Zengin renk geçişleri, gölgeler ve detaylı SVG elemanları kullan.';
+    } else if (thinkingLevel === 'quick' || durationSec <= 15) {
+      depthSvgInstruction = 'KALİTE VE DÜŞÜNME SEVİYESİ: HIZLI & SADE (10 SANİYE). Minimalist, temiz ve sade bir flat vektörel illüstrasyon oluştur.';
+    } else {
+      depthSvgInstruction = 'KALİTE VE DÜŞÜNME SEVİYESİ: STANDART DENGELİ (20 SANİYE). Temiz, modern ve dengeli bir vektör SVG çizimi oluştur.';
+    }
+
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-flash-latest'];
+    let rawSvg = '';
+    const loopStartTime = Date.now();
+
+    for (const modelName of modelsToTry) {
+      const elapsed = Date.now() - loopStartTime;
+      const remainingMs = timeoutMs - elapsed;
+      if (remainingMs < 5000) {
+        break;
+      }
+      const attemptTimeoutMs = Math.min(remainingMs, timeoutMs);
+
+      try {
+        let timer: NodeJS.Timeout | null = null;
+        const generatePromise = ai.models.generateContent({
+          model: modelName,
+          contents: `Sen yetenekli bir SVG illüstratörüsün. Kullanıcının istediği "${trimmedPrompt}" nesnesi için modern, temiz, zengin renkli ve gölgeli bir vektörel SVG çizimi oluştur.
+${depthSvgInstruction}
+
 HAYATİ VE ZORUNLU KURALLAR:
 1. ARKA PLAN TAMAMEN ŞEFFAF OLMALIDIR: Kesinlikle arka planı kaplayan <rect> (dikdörtgen), kart arka planı, kutu veya çerçeve ÇİZMEYİN.
 2. DIŞ ÇERÇEVE YASAKTIR: Görselin veya nesnenin etrafında KESİNLİKLE hiçbir dış çerçeve (border/frame/outline kutusu) olmamalıdır.
 3. YAZI/METİN YASAKTIR: Görselin içine, altına veya üstüne KESİNLİKLE metin, yazı, etiket veya isim YAZMAYIN.
 4. SADECE DOĞRUDAN NESNENİN KENDİSİNİ ÇİZİN: Çizim tamamen nesnenin kendi formundan ve detaylarından oluşmalıdır.
 5. SADECE geçerli bir <svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">...</svg> XML kodu döndür. Markdown codeblock (\`\`\`xml) veya hiçbir açıklama ekleme.`,
-    });
+        });
 
-    let timer: NodeJS.Timeout | null = null;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error('AI image generation timeout'));
-      }, 12000);
-    });
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`Timeout on ${modelName}`));
+          }, attemptTimeoutMs);
+        });
 
-    let response;
-    try {
-      response = await Promise.race([generatePromise, timeoutPromise]);
-    } finally {
-      if (timer) clearTimeout(timer);
+        const resObj = await Promise.race([generatePromise, timeoutPromise]);
+        if (timer) clearTimeout(timer);
+        if (resObj && resObj.text) {
+          rawSvg = (resObj.text || '').trim();
+          if (rawSvg.includes('<svg') && rawSvg.includes('</svg>')) {
+            break;
+          }
+        }
+      } catch (mErr) {
+        console.log(`[AI Image] Model ${modelName} notice:`, (mErr as Error)?.message || mErr);
+      }
     }
 
-    let rawSvg = (response.text || '').trim();
     // Strip markdown fences if present
     rawSvg = rawSvg.replace(/^```(xml|svg)?/i, '').replace(/```$/i, '').trim();
 
@@ -4131,12 +5649,14 @@ HAYATİ VE ZORUNLU KURALLAR:
       return;
     }
 
-    const fallbackSvg = buildFallbackSvg(trimmedPrompt);
+    console.log('[AI Image] Model response unavailable, using quality-tiered SVG generator for:', trimmedPrompt);
+    const fallbackSvg = buildFallbackSvg(trimmedPrompt, thinkingLevel);
     res.json(createResult(fallbackSvg, `${trimmedPrompt} görseli tahtaya eklendi.`));
+    return;
   } catch (err: unknown) {
     if (res.headersSent) return;
-    console.warn('Gemini image generation fallback triggered:', (err as Error)?.message || err);
-    const fallbackSvg = buildFallbackSvg(trimmedPrompt);
+    console.log('[AI Image] Catch handler reached, returning quality-tiered fallback SVG:', (err as Error)?.message || err);
+    const fallbackSvg = buildFallbackSvg(trimmedPrompt, thinkingLevel);
     res.json(createResult(fallbackSvg, `${trimmedPrompt} görseli tahtaya eklendi.`));
   }
 });
