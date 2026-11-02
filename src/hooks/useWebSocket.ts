@@ -84,15 +84,103 @@ export function useWebSocket({
   const onKickedRef = useRef(onKicked);
   onKickedRef.current = onKicked;
 
-  // Safe sender helper
-  const sendMessage = useCallback((msg: object) => {
-    const payload = JSON.stringify(msg);
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(payload);
-    } else {
-      pendingQueue.current.push(payload);
-    }
-  }, []);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const httpFallbackBaseRef = useRef<string>('');
+
+  // Safe sender helper (WebSocket + BroadcastChannel + HTTP Fallback)
+  const sendMessage = useCallback(
+    (msg: object) => {
+      const payload = JSON.stringify(msg);
+
+      // Broadcast across local tabs/windows immediately
+      if (broadcastChannelRef.current) {
+        try {
+          broadcastChannelRef.current.postMessage(payload);
+        } catch {
+          // Ignore BroadcastChannel error
+        }
+      }
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(payload);
+      } else {
+        pendingQueue.current.push(payload);
+        // Keep queue bounded
+        if (pendingQueue.current.length > 100) {
+          pendingQueue.current.shift();
+        }
+
+        // If WS is not open, push important state mutations via HTTP REST fallback
+        const typedMsg = msg as {
+          type?: string;
+          element?: CanvasElement;
+          elements?: CanvasElement[];
+          content?: string;
+          language?: string;
+          userName?: string;
+          text?: string;
+          userColor?: string;
+        };
+        const base = httpFallbackBaseRef.current;
+        if (
+          typedMsg.type === 'element-create' &&
+          typedMsg.element
+        ) {
+          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ elements: [typedMsg.element] }),
+          }).catch(() => {});
+        } else if (
+          (typedMsg.type === 'elements-replace' || typedMsg.type === 'elements-load-template') &&
+          Array.isArray(typedMsg.elements)
+        ) {
+          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ elements: typedMsg.elements }),
+          }).catch(() => {});
+        } else if (typedMsg.type === 'code-change' && typeof typedMsg.content === 'string') {
+          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              code: {
+                content: typedMsg.content,
+                language: typedMsg.language || 'javascript',
+                lastUpdatedBy: typedMsg.userName || userRef.current.name,
+              },
+            }),
+          }).catch(() => {});
+        } else if (typedMsg.type === 'notes-change' && typeof typedMsg.content === 'string') {
+          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              notes: {
+                content: typedMsg.content,
+                lastUpdatedBy: typedMsg.userName || userRef.current.name,
+              },
+            }),
+          }).catch(() => {});
+        } else if (typedMsg.type === 'chat-message' && typedMsg.text) {
+          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chatMessage: {
+                text: typedMsg.text,
+                userName: typedMsg.userName || userRef.current.name,
+                userColor: typedMsg.userColor || userRef.current.color,
+                userId: userRef.current.id,
+              },
+            }),
+          }).catch(() => {});
+        }
+      }
+    },
+    [roomId]
+  );
 
   // Sync user profile changes without dropping socket
   useEffect(() => {
@@ -110,16 +198,82 @@ export function useWebSocket({
   useEffect(() => {
     let isCancelled = false;
 
+    // Setup BroadcastChannel for instant local cross-tab/window sync
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const bc = new BroadcastChannel(`collabboard_room_${roomId}`);
+        broadcastChannelRef.current = bc;
+        bc.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'element-create' && msg.element) {
+              setElements((prev) =>
+                prev.some((el) => el.id === msg.element.id)
+                  ? prev.map((el) => (el.id === msg.element.id ? msg.element : el))
+                  : [...prev, msg.element]
+              );
+            } else if (msg.type === 'element-update' && msg.id) {
+              setElements((prev) =>
+                prev.map((el) =>
+                  el.id === msg.id ? { ...el, ...msg.changes, updatedAt: Date.now() } : el
+                )
+              );
+            } else if (msg.type === 'element-delete' && Array.isArray(msg.ids)) {
+              const idSet = new Set(msg.ids);
+              setElements((prev) => prev.filter((el) => !idSet.has(el.id)));
+            } else if (
+              (msg.type === 'elements-replace' || msg.type === 'elements-load-template') &&
+              Array.isArray(msg.elements)
+            ) {
+              setElements(msg.elements);
+            } else if (msg.type === 'elements-clear') {
+              setElements([]);
+            } else if (msg.type === 'code-change' && typeof msg.content === 'string') {
+              setCode((prev) => ({
+                content: msg.content,
+                language: msg.language || prev.language,
+                lastUpdatedBy: msg.userName || 'Kullanıcı',
+              }));
+            } else if (msg.type === 'notes-change' && typeof msg.content === 'string') {
+              setNotes({
+                content: msg.content,
+                lastUpdatedBy: msg.userName || 'Kullanıcı',
+              });
+            }
+          } catch {
+            // Ignore malformed message
+          }
+        };
+      } catch {
+        // Ignore BroadcastChannel unsupported
+      }
+    }
+
     function resolveWsUrl(): string | null {
       try {
         const params = new URLSearchParams(window.location.search);
         const serverFromQuery = params.get('server');
-        if (serverFromQuery && serverFromQuery.startsWith('ws')) {
-          localStorage.setItem('collab_ws_server', serverFromQuery.trim());
-          return serverFromQuery.trim();
+        if (serverFromQuery) {
+          const clean = serverFromQuery.trim().replace(/\/+$/, '');
+          if (clean.startsWith('ws://') || clean.startsWith('wss://')) {
+            localStorage.setItem('collab_ws_server', clean);
+            httpFallbackBaseRef.current = clean
+              .replace(/^wss:/, 'https:')
+              .replace(/^ws:/, 'http:');
+            return clean;
+          } else if (clean.startsWith('http://') || clean.startsWith('https://')) {
+            const wsConverted = clean.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+            localStorage.setItem('collab_ws_server', wsConverted);
+            httpFallbackBaseRef.current = clean;
+            return wsConverted;
+          }
         }
         const savedServer = localStorage.getItem('collab_ws_server');
-        if (savedServer && savedServer.startsWith('ws')) {
+        if (savedServer && (savedServer.startsWith('ws://') || savedServer.startsWith('wss://'))) {
+          httpFallbackBaseRef.current = savedServer
+            .trim()
+            .replace(/^wss:/, 'https:')
+            .replace(/^ws:/, 'http:');
           return savedServer.trim();
         }
       } catch {
@@ -136,12 +290,46 @@ export function useWebSocket({
         host.endsWith('.vercel.app');
 
       if (isStaticHost) {
-        // On static hosts without a custom WS backend URL, rely on Firebase Cloud Sync
         return null;
       }
 
+      httpFallbackBaseRef.current = '';
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       return `${protocol}//${window.location.host}`;
+    }
+
+    async function fetchRoomRestFallback() {
+      try {
+        const base = httpFallbackBaseRef.current;
+        const res = await fetch(
+          `${base}/api/rooms/${encodeURIComponent(roomId)}?roomName=${encodeURIComponent(roomName)}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (isCancelled) return;
+        if (data.name) setSyncedRoomName(data.name);
+        if (data.settings) setRoomSettings(data.settings);
+        if (Array.isArray(data.elements) && data.elements.length > 0) {
+          setElements(data.elements);
+        }
+        if (data.code && typeof data.code.content === 'string') {
+          setCode(data.code);
+        }
+        if (data.notes && typeof data.notes.content === 'string') {
+          setNotes(data.notes);
+        }
+        if (Array.isArray(data.messages) && data.messages.length > 0) {
+          setChatMessages(data.messages);
+        }
+        if (Array.isArray(data.rooms)) {
+          setRoomsList(data.rooms);
+        }
+        if (data.limits) {
+          setServerLimits(data.limits);
+        }
+      } catch {
+        // Ignore if static host without backend
+      }
     }
 
     function connect() {
@@ -168,6 +356,10 @@ export function useWebSocket({
         ]);
         return;
       }
+
+      // Immediately fetch initial room snapshot over HTTP in parallel so mobile/invited devices
+      // render the room state even before WebSocket upgrade finishes
+      fetchRoomRestFallback();
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -504,6 +696,14 @@ export function useWebSocket({
       }
       if (wsRef.current) {
         wsRef.current.close();
+      }
+      if (broadcastChannelRef.current) {
+        try {
+          broadcastChannelRef.current.close();
+        } catch {
+          // Ignore
+        }
+        broadcastChannelRef.current = null;
       }
     };
   }, [roomId]);

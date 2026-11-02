@@ -16,7 +16,7 @@ import { TemplatesModal } from './components/TemplatesModal';
 import { ExportModal } from './components/ExportModal';
 import { UserSetupModal } from './components/UserSetupModal';
 import { AIPromptModal } from './components/AIPromptModal';
-import { RoomsModal } from './components/RoomsModal';
+import { RoomsModal, decodeRoomSnapshot } from './components/RoomsModal';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 
 export default function App() {
@@ -26,8 +26,13 @@ export default function App() {
     return params.get('room') || 'ana-oda';
   };
 
+  const getInitialRoomName = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('rname') || '';
+  };
+
   const [roomId, setRoomId] = useState<string>(getInitialRoomId);
-  const [customRoomName, setCustomRoomName] = useState<string>('');
+  const [customRoomName, setCustomRoomName] = useState<string>(getInitialRoomName);
   const fallbackRoomName = useMemo(() => {
     if (customRoomName.trim()) return customRoomName.trim();
     return roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : `Oda #${roomId}`;
@@ -192,6 +197,25 @@ export default function App() {
       [updateCode, updateNotes, loadTemplate]
     ),
   });
+
+  // Restore embedded snapshot from invite URL (?snap=...) if present on initial load
+  const appliedUrlSnapRef = useRef(false);
+  useEffect(() => {
+    if (appliedUrlSnapRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const snapParam = params.get('snap');
+    if (!snapParam) return;
+    appliedUrlSnapRef.current = true;
+    const decoded = decodeRoomSnapshot(snapParam);
+    if (decoded) {
+      if (decoded.elements && decoded.elements.length > 0) {
+        loadTemplate(decoded.elements);
+      }
+      if (decoded.codeContent) {
+        updateCode(decoded.codeContent, decoded.codeLanguage);
+      }
+    }
+  }, [loadTemplate, updateCode]);
 
   // If user becomes a viewer, switch active tool to 'select' if currently on a drawing tool
   useEffect(() => {
@@ -832,7 +856,7 @@ export default function App() {
         />
       )}
 
-      {/* Rooms, Permissions, Role System & Invite Modal */}
+      {/* Rooms, Permissions, Role System, QR Code & Invite Modal */}
       {isRoomsModalOpen && (
         <RoomsModal
           currentRoomId={roomId}
@@ -845,6 +869,8 @@ export default function App() {
           currentUserRole={currentUserRole}
           canManage={canManage}
           initialTab={roomsModalTab}
+          elements={elements}
+          code={code}
           firebaseUserEmail={firebaseUser?.email}
           isSyncingCloud={isSyncingCloud}
           lastCloudSyncAt={lastCloudSyncAt}
@@ -861,6 +887,9 @@ export default function App() {
           onSignOutFirebase={signOutFirebase}
           onSyncToCloud={() => {
             syncRoomToCloud();
+          }}
+          onAddQrToCanvas={(qrDataUrl) => {
+            handleAddImageToCanvas(qrDataUrl, 220, 220);
           }}
           onRefreshRooms={requestRoomsList}
           onSelectRoom={(targetRoomId, targetRoomName) => {

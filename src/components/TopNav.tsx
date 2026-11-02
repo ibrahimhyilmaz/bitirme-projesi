@@ -17,6 +17,7 @@ import {
   Shield,
   DoorOpen,
   Wand2,
+  QrCode,
 } from 'lucide-react';
 import { RoomSettings, UserPresence, UserRole } from '../types';
 import { getShareableRoomUrl } from './RoomsModal';
@@ -79,7 +80,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   const [copied, setCopied] = useState(false);
 
   const handleCopyLink = async () => {
-    const shareUrl = getShareableRoomUrl(roomId);
+    const shareUrl = getShareableRoomUrl(roomId, { roomName });
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(shareUrl);
@@ -147,15 +148,18 @@ export const TopNav: React.FC<TopNavProps> = ({
               handleCopyLink();
               onOpenRoomsModal('invite');
             }}
-            title="Herkese Açık (403 Hatasız) Oda Davet Bağlantısını Kopyala & Paylaş"
-            className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            title="QR Kod İle Cihaz Davet Et ve Oda Bağlantısını Paylaş"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50/70 hover:bg-blue-100/80 border border-blue-200/70 rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
             {copied ? (
               <Check className="w-3.5 h-3.5 text-emerald-600" />
             ) : (
-              <Share2 className="w-3.5 h-3.5" />
+              <>
+                <QrCode className="w-3.5 h-3.5" />
+                <Share2 className="w-3 h-3 hidden sm:inline" />
+              </>
             )}
-            <span>{copied ? 'Kopyalandı' : 'Davet Et'}</span>
+            <span>{copied ? 'Link Kopyalandı' : 'Davet Et & QR'}</span>
           </button>
         </div>
       </div>

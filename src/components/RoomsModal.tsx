@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import QRCode from 'qrcode';
 import {
   Users,
   Lock,
@@ -18,8 +19,16 @@ import {
   Cloud,
   LogIn,
   LogOut,
+  QrCode,
+  Download,
+  Maximize2,
+  Smartphone,
+  ImagePlus,
+  Link2,
+  Sparkles,
 } from 'lucide-react';
 import {
+  CanvasElement,
   RoomSettings,
   RoomSummary,
   ServerLimits,
@@ -27,18 +36,145 @@ import {
   UserRole,
 } from '../types';
 
-export function getShareableRoomUrl(roomId: string): string {
+export type ShareLinkTargetMode = 'shared' | 'custom' | 'current';
+
+export interface ShareUrlOptions {
+  roomName?: string;
+  targetMode?: ShareLinkTargetMode;
+  customBaseUrl?: string;
+  includeSnapshot?: boolean;
+  elements?: CanvasElement[];
+  code?: { content: string; language: string };
+}
+
+export function encodeRoomSnapshot(
+  elements?: CanvasElement[],
+  code?: { content: string; language: string }
+): string | null {
   try {
-    const url = new URL(window.location.href);
-    // Convert developer-only preview hostname (ais-dev-*) to shared hostname (ais-pre-*)
-    // so external users on different accounts do not receive a 403 Forbidden error.
-    if (url.hostname.startsWith('ais-dev-')) {
-      url.hostname = url.hostname.replace(/^ais-dev-/, 'ais-pre-');
+    const compactElements = (elements || [])
+      .filter((el) => el.type !== 'image')
+      .slice(0, 12)
+      .map((el) => ({
+        i: el.id.slice(0, 16),
+        t: el.type,
+        x: Math.round(el.x),
+        y: Math.round(el.y),
+        w: el.width ? Math.round(el.width) : undefined,
+        h: el.height ? Math.round(el.height) : undefined,
+        c: el.color,
+        f: el.fillColor,
+        s: el.strokeWidth,
+        r: el.rotation ? Math.round(el.rotation) : undefined,
+        tx: el.text ? el.text.slice(0, 120) : undefined,
+        p: el.points
+          ? el.points
+              .filter((_, idx) => idx % 2 === 0)
+              .slice(0, 20)
+              .map((pt) => [Math.round(pt.x), Math.round(pt.y)])
+          : undefined,
+      }));
+
+    const payload = {
+      e: compactElements,
+      c: code?.content ? code.content.slice(0, 600) : undefined,
+      l: code?.language,
+    };
+
+    const json = JSON.stringify(payload);
+    return btoa(encodeURIComponent(json));
+  } catch {
+    return null;
+  }
+}
+
+export function decodeRoomSnapshot(encoded: string): {
+  elements?: CanvasElement[];
+  codeContent?: string;
+  codeLanguage?: string;
+} | null {
+  try {
+    const json = decodeURIComponent(atob(encoded));
+    const parsed = JSON.parse(json);
+    const restoredElements: CanvasElement[] = Array.isArray(parsed.e)
+      ? parsed.e.map((item: Record<string, unknown>, idx: number) => ({
+          id: String(item.i || `snap-${idx}-${Date.now()}`),
+          type: (item.t as CanvasElement['type']) || 'rectangle',
+          x: Number(item.x || 100),
+          y: Number(item.y || 100),
+          width: item.w !== undefined ? Number(item.w) : 140,
+          height: item.h !== undefined ? Number(item.h) : 90,
+          color: String(item.c || '#1e293b'),
+          fillColor: String(item.f || 'transparent'),
+          strokeWidth: Number(item.s || 2),
+          rotation: Number(item.r || 0),
+          text: item.tx ? String(item.tx) : undefined,
+          points: Array.isArray(item.p)
+            ? item.p.map((pair: number[]) => ({ x: Number(pair[0] || 0), y: Number(pair[1] || 0) }))
+            : undefined,
+          createdBy: 'Paylaşılan Oda',
+          updatedAt: Date.now(),
+        }))
+      : [];
+
+    return {
+      elements: restoredElements,
+      codeContent: typeof parsed.c === 'string' ? parsed.c : undefined,
+      codeLanguage: typeof parsed.l === 'string' ? parsed.l : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function getShareableRoomUrl(roomId: string, options?: ShareUrlOptions): string {
+  try {
+    const savedCustomUrl =
+      options?.customBaseUrl !== undefined
+        ? options.customBaseUrl.trim()
+        : (localStorage.getItem('collab_public_base_url') || '').trim();
+
+    const savedMode =
+      options?.targetMode ||
+      ((localStorage.getItem('collab_share_target_mode') as ShareLinkTargetMode) ||
+        (savedCustomUrl ? 'custom' : 'shared'));
+
+    let url: URL;
+
+    if (savedMode === 'custom' && savedCustomUrl) {
+      const normalized =
+        savedCustomUrl.startsWith('http://') || savedCustomUrl.startsWith('https://')
+          ? savedCustomUrl
+          : `https://${savedCustomUrl}`;
+      url = new URL(normalized);
+    } else {
+      url = new URL(window.location.origin + window.location.pathname);
+      if (savedMode === 'shared' && url.hostname.startsWith('ais-dev-')) {
+        url.hostname = url.hostname.replace(/^ais-dev-/, 'ais-pre-');
+      }
     }
+
     url.searchParams.set('room', roomId);
+    if (options?.roomName) {
+      url.searchParams.set('rname', options.roomName);
+    }
+
+    // If custom static host is used while currently connected to a live server, attach backend hint
+    if (savedMode === 'custom' && window.location.hostname.includes('.run.app')) {
+      const serverHost = window.location.hostname.replace(/^ais-dev-/, 'ais-pre-');
+      url.searchParams.set('server', `https://${serverHost}`);
+    }
+
+    if (options?.includeSnapshot) {
+      const snap = encodeRoomSnapshot(options.elements, options.code);
+      if (snap) {
+        url.searchParams.set('snap', snap);
+      }
+    }
+
     return url.toString();
   } catch {
-    return window.location.href;
+    return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
   }
 }
 
@@ -53,12 +189,15 @@ interface RoomsModalProps {
   currentUserRole: UserRole;
   canManage: boolean;
   initialTab?: 'rooms' | 'permissions' | 'invite';
+  elements?: CanvasElement[];
+  code?: { content: string; language: string };
   firebaseUserEmail?: string | null;
   isSyncingCloud?: boolean;
   lastCloudSyncAt?: number | null;
   onSignInGoogle?: () => void;
   onSignOutFirebase?: () => void;
   onSyncToCloud?: () => void;
+  onAddQrToCanvas?: (qrDataUrl: string) => void;
   onSelectRoom: (roomId: string, roomName?: string, maxUsers?: number) => void;
   onUpdateRoomSettings: (changes: {
     isLocked?: boolean;
@@ -83,12 +222,15 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   currentUserRole,
   canManage,
   initialTab = 'rooms',
+  elements = [],
+  code,
   firebaseUserEmail,
   isSyncingCloud = false,
   lastCloudSyncAt,
   onSignInGoogle,
   onSignOutFirebase,
   onSyncToCloud,
+  onAddQrToCanvas,
   onSelectRoom,
   onUpdateRoomSettings,
   onUpdateUserRole,
@@ -104,6 +246,33 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
+  // Multi-device Share Link & QR Code state
+  const [customBaseUrl, setCustomBaseUrl] = useState<string>(() => {
+    try {
+      return localStorage.getItem('collab_public_base_url') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [targetMode, setTargetMode] = useState<ShareLinkTargetMode>(() => {
+    try {
+      const savedMode = localStorage.getItem('collab_share_target_mode') as ShareLinkTargetMode;
+      if (savedMode === 'shared' || savedMode === 'custom' || savedMode === 'current') {
+        return savedMode;
+      }
+      const savedUrl = localStorage.getItem('collab_public_base_url');
+      if (savedUrl && savedUrl.trim()) return 'custom';
+      return 'shared';
+    } catch {
+      return 'shared';
+    }
+  });
+  const [includeSnapshot, setIncludeSnapshot] = useState<boolean>(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [qrFullscreenDataUrl, setQrFullscreenDataUrl] = useState<string>('');
+  const [isQrFullscreen, setIsQrFullscreen] = useState<boolean>(false);
+  const [savedCustomUrlNotice, setSavedCustomUrlNotice] = useState<boolean>(false);
+
   useEffect(() => {
     onRefreshRooms();
   }, [onRefreshRooms]);
@@ -111,6 +280,26 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   useEffect(() => {
     setEditingRoomName(currentRoomName);
   }, [currentRoomName]);
+
+  const handleSaveTargetMode = (mode: ShareLinkTargetMode) => {
+    setTargetMode(mode);
+    try {
+      localStorage.setItem('collab_share_target_mode', mode);
+    } catch {}
+  };
+
+  const handleSaveCustomBaseUrl = (val: string) => {
+    setCustomBaseUrl(val);
+    try {
+      localStorage.setItem('collab_public_base_url', val.trim());
+      if (val.trim()) {
+        localStorage.setItem('collab_share_target_mode', 'custom');
+        setTargetMode('custom');
+      }
+      setSavedCustomUrlNotice(true);
+      setTimeout(() => setSavedCustomUrlNotice(false), 2000);
+    } catch {}
+  };
 
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,7 +311,90 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
     onClose();
   };
 
-  const shareUrl = getShareableRoomUrl(currentRoomId);
+  // Full share URL (can optionally include compact snapshot)
+  const shareUrl = useMemo(() => {
+    return getShareableRoomUrl(currentRoomId, {
+      roomName: currentRoomName,
+      targetMode,
+      customBaseUrl,
+      includeSnapshot,
+      elements,
+      code,
+    });
+  }, [currentRoomId, currentRoomName, targetMode, customBaseUrl, includeSnapshot, elements, code]);
+
+  // Compact URL specifically optimized for instant QR Code camera scanning
+  const qrTargetUrl = useMemo(() => {
+    return getShareableRoomUrl(currentRoomId, {
+      roomName: currentRoomName,
+      targetMode,
+      customBaseUrl,
+      includeSnapshot: false,
+    });
+  }, [currentRoomId, currentRoomName, targetMode, customBaseUrl]);
+
+  // Generate crisp QR Code whenever qrTargetUrl changes
+  useEffect(() => {
+    let cancelled = false;
+    QRCode.toDataURL(qrTargetUrl, {
+      width: 280,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff',
+      },
+    })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
+      .catch(() => {});
+
+    QRCode.toDataURL(qrTargetUrl, {
+      width: 520,
+      margin: 2,
+      errorCorrectionLevel: 'H',
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff',
+      },
+    })
+      .then((url) => {
+        if (!cancelled) setQrFullscreenDataUrl(url);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [qrTargetUrl]);
+
+  const handleDownloadQr = () => {
+    const dataUrl = qrFullscreenDataUrl || qrDataUrl;
+    if (!dataUrl) return;
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `collabboard-oda-${currentRoomId}-qr.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleNativeShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `CollabBoard — ${currentRoomName} (#${currentRoomId})`,
+          text: `${currentRoomName} ortak çalışma odasına katılmak için tıklayın:`,
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // Fallback to copy
+      }
+    }
+    copyText(shareUrl, 'link');
+  };
 
   const copyText = async (text: string, type: 'link' | 'code') => {
     try {
@@ -187,7 +459,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900">
-                Odalar, Yetkiler & Paylaşım Yönetimi
+                Odalar, Yetkiler, QR Kod & Çoklu Cihaz Daveti
               </h2>
               <p className="text-[11px] text-slate-500 font-mono tabular-nums">
                 Aktif Oda: {serverLimits.currentRoomsCount}/{serverLimits.maxRooms} · Bu Oda:{' '}
@@ -207,7 +479,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="px-6 pt-3 border-b border-slate-200 bg-slate-50/50 flex items-center gap-2">
+        <div className="px-6 pt-3 border-b border-slate-200 bg-slate-50/50 flex items-center gap-2 overflow-x-auto">
           <button
             onClick={() => setActiveTab('rooms')}
             className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
@@ -243,14 +515,14 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Share2 className="w-3.5 h-3.5" />
-            <span>Davet Bağlantısı (Çoklu Kullanıcı)</span>
+            <QrCode className="w-3.5 h-3.5" />
+            <span>QR Kod & Cihazlar Arası Davet</span>
           </button>
         </div>
 
         {/* Tab 1: Active Rooms & Create Room */}
         {activeTab === 'rooms' && (
-          <div className="p-6 space-y-5 max-h-[65vh] overflow-y-auto">
+          <div className="p-6 space-y-5 max-h-[68vh] overflow-y-auto">
             {/* Active Rooms List */}
             <div>
               <div className="flex items-center justify-between mb-2.5">
@@ -412,7 +684,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
         {/* Tab 2: Room Lock, Capacity & User Roles */}
         {activeTab === 'permissions' && (
-          <div className="p-6 space-y-5 max-h-[65vh] overflow-y-auto">
+          <div className="p-6 space-y-5 max-h-[68vh] overflow-y-auto">
             {!canManage && (
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
                 Bu odada rolünüz <strong>{getRoleLabel(currentUserRole)}</strong>. Oda ayarlarını ve
@@ -600,25 +872,275 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
           </div>
         )}
 
-        {/* Tab 3: Multi-User Share Link, 403 / 404 Fix & Firebase Cloud Sync */}
+        {/* Tab 3: QR Code Invite, Multi-Device Link Builder & Cloud Sync */}
         {activeTab === 'invite' && (
-          <div className="p-6 space-y-4 overflow-y-auto max-h-[65vh]">
-            {/* Firebase Cloud Firestore Persistence & Auth Card */}
-            <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-3">
+          <div className="p-6 space-y-4 overflow-y-auto max-h-[68vh]">
+            {/* Section 1: Prominent QR Code & Quick Scan Card */}
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950 text-white border border-slate-800 shadow-lg">
+              <div className="flex flex-col sm:flex-row items-center gap-5">
+                {/* Crisp QR Image Box */}
+                <div className="relative bg-white p-3 rounded-2xl shadow-md shrink-0 flex flex-col items-center">
+                  {qrDataUrl ? (
+                    <img
+                      src={qrDataUrl}
+                      alt={`Oda #${currentRoomId} QR Kodu`}
+                      className="w-40 h-40 object-contain rounded-lg"
+                    />
+                  ) : (
+                    <div className="w-40 h-40 flex items-center justify-center text-slate-400 text-xs">
+                      QR Üretiliyor...
+                    </div>
+                  )}
+                  <span className="mt-1.5 px-2.5 py-0.5 rounded-md bg-slate-900 text-white font-mono text-[10px] font-bold tracking-wide">
+                    #{currentRoomId}
+                  </span>
+                </div>
+
+                {/* QR Details & Action Buttons */}
+                <div className="flex-1 space-y-3 text-center sm:text-left">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-500/20 border border-blue-400/30 text-blue-300 text-[11px] font-semibold mb-1.5">
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>QR Kod İle Mobil & Tablet Cihazdan Anında Katılım</span>
+                    </div>
+                    <h3 className="text-sm font-bold text-white">
+                      {currentRoomName} <span className="text-blue-400 font-mono">(#{currentRoomId})</span>
+                    </h3>
+                    <p className="text-xs text-slate-300 leading-relaxed mt-1">
+                      Telefon veya tabletinizin kamerasını QR koda tutarak oda bağlantısını
+                      yazmadan doğrudan <strong>{currentRoomName}</strong> çalışma alanına
+                      katılabilirsiniz.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsQrFullscreen(true)}
+                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span>Tam Ekran QR</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadQr}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>QR İndir (PNG)</span>
+                    </button>
+
+                    {onAddQrToCanvas && qrDataUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onAddQrToCanvas(qrDataUrl);
+                          onClose();
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                        title="QR Kodu Beyaz Tahta Üzerine Görsel Olarak Yerleştir"
+                      >
+                        <ImagePlus className="w-3.5 h-3.5" />
+                        <span>Tahtaya Ekle</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleNativeShare}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Cihazda Paylaş</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Multi-Device Link Target Selector (Fixes Cross-Device 403 / 404 issues) */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                  <Link2 className="w-4 h-4 text-blue-600" />
+                  <span>Başka Cihazlar İçin Hedef Bağlantı Türü Seçimi (403 / 404 Çözümü)</span>
+                </div>
+                <span className="text-[10px] font-mono text-slate-500">
+                  QR Kod & Link Otomatik Güncellenir
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSaveTargetMode('shared')}
+                  className={`p-2.5 rounded-xl border text-left transition-all ${
+                    targetMode === 'shared'
+                      ? 'border-blue-600 bg-blue-50/70 text-blue-950 shadow-2xs'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-xs font-bold flex items-center justify-between">
+                    <span>1. Paylaşılan Link</span>
+                    {targetMode === 'shared' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                    403 hatasını önleyen genel uygulama adresi (<code className="font-mono">ais-pre</code>).
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveTargetMode('custom')}
+                  className={`p-2.5 rounded-xl border text-left transition-all ${
+                    targetMode === 'custom'
+                      ? 'border-blue-600 bg-blue-50/70 text-blue-950 shadow-2xs'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-xs font-bold flex items-center justify-between">
+                    <span>2. GitHub Pages / Özel</span>
+                    {targetMode === 'custom' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                    Kendi GitHub Pages veya Firebase Hosting adresiniz.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveTargetMode('current')}
+                  className={`p-2.5 rounded-xl border text-left transition-all ${
+                    targetMode === 'current'
+                      ? 'border-blue-600 bg-blue-50/70 text-blue-950 shadow-2xs'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-xs font-bold flex items-center justify-between">
+                    <span>3. Mevcut Tarayıcı</span>
+                    {targetMode === 'current' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                    Şu an açık olan adres çubuğu (<code className="font-mono">{window.location.hostname.slice(0, 18)}</code>).
+                  </p>
+                </button>
+              </div>
+
+              {/* Custom Domain Input when 'custom' is selected */}
+              {targetMode === 'custom' && (
+                <div className="p-3 rounded-xl bg-white border border-blue-200 space-y-2">
+                  <label className="block text-[11px] font-bold text-slate-800">
+                    Yayınladığınız GitHub Pages / Firebase / Özel Site Adresiniz:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="url"
+                      value={customBaseUrl}
+                      onChange={(e) => handleSaveCustomBaseUrl(e.target.value)}
+                      placeholder="Örn: https://kullaniciadiniz.github.io/collabboard/"
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-mono text-slate-800 focus:outline-hidden focus:border-blue-600"
+                    />
+                    {savedCustomUrlNotice && (
+                      <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1 shrink-0">
+                        <Check className="w-3.5 h-3.5" />
+                        Kaydedildi
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Buraya GitHub Pages veya Firebase Hosting adresinizi yazdığınızda hem{' '}
+                    <strong>Davet Linki</strong> hem de <strong>QR Kod</strong> tüm telefon ve
+                    bilgisayarlarda doğrudan bu adresi açar.
+                  </p>
+                </div>
+              )}
+
+              {/* Option to embed live room snapshot directly into the invite link */}
+              <div className="pt-1 flex items-center justify-between gap-3 border-t border-slate-200/80">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={includeSnapshot}
+                    onChange={(e) => setIncludeSnapshot(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="font-semibold flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    Tahta Çizimlerini & Kodu Bağlantıya Göm (Sunucusuz Cihaz Aktarımı)
+                  </span>
+                </label>
+                <span className="text-[10px] text-slate-500">
+                  {elements.length} nesne mevcut
+                </span>
+              </div>
+
+              {/* Copyable Invite Link Box */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Oda Davet Bağlantısı (#{currentRoomId})
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={shareUrl}
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono text-slate-800 select-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyText(shareUrl, 'link')}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow-xs"
+                  >
+                    {copiedShareLink ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Kopyalandı!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Share2 className="w-4 h-4" />
+                        <span>Davet Linkini Kopyala</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Room Code Quick Copy */}
+              <div className="flex items-center justify-between pt-1 text-xs text-slate-600">
+                <span>
+                  Oda Kodu İle Giriş: Diğer cihazda <strong>Odalar</strong> menüsünden{' '}
+                  <code className="px-1.5 py-0.5 rounded bg-slate-200 font-mono font-bold text-slate-900">
+                    {currentRoomId}
+                  </code>{' '}
+                  kodunu girerek de katılabilirsiniz.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copyText(currentRoomId, 'code')}
+                  className="text-blue-600 hover:underline font-semibold shrink-0 ml-2"
+                >
+                  {copiedCode ? 'Kod Kopyalandı ✓' : 'Oda Kodunu Kopyala'}
+                </button>
+              </div>
+            </div>
+
+            {/* Section 3: Firebase Cloud Firestore Persistence & Auth Card */}
+            <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-950">
                   <Cloud className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Firebase Cloud Firestore Gerçek Zamanlı Oda Veritabanı</span>
+                  <span>Firebase Cloud Firestore Cihazlar Arası Oda Senkronizasyonu</span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold">
                   AKTİF
                 </span>
               </div>
               <p className="text-xs text-slate-700 leading-relaxed">
-                Bu proje <strong>Firebase Firestore & Google Auth</strong> altyapısına bağlıdır.
-                Google hesabınızla giriş yaparak odayı, tahta çizimlerini, kod editörünü ve yetki
-                ayarlarını buluta kaydedebilir ve farklı cihazlardan bağlanan kullanıcılarla
-                kalıcı olarak senkronize edebilirsiniz.
+                Farklı ağlardaki veya GitHub Pages üzerindeki cihazların aynı odayı gerçek zamanlı
+                görmesi için <strong>Firebase Firestore</strong> veritabanı bağlıdır.
               </p>
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
@@ -635,7 +1157,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                   </div>
                 ) : (
                   <span className="text-xs text-slate-600">
-                    Bulut senkronizasyonu için Google ile oturum açın:
+                    Odayı buluta kaydetmek için Google ile oturum açın:
                   </span>
                 )}
 
@@ -680,104 +1202,95 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
             </div>
 
-            {/* GitHub Pages & Free Hosting Deployment Guide */}
-            <div className="p-4 rounded-xl bg-slate-900 text-slate-100 border border-slate-800 space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-white">
-                  <Globe className="w-4 h-4 text-blue-400 shrink-0" />
-                  <span>GitHub Pages & Firebase Hosting İle Ücretsiz Yayınlama (AI Studio'suz)</span>
-                </div>
-                <span className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold">
-                  HAZIR YAPILANDIRMA
-                </span>
+            {/* Section 4: Why Links Fail on Other Devices & How to Host Guide */}
+            <div className="p-4 rounded-xl bg-slate-900 text-slate-100 border border-slate-800 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-white">
+                <Globe className="w-4 h-4 text-blue-400 shrink-0" />
+                <span>Başka Cihazdan Girerken Neden 403 / 404 Alınır ve Nasıl Çözülür?</span>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                AI Studio'nun <em>Share</em> özelliğine bağımlı kalmadan projeyi kendi{' '}
-                <strong>GitHub Pages</strong> veya <strong>Firebase Hosting</strong> adresinizde
-                ücretsiz yayınlayabilmeniz için gerekli tüm yapılandırma dosyaları projeye eklendi:
-              </p>
               <ul className="text-xs text-slate-300 space-y-1.5 list-disc pl-4 leading-relaxed">
                 <li>
-                  <strong>GitHub Pages (Otomatik):</strong> Projeyi GitHub deponuza yüklediğinizde{' '}
-                  <code className="text-emerald-400 font-mono">.github/workflows/deploy-github-pages.yml</code>{' '}
-                  iş akışı otomatik çalışır ve uygulamayı{' '}
-                  <code className="text-blue-300 font-mono">https://kullaniciadiniz.github.io/depo-adi/</code>{' '}
-                  adresinde yayınlar (GitHub repo ayarlarından <em>Pages &rarr; Source: GitHub Actions</em> seçmeniz yeterlidir).
+                  <strong>1. Çözüm (AI Studio Üzerinden):</strong> Sağ üstteki{' '}
+                  <strong className="text-white">Share (Paylaş)</strong> butonuna tıklayıp{' '}
+                  <strong className="text-emerald-400">Public (Herkese Açık)</strong> seçeneğini
+                  açtığınızda yukarıdaki <em>1. Paylaşılan Link (ais-pre)</em> ve <em>QR Kod</em> tüm
+                  cihazlarda anında açılır.
                 </li>
                 <li>
-                  <strong>Firebase Hosting (Tek Komut):</strong> Terminalde{' '}
-                  <code className="text-emerald-400 font-mono">npm run build && npx firebase deploy --only hosting</code>{' '}
-                  komutunu çalıştırarak <code className="text-blue-300 font-mono">firebase.json</code> ile anında ücretsiz yayınlayabilirsiniz.
-                </li>
-                <li>
-                  <strong>Çoklu Kullanıcı & Derleyici Desteği:</strong> GitHub Pages üzerinde çalışırken
-                  veriler <strong>Firebase Firestore</strong> üzerinden senkronize edilir ve Kod Editörü{' '}
-                  <strong>Wandbox Bulut Derleyici API</strong>'sini otomatik kullanır.
+                  <strong>2. Çözüm (AI Studio Olmadan GitHub Pages / Firebase Hosting):</strong> Projeyi
+                  GitHub deponuza yüklediğinizde otomatik olarak{' '}
+                  <code className="text-blue-300 font-mono">https://kullanici.github.io/depo-adi/</code>{' '}
+                  adresinde yayınlanır. Bu adresi yukarıdaki{' '}
+                  <strong className="text-white">2. GitHub Pages / Özel</strong> kutusuna
+                  yapıştırdığınızda üretilen QR Kod ve davet linkleri tamamen bağımsız çalışır.
                 </li>
               </ul>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                1. Herkese Açık Paylaşım Bağlantısı
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={shareUrl}
-                  className="flex-1 px-3.5 py-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-mono text-slate-800 select-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyText(shareUrl, 'link')}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0"
-                >
-                  {copiedShareLink ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Kopyalandı</span>
-                    </>
-                  ) : (
-                    <>
-                      <Share2 className="w-4 h-4" />
-                      <span>Paylaşım Linkini Kopyala</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                2. Mevcut Aktif Oturum Bağlantısı ve Oda Kodu (#{currentRoomId})
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={window.location.href}
-                  className="flex-1 px-3.5 py-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-mono text-slate-800 select-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyText(window.location.href, 'code')}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0"
-                >
-                  {copiedCode ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Kopyalandı</span>
-                    </>
-                  ) : (
-                    <span>Mevcut Linki Kopyala</span>
-                  )}
-                </button>
-              </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* Fullscreen High-Contrast QR Code Lightbox for Classroom / Meeting Scanning */}
+      {isQrFullscreen && (
+        <div
+          className="fixed inset-0 z-60 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-150"
+          onClick={() => setIsQrFullscreen(false)}
+        >
+          <div
+            className="bg-white rounded-3xl p-8 max-w-md w-full flex flex-col items-center text-center shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between w-full">
+              <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-bold">
+                Kamera İle Okutun
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsQrFullscreen(false)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-white border-2 border-slate-200 rounded-2xl shadow-inner">
+              {qrFullscreenDataUrl || qrDataUrl ? (
+                <img
+                  src={qrFullscreenDataUrl || qrDataUrl}
+                  alt="Tam Ekran Oda QR Kodu"
+                  className="w-72 h-72 sm:w-80 sm:h-80 object-contain"
+                />
+              ) : null}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">{currentRoomName}</h3>
+              <p className="text-xs font-mono text-slate-500 mt-0.5">Oda Kodu: #{currentRoomId}</p>
+              <p className="text-[11px] font-mono text-blue-600 mt-2 break-all px-2">
+                {qrTargetUrl}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 w-full pt-2">
+              <button
+                type="button"
+                onClick={handleDownloadQr}
+                className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5"
+              >
+                <Download className="w-4 h-4" />
+                <span>PNG İndir</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsQrFullscreen(false)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
