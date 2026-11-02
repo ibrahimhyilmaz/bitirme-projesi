@@ -127,17 +127,20 @@ export function decodeRoomSnapshot(encoded: string): {
   }
 }
 
+const DEFAULT_GITHUB_PAGES_URL = 'https://ibrahimhyilmaz.github.io/bitirme-projesi/';
+
 export function getShareableRoomUrl(roomId: string, options?: ShareUrlOptions): string {
   try {
+    const isAlreadyOnGitHubPages = window.location.hostname.endsWith('.github.io');
     const savedCustomUrl =
       options?.customBaseUrl !== undefined
         ? options.customBaseUrl.trim()
-        : (localStorage.getItem('collab_public_base_url') || '').trim();
+        : (localStorage.getItem('collab_public_base_url') || DEFAULT_GITHUB_PAGES_URL).trim();
 
     const savedMode =
       options?.targetMode ||
       ((localStorage.getItem('collab_share_target_mode') as ShareLinkTargetMode) ||
-        (savedCustomUrl ? 'custom' : 'shared'));
+        (isAlreadyOnGitHubPages ? 'current' : 'custom'));
 
     let url: URL;
 
@@ -157,12 +160,6 @@ export function getShareableRoomUrl(roomId: string, options?: ShareUrlOptions): 
     url.searchParams.set('room', roomId);
     if (options?.roomName) {
       url.searchParams.set('rname', options.roomName);
-    }
-
-    // If custom static host is used while currently connected to a live server, attach backend hint
-    if (savedMode === 'custom' && window.location.hostname.includes('.run.app')) {
-      const serverHost = window.location.hostname.replace(/^ais-dev-/, 'ais-pre-');
-      url.searchParams.set('server', `https://${serverHost}`);
     }
 
     if (options?.includeSnapshot) {
@@ -249,22 +246,23 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   // Multi-device Share Link & QR Code state
   const [customBaseUrl, setCustomBaseUrl] = useState<string>(() => {
     try {
-      return localStorage.getItem('collab_public_base_url') || '';
+      return localStorage.getItem('collab_public_base_url') || DEFAULT_GITHUB_PAGES_URL;
     } catch {
-      return '';
+      return DEFAULT_GITHUB_PAGES_URL;
     }
   });
   const [targetMode, setTargetMode] = useState<ShareLinkTargetMode>(() => {
     try {
+      if (window.location.hostname.endsWith('.github.io')) {
+        return 'current';
+      }
       const savedMode = localStorage.getItem('collab_share_target_mode') as ShareLinkTargetMode;
       if (savedMode === 'shared' || savedMode === 'custom' || savedMode === 'current') {
         return savedMode;
       }
-      const savedUrl = localStorage.getItem('collab_public_base_url');
-      if (savedUrl && savedUrl.trim()) return 'custom';
-      return 'shared';
+      return 'custom';
     } catch {
-      return 'shared';
+      return 'custom';
     }
   });
   const [includeSnapshot, setIncludeSnapshot] = useState<boolean>(false);

@@ -1,4 +1,4 @@
-// Web Audio API and WebRTC Voice Mesh Utility
+// Web Audio API and WebRTC Voice & DataChannel Mesh Utility
 
 class SoundEffects {
   private ctx: AudioContext | null = null;
@@ -109,6 +109,14 @@ class SoundEffects {
 
 export const soundEffects = new SoundEffects();
 
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
+
 export class VoiceManager {
   private localStream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
@@ -116,21 +124,45 @@ export class VoiceManager {
   private animFrameId: number | null = null;
   private isMuted: boolean = true;
   private isDeafened: boolean = false;
+  private currentUserId: string = '';
   private onSpeakingChange: (isSpeaking: boolean, volume: number) => void;
   private onSignalNeeded: (targetUserId: string, signal: unknown) => void;
+  private onDataChannelMessage?: (fromUserId: string, data: string) => void;
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
+  private dataChannels: Map<string, RTCDataChannel> = new Map();
   private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
   private remoteAudioElements: Map<string, HTMLAudioElement> = new Map();
   private userVolumes: Map<string, number> = new Map();
   private isMicAvailable: boolean = false;
   private lastSpeakingReported: boolean = false;
+  private unlockGestureHandler: (() => void) | null = null;
 
   constructor(
     onSpeakingChange: (isSpeaking: boolean, volume: number) => void,
-    onSignalNeeded: (targetUserId: string, signal: unknown) => void
+    onSignalNeeded: (targetUserId: string, signal: unknown) => void,
+    onDataChannelMessage?: (fromUserId: string, data: string) => void
   ) {
     this.onSpeakingChange = onSpeakingChange;
     this.onSignalNeeded = onSignalNeeded;
+    this.onDataChannelMessage = onDataChannelMessage;
+
+    // Ensure browser autoplay policies unlock remote audio streams on any user interaction
+    this.unlockGestureHandler = () => {
+      this.resumeAllRemoteAudio();
+    };
+    window.addEventListener('pointerdown', this.unlockGestureHandler, { passive: true });
+    window.addEventListener('keydown', this.unlockGestureHandler, { passive: true });
+  }
+
+  private resumeAllRemoteAudio() {
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      this.audioContext.resume().catch(() => {});
+    }
+    this.remoteAudioElements.forEach((audio) => {
+      if (audio.paused && audio.srcObject) {
+        audio.play().catch(() => {});
+      }
+    });
   }
 
   async initLocalMicrophone(): Promise<boolean> {
@@ -156,29 +188,41 @@ export class VoiceManager {
       this.isMicAvailable = true;
 
       // Apply current mute state
+      const audioTrack = this.localStream.getAudioTracks()[0] || null;
       this.localStream.getAudioTracks().forEach((track) => {
         track.enabled = !this.isMuted;
       });
 
-      // Attach local audio tracks to any existing peer connections and renegotiate
-      for (const [peerId, pc] of this.peerConnections.entries()) {
-        const senders = pc.getSenders();
-        const hasAudioTrack = senders.some((s) => s.track && s.track.kind === 'audio');
-        if (!hasAudioTrack) {
-          this.localStream.getAudioTracks().forEach((track) => {
-            pc.addTrack(track, this.localStream!);
-          });
-          if (pc.signalingState === 'stable') {
-            try {
-              const offer = await pc.createOffer();
+      // Attach or replace local audio track on all existing peer connections
+      if (audioTrack) {
+        for (const [peerId, pc] of this.peerConnections.entries()) {
+          try {
+            const transceivers = pc.getTransceivers();
+            const audioTransceiver = transceivers.find(
+              (t) =>
+                t.sender.track?.kind === 'audio' ||
+                t.receiver.track?.kind === 'audio'
+            );
+
+            if (audioTransceiver && audioTransceiver.sender) {
+              if (audioTransceiver.direction === 'recvonly' || audioTransceiver.direction === 'inactive') {
+                audioTransceiver.direction = 'sendrecv';
+              }
+              await audioTransceiver.sender.replaceTrack(audioTrack);
+            } else {
+              pc.addTrack(audioTrack, this.localStream);
+            }
+
+            if (pc.signalingState === 'stable') {
+              const offer = await pc.createOffer({ offerToReceiveAudio: true });
               await pc.setLocalDescription(offer);
               this.onSignalNeeded(peerId, {
                 type: 'offer',
                 sdp: pc.localDescription,
               });
-            } catch {
-              // Ignore renegotiation collision
             }
+          } catch {
+            // Ignore renegotiation collision
           }
         }
       }
@@ -221,7 +265,7 @@ export class VoiceManager {
       const average = sum / dataArray.length;
       const volume = Math.min(100, Math.round((average / 128) * 100));
 
-      const isSpeakingNow = !this.isMuted && volume > 16;
+      const isSpeakingNow = !this.isMuted && volume > 14;
       if (isSpeakingNow) {
         speakingCounter = 6;
       } else if (speakingCounter > 0) {
@@ -250,9 +294,7 @@ export class VoiceManager {
         track.enabled = !muted;
       });
     }
-    if (this.audioContext && this.audioContext.state === 'suspended') {
-      this.audioContext.resume().catch(() => {});
-    }
+    this.resumeAllRemoteAudio();
     if (muted) {
       this.lastSpeakingReported = false;
       this.onSpeakingChange(false, 0);
@@ -269,6 +311,7 @@ export class VoiceManager {
     this.remoteAudioElements.forEach((audio) => {
       audio.muted = deafened;
     });
+    this.resumeAllRemoteAudio();
   }
 
   getDeafened(): boolean {
@@ -287,7 +330,20 @@ export class VoiceManager {
     return this.userVolumes.get(userId) ?? 100;
   }
 
+  broadcastDataChannel(payload: string) {
+    for (const dc of this.dataChannels.values()) {
+      if (dc.readyState === 'open') {
+        try {
+          dc.send(payload);
+        } catch {
+          // Ignore send error
+        }
+      }
+    }
+  }
+
   syncPeers(activeUserIds: string[], currentUserId: string) {
+    this.currentUserId = currentUserId;
     const activeSet = new Set(activeUserIds);
     // Remove disconnected peers
     for (const existingPeerId of this.peerConnections.keys()) {
@@ -304,17 +360,27 @@ export class VoiceManager {
     }
   }
 
-  // WebRTC Peer Connection for Mesh Audio
+  private setupDataChannel(remoteUserId: string, dc: RTCDataChannel) {
+    this.dataChannels.set(remoteUserId, dc);
+    dc.onmessage = (event) => {
+      if (this.onDataChannelMessage && typeof event.data === 'string') {
+        this.onDataChannelMessage(remoteUserId, event.data);
+      }
+    };
+    dc.onclose = () => {
+      if (this.dataChannels.get(remoteUserId) === dc) {
+        this.dataChannels.delete(remoteUserId);
+      }
+    };
+  }
+
+  // WebRTC Peer Connection for Mesh Audio + Fast DataChannel
   async connectToPeer(remoteUserId: string, isInitiator: boolean) {
     if (this.peerConnections.has(remoteUserId)) return;
 
     try {
       const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-        ],
+        iceServers: DEFAULT_ICE_SERVERS,
       });
 
       this.peerConnections.set(remoteUserId, pc);
@@ -322,11 +388,36 @@ export class VoiceManager {
         this.pendingCandidates.set(remoteUserId, []);
       }
 
-      // Add local audio track if available
-      if (this.localStream) {
+      // Add local audio track if available, or pre-allocate sendrecv audio transceiver
+      // so audio can be attached seamlessly when the user unmutes later
+      const hasLocalAudio =
+        this.localStream && this.localStream.getAudioTracks().length > 0;
+      if (hasLocalAudio && this.localStream) {
         this.localStream.getAudioTracks().forEach((track) => {
           pc.addTrack(track, this.localStream!);
         });
+      } else {
+        try {
+          pc.addTransceiver('audio', { direction: 'sendrecv' });
+        } catch {
+          // Fallback if browser doesn't support addTransceiver
+        }
+      }
+
+      // Setup P2P DataChannel for ultra-fast drawing/cursor/presence sync
+      if (isInitiator) {
+        try {
+          const dc = pc.createDataChannel('collabboard-sync', { ordered: false });
+          this.setupDataChannel(remoteUserId, dc);
+        } catch {
+          // Ignore DataChannel error
+        }
+      } else {
+        pc.ondatachannel = (event) => {
+          if (event.channel) {
+            this.setupDataChannel(remoteUserId, event.channel);
+          }
+        };
       }
 
       // Handle ICE Candidates
@@ -334,7 +425,7 @@ export class VoiceManager {
         if (event.candidate) {
           this.onSignalNeeded(remoteUserId, {
             type: 'candidate',
-            candidate: event.candidate,
+            candidate: event.candidate.toJSON ? event.candidate.toJSON() : event.candidate,
           });
         }
       };
@@ -349,19 +440,26 @@ export class VoiceManager {
       pc.ontrack = (event) => {
         let audio = this.remoteAudioElements.get(remoteUserId);
         if (!audio) {
-          audio = new Audio();
+          audio = document.createElement('audio');
           audio.autoplay = true;
+          audio.setAttribute('playsinline', 'true');
+          audio.style.display = 'none';
           audio.muted = this.isDeafened;
           const userVol = this.getUserVolume(remoteUserId);
           audio.volume = Math.max(0, Math.min(1, userVol / 100));
+          document.body.appendChild(audio);
           this.remoteAudioElements.set(remoteUserId, audio);
         }
-        if (event.streams && event.streams[0]) {
-          audio.srcObject = event.streams[0];
-          audio.play().catch(() => {
-            // Autoplay fallback
-          });
+        const stream =
+          event.streams && event.streams[0]
+            ? event.streams[0]
+            : new MediaStream([event.track]);
+        if (audio.srcObject !== stream) {
+          audio.srcObject = stream;
         }
+        audio.play().catch(() => {
+          // Autoplay will be unlocked on next user pointerdown/keydown
+        });
       };
 
       // Initiator creates offer
@@ -405,8 +503,40 @@ export class VoiceManager {
       }
       if (!pc) return;
 
+      const isPolite = this.currentUserId > fromUserId;
+
       if (signal.type === 'offer' && signal.sdp) {
-        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        const offerCollision = pc.signalingState !== 'stable';
+        if (offerCollision) {
+          if (!isPolite) {
+            return;
+          }
+          await Promise.all([
+            pc.setLocalDescription({ type: 'rollback' }),
+            pc.setRemoteDescription(new RTCSessionDescription(signal.sdp)),
+          ]);
+        } else {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        }
+
+        // Ensure local audio track is attached if microphone is active
+        if (this.localStream) {
+          const audioTrack = this.localStream.getAudioTracks()[0];
+          if (audioTrack) {
+            const audioTransceiver = pc
+              .getTransceivers()
+              .find(
+                (t) =>
+                  t.sender.track?.kind === 'audio' ||
+                  t.receiver.track?.kind === 'audio'
+              );
+            if (audioTransceiver) {
+              audioTransceiver.direction = 'sendrecv';
+              await audioTransceiver.sender.replaceTrack(audioTrack).catch(() => {});
+            }
+          }
+        }
+
         await this.flushPendingCandidates(fromUserId, pc);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -434,6 +564,13 @@ export class VoiceManager {
   }
 
   removePeer(remoteUserId: string) {
+    const dc = this.dataChannels.get(remoteUserId);
+    if (dc) {
+      try {
+        dc.close();
+      } catch {}
+      this.dataChannels.delete(remoteUserId);
+    }
     const pc = this.peerConnections.get(remoteUserId);
     if (pc) {
       pc.close();
@@ -449,6 +586,11 @@ export class VoiceManager {
   }
 
   cleanup() {
+    if (this.unlockGestureHandler) {
+      window.removeEventListener('pointerdown', this.unlockGestureHandler);
+      window.removeEventListener('keydown', this.unlockGestureHandler);
+      this.unlockGestureHandler = null;
+    }
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
     }
@@ -458,6 +600,12 @@ export class VoiceManager {
     if (this.audioContext) {
       this.audioContext.close().catch(() => {});
     }
+    this.dataChannels.forEach((dc) => {
+      try {
+        dc.close();
+      } catch {}
+    });
+    this.dataChannels.clear();
     this.peerConnections.forEach((pc) => pc.close());
     this.peerConnections.clear();
     this.pendingCandidates.clear();

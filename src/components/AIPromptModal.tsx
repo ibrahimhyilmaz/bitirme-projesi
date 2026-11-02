@@ -184,6 +184,240 @@ const QUICK_PROMPTS: QuickPrompt[] = [
   },
 ];
 
+function buildStaticHostStickerFallback(
+  prompt: string,
+  centerX: number,
+  centerY: number,
+  author: string
+): CanvasElement {
+  const safeLabel = prompt.slice(0, 32).replace(/[<>&"']/g, '');
+  const svg = `<svg viewBox="0 0 360 360" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#3b82f6"/>
+        <stop offset="100%" stop-color="#7c3aed"/>
+      </linearGradient>
+    </defs>
+    <rect x="30" y="30" width="300" height="300" rx="48" fill="url(#g)" stroke="#1e293b" stroke-width="6"/>
+    <circle cx="180" cy="155" r="64" fill="#ffffff" opacity="0.22"/>
+    <polygon points="180,95 198,136 242,140 208,170 218,214 180,190 142,214 152,170 118,140 162,136" fill="#facc15" stroke="#ca8a04" stroke-width="4"/>
+    <text x="180" y="275" text-anchor="middle" font-family="Plus Jakarta Sans, sans-serif" font-weight="700" font-size="20" fill="#ffffff">${safeLabel}</text>
+  </svg>`;
+  const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  return {
+    id: `ai-img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    type: 'image',
+    x: centerX - 150,
+    y: centerY - 150,
+    width: 300,
+    height: 300,
+    imageUrl: dataUrl,
+    createdBy: author,
+    updatedAt: Date.now(),
+  };
+}
+
+function buildStaticHostVectorFallback(
+  prompt: string,
+  centerX: number,
+  centerY: number,
+  author: string
+): CanvasElement[] {
+  const lower = prompt.toLowerCase();
+  const now = Date.now();
+  const mkId = (i: number) => `ai-vec-${now}-${i}`;
+
+  if (lower.includes('elma') || lower.includes('apple')) {
+    return [
+      {
+        id: mkId(1),
+        type: 'circle',
+        x: centerX - 95,
+        y: centerY - 60,
+        width: 130,
+        height: 150,
+        color: '#991b1b',
+        fillColor: '#ef4444',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: mkId(2),
+        type: 'circle',
+        x: centerX - 35,
+        y: centerY - 60,
+        width: 130,
+        height: 150,
+        color: '#991b1b',
+        fillColor: '#dc2626',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: mkId(3),
+        type: 'line',
+        x: centerX,
+        y: centerY - 95,
+        points: [
+          { x: centerX, y: centerY - 50 },
+          { x: centerX + 12, y: centerY - 100 },
+        ],
+        color: '#78350f',
+        strokeWidth: 7,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: mkId(4),
+        type: 'circle',
+        x: centerX + 8,
+        y: centerY - 95,
+        width: 55,
+        height: 28,
+        rotation: -25,
+        color: '#14532d',
+        fillColor: '#22c55e',
+        strokeWidth: 2,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  if (lower.includes('araba') || lower.includes('otomobil') || lower.includes('car')) {
+    return [
+      {
+        id: mkId(1),
+        type: 'rounded-rect',
+        x: centerX - 95,
+        y: centerY - 65,
+        width: 190,
+        height: 55,
+        color: '#1e3a8a',
+        fillColor: '#60a5fa',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: mkId(2),
+        type: 'rounded-rect',
+        x: centerX - 150,
+        y: centerY - 25,
+        width: 300,
+        height: 70,
+        color: '#1e3a8a',
+        fillColor: '#2563eb',
+        strokeWidth: 3,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: mkId(3),
+        type: 'circle',
+        x: centerX - 105,
+        y: centerY + 20,
+        width: 56,
+        height: 56,
+        color: '#0f172a',
+        fillColor: '#334155',
+        strokeWidth: 5,
+        createdBy: author,
+        updatedAt: now,
+      },
+      {
+        id: mkId(4),
+        type: 'circle',
+        x: centerX + 50,
+        y: centerY + 20,
+        width: 56,
+        height: 56,
+        color: '#0f172a',
+        fillColor: '#334155',
+        strokeWidth: 5,
+        createdBy: author,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  // Default architectural / concept diagram
+  return [
+    {
+      id: mkId(1),
+      type: 'rounded-rect',
+      x: centerX - 240,
+      y: centerY - 45,
+      width: 150,
+      height: 85,
+      color: '#1d4ed8',
+      fillColor: '#dbeafe',
+      strokeWidth: 2,
+      text: prompt.slice(0, 28),
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: mkId(2),
+      type: 'arrow',
+      x: centerX - 90,
+      y: centerY,
+      points: [
+        { x: centerX - 85, y: centerY },
+        { x: centerX - 15, y: centerY },
+      ],
+      color: '#2563eb',
+      strokeWidth: 3,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: mkId(3),
+      type: 'rounded-rect',
+      x: centerX - 10,
+      y: centerY - 45,
+      width: 165,
+      height: 85,
+      color: '#047857',
+      fillColor: '#d1fae5',
+      strokeWidth: 2,
+      text: 'İşlem & Analiz',
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: mkId(4),
+      type: 'arrow',
+      x: centerX + 155,
+      y: centerY,
+      points: [
+        { x: centerX + 160, y: centerY },
+        { x: centerX + 225, y: centerY },
+      ],
+      color: '#059669',
+      strokeWidth: 3,
+      createdBy: author,
+      updatedAt: now,
+    },
+    {
+      id: mkId(5),
+      type: 'rounded-rect',
+      x: centerX + 230,
+      y: centerY - 45,
+      width: 150,
+      height: 85,
+      color: '#6d28d9',
+      fillColor: '#ede9fe',
+      strokeWidth: 2,
+      text: 'Canlı Çıktı',
+      createdBy: author,
+      updatedAt: now,
+    },
+  ];
+}
+
 export const AIPromptModal: React.FC<AIPromptModalProps> = ({
   centerX,
   centerY,
@@ -271,58 +505,81 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
     try {
       if (activeMode === 'image') {
         // AI Image / Visual Sticker Generation
-        const response = await fetch('/api/ai/generate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({
-            prompt: targetPrompt,
+        let generatedElement: CanvasElement | null = null;
+        try {
+          const response = await fetch('/api/ai/generate-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              prompt: targetPrompt,
+              centerX,
+              centerY,
+              author: authorName,
+              thinkingLevel: stage.id,
+              targetDuration: stage.durationSeconds,
+            }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data.element) {
+              generatedElement = data.element;
+            }
+          }
+        } catch {
+          // Static host fallback (GitHub Pages)
+        }
+
+        if (!generatedElement) {
+          generatedElement = buildStaticHostStickerFallback(
+            targetPrompt,
             centerX,
             centerY,
-            author: authorName,
-            thinkingLevel: stage.id,
-            targetDuration: stage.durationSeconds,
-          }),
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Görsel üretilirken bir hata oluştu.');
+            authorName
+          );
         }
 
-        if (data.element) {
-          onElementsGenerated([data.element]);
-          onClose();
-        } else {
-          setError('İstenilen nesne için görsel üretilemedi, lütfen tekrar deneyin.');
-        }
+        onElementsGenerated([generatedElement]);
+        onClose();
       } else {
         // AI Vector Canvas Drawing Generation
-        const response = await fetch('/api/ai/generate-canvas', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({
-            prompt: targetPrompt,
+        let generatedElements: CanvasElement[] | null = null;
+        try {
+          const response = await fetch('/api/ai/generate-canvas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              prompt: targetPrompt,
+              centerX,
+              centerY,
+              author: authorName,
+              thinkingLevel: stage.id,
+              targetDuration: stage.durationSeconds,
+            }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (Array.isArray(data.elements) && data.elements.length > 0) {
+              generatedElements = data.elements;
+            }
+          }
+        } catch {
+          // Static host fallback (GitHub Pages)
+        }
+
+        if (!generatedElements || generatedElements.length === 0) {
+          generatedElements = buildStaticHostVectorFallback(
+            targetPrompt,
             centerX,
             centerY,
-            author: authorName,
-            thinkingLevel: stage.id,
-            targetDuration: stage.durationSeconds,
-          }),
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Yapay zeka çizim üretirken bir hata oluştu.');
+            authorName
+          );
         }
 
-        if (Array.isArray(data.elements) && data.elements.length > 0) {
-          onElementsGenerated(data.elements);
-          onClose();
-        } else {
-          setError('İstenilen açıklamaya uygun nesne üretilemedi, lütfen tekrar deneyin.');
-        }
+        onElementsGenerated(generatedElements);
+        onClose();
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {

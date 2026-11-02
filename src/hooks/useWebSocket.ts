@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import mqtt, { MqttClient } from 'mqtt';
 import {
   CanvasElement,
   ChatMessage,
@@ -28,6 +29,49 @@ interface UseWebSocketOptions {
   onKicked?: (roomId: string, roomName: string, by: string) => void;
 }
 
+const PUBLIC_WSS_BROKERS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://mqtt.eclipseprojects.io:443/mqtt',
+];
+
+function getDefaultCodeForRoom(roomId: string, displayRoomName: string) {
+  return `// CollabBoard Ortak Kod Editörü — ${displayRoomName} (#${roomId})
+// Bu odadaki kod alanı odadaki tüm kullanıcılarla gerçek zamanlı senkronize olur.
+
+function calculateSprintMetrics(tasks) {
+  const completed = tasks.filter(t => t.done);
+  const totalPoints = completed.reduce((sum, t) => sum + t.points, 0);
+  console.log("Oda:", "${displayRoomName}");
+  console.log("Tamamlanan Görev:", completed.length, "/", tasks.length);
+  console.log("Toplam Puan:", totalPoints);
+  return totalPoints;
+}
+
+const sampleTasks = [
+  { name: "Mimari Şema Tasarımı", points: 8, done: true },
+  { name: "WebRTC & Gerçek Zamanlı Oda Sistemi", points: 13, done: true },
+  { name: "AI Tahta Üretici", points: 8, done: true }
+];
+
+calculateSprintMetrics(sampleTasks);
+`;
+}
+
+function getDefaultNotesForRoom(roomId: string, displayRoomName: string) {
+  return `# ${displayRoomName} — Ortak Çalışma Notları
+
+### Gündem Maddeleri
+- [x] Sistem mimarisinin beyaz tahta üzerinde görselleştirilmesi
+- [x] Oda yetkileri, rol sistemi ve kişi sınırlarının belirlenmesi
+- [x] WebRTC sesli sohbet ve gerçek zamanlı çizim senkronizasyonu
+- [ ] Sprint hedeflerinin gözden geçirilmesi
+
+---
+*Not: Bu alana yazılan metinler #${roomId} odasındaki herkesle eşzamanlı paylaşılır.*
+`;
+}
+
 export function useWebSocket({
   roomId,
   roomName,
@@ -36,6 +80,13 @@ export function useWebSocket({
   onKicked,
 }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
+  const mqttClientsRef = useRef<MqttClient[]>([]);
+  const isMeshModeRef = useRef<boolean>(false);
+  const joinedAtRef = useRef<number>(Date.now());
+  const peerLastSeenRef = useRef<Map<string, number>>(new Map());
+  const seenPacketsRef = useRef<Set<string>>(new Set());
+  const packetSeqRef = useRef<number>(0);
+
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [users, setUsers] = useState<UserPresence[]>([]);
@@ -59,20 +110,48 @@ export function useWebSocket({
     roomId?: string;
   } | null>(null);
 
-  const [code, setCode] = useState<{ content: string; language: string; lastUpdatedBy: string }>({
-    content: '',
+  const [code, setCode] = useState<{ content: string; language: string; lastUpdatedBy: string }>(() => ({
+    content: getDefaultCodeForRoom(roomId, roomName),
     language: 'javascript',
-    lastUpdatedBy: '',
-  });
-  const [notes, setNotes] = useState<{ content: string; lastUpdatedBy: string }>({
-    content: '',
-    lastUpdatedBy: '',
-  });
+    lastUpdatedBy: 'Sistem',
+  }));
+  const [notes, setNotes] = useState<{ content: string; lastUpdatedBy: string }>(() => ({
+    content: getDefaultNotesForRoom(roomId, roomName),
+    lastUpdatedBy: 'Sistem',
+  }));
   const [files, setFiles] = useState<SharedFile[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [pings, setPings] = useState<UserPing[]>([]);
   const [reactions, setReactions] = useState<UserReaction[]>([]);
   const [remoteLaserPoints, setRemoteLaserPoints] = useState<LaserStrokePoint[]>([]);
+
+  // Refs to latest state so mesh welcome responder always sends fresh room state
+  const elementsRef = useRef<CanvasElement[]>(elements);
+  elementsRef.current = elements;
+  const usersRef = useRef<UserPresence[]>(users);
+  usersRef.current = users;
+  const roomSettingsRef = useRef<RoomSettings>(roomSettings);
+  roomSettingsRef.current = roomSettings;
+  const syncedRoomNameRef = useRef<string>(syncedRoomName);
+  syncedRoomNameRef.current = syncedRoomName;
+  const codeRef = useRef(code);
+  codeRef.current = code;
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const chatMessagesRef = useRef(chatMessages);
+  chatMessagesRef.current = chatMessages;
+  const localVoiceRef = useRef<{ isMuted: boolean; isDeafened: boolean; isSpeaking: boolean }>({
+    isMuted: true,
+    isDeafened: false,
+    isSpeaking: false,
+  });
+  const localCursorRef = useRef<{ cursor: Point; isDrawing: boolean; activeTool: string }>({
+    cursor: { x: 0, y: 0 },
+    isDrawing: false,
+    activeTool: 'select',
+  });
 
   const pendingQueue = useRef<string[]>([]);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -87,104 +166,99 @@ export function useWebSocket({
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
   const httpFallbackBaseRef = useRef<string>('');
 
-  // Safe sender helper (WebSocket + BroadcastChannel + HTTP Fallback)
-  const sendMessage = useCallback(
-    (msg: object) => {
-      const payload = JSON.stringify(msg);
-
-      // Broadcast across local tabs/windows immediately
-      if (broadcastChannelRef.current) {
-        try {
-          broadcastChannelRef.current.postMessage(payload);
-        } catch {
-          // Ignore BroadcastChannel error
-        }
+  // Publish helper for Serverless WSS Mesh Mode (GitHub Pages / Static Hosts)
+  const publishMeshPacket = useCallback(
+    (msg: Record<string, unknown>, targetUserId?: string) => {
+      const pktId = `${userRef.current.id}-${Date.now()}-${++packetSeqRef.current}`;
+      seenPacketsRef.current.add(pktId);
+      if (seenPacketsRef.current.size > 600) {
+        const first = seenPacketsRef.current.values().next().value;
+        if (first) seenPacketsRef.current.delete(first);
       }
 
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(payload);
-      } else {
-        pendingQueue.current.push(payload);
-        // Keep queue bounded
-        if (pendingQueue.current.length > 100) {
-          pendingQueue.current.shift();
-        }
+      const envelope = JSON.stringify({
+        ...msg,
+        _pktId: pktId,
+        _senderId: userRef.current.id,
+        _roomId: roomId,
+        _ts: Date.now(),
+      });
 
-        // If WS is not open, push important state mutations via HTTP REST fallback
-        const typedMsg = msg as {
-          type?: string;
-          element?: CanvasElement;
-          elements?: CanvasElement[];
-          content?: string;
-          language?: string;
-          userName?: string;
-          text?: string;
-          userColor?: string;
-        };
-        const base = httpFallbackBaseRef.current;
-        if (
-          typedMsg.type === 'element-create' &&
-          typedMsg.element
-        ) {
-          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ elements: [typedMsg.element] }),
-          }).catch(() => {});
-        } else if (
-          (typedMsg.type === 'elements-replace' || typedMsg.type === 'elements-load-template') &&
-          Array.isArray(typedMsg.elements)
-        ) {
-          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ elements: typedMsg.elements }),
-          }).catch(() => {});
-        } else if (typedMsg.type === 'code-change' && typeof typedMsg.content === 'string') {
-          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              code: {
-                content: typedMsg.content,
-                language: typedMsg.language || 'javascript',
-                lastUpdatedBy: typedMsg.userName || userRef.current.name,
-              },
-            }),
-          }).catch(() => {});
-        } else if (typedMsg.type === 'notes-change' && typeof typedMsg.content === 'string') {
-          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              notes: {
-                content: typedMsg.content,
-                lastUpdatedBy: typedMsg.userName || userRef.current.name,
-              },
-            }),
-          }).catch(() => {});
-        } else if (typedMsg.type === 'chat-message' && typedMsg.text) {
-          fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/sync`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chatMessage: {
-                text: typedMsg.text,
-                userName: typedMsg.userName || userRef.current.name,
-                userColor: typedMsg.userColor || userRef.current.color,
-                userId: userRef.current.id,
-              },
-            }),
-          }).catch(() => {});
+      // 1. Broadcast across local browser tabs
+      if (broadcastChannelRef.current) {
+        try {
+          broadcastChannelRef.current.postMessage(envelope);
+        } catch {}
+      }
+
+      // 2. Publish to all connected WSS MQTT brokers
+      const topic = targetUserId
+        ? `collabboard/v3/room/${roomId}/peer/${targetUserId}`
+        : `collabboard/v3/room/${roomId}/events`;
+
+      for (const client of mqttClientsRef.current) {
+        if (client && client.connected) {
+          try {
+            client.publish(topic, envelope, { qos: 0 });
+          } catch {}
         }
       }
     },
     [roomId]
   );
 
-  // Sync user profile changes without dropping socket
+  // Unified message sender (works on both Node.js WS backend and GitHub Pages Serverless Mesh)
+  const sendMessage = useCallback(
+    (msg: Record<string, unknown>) => {
+      if (isMeshModeRef.current) {
+        publishMeshPacket(msg);
+        return;
+      }
+
+      const payload = JSON.stringify(msg);
+      if (broadcastChannelRef.current) {
+        try {
+          broadcastChannelRef.current.postMessage(payload);
+        } catch {}
+      }
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(payload);
+      } else {
+        pendingQueue.current.push(payload);
+        if (pendingQueue.current.length > 100) {
+          pendingQueue.current.shift();
+        }
+        // Also send over mesh if WS is temporarily down
+        if (mqttClientsRef.current.length > 0) {
+          publishMeshPacket(msg);
+        }
+      }
+    },
+    [publishMeshPacket]
+  );
+
+  // Sync user profile changes without dropping connection
   useEffect(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === user.id
+          ? {
+              ...u,
+              name: user.name,
+              color: user.color,
+              avatar: user.avatar || user.name.charAt(0).toUpperCase(),
+            }
+          : u
+      )
+    );
+
+    if (isMeshModeRef.current) {
+      publishMeshPacket({
+        type: 'user-update',
+        user,
+      });
+    } else if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
           type: 'user-update',
@@ -192,11 +266,579 @@ export function useWebSocket({
         })
       );
     }
-  }, [user.name, user.color, user.avatar]);
+  }, [user.name, user.color, user.avatar, user.id, publishMeshPacket]);
+
+  // Process incoming room events (shared by WS, BroadcastChannel, and Serverless WSS Mesh)
+  const handleIncomingPacket = useCallback(
+    (raw: string) => {
+      try {
+        const msg = JSON.parse(raw);
+        if (!msg || typeof msg !== 'object') return;
+
+        // Deduplicate packets by _pktId
+        if (msg._pktId) {
+          if (seenPacketsRef.current.has(msg._pktId)) return;
+          seenPacketsRef.current.add(msg._pktId);
+          if (seenPacketsRef.current.size > 600) {
+            const first = seenPacketsRef.current.values().next().value;
+            if (first) seenPacketsRef.current.delete(first);
+          }
+        }
+
+        const senderId: string | undefined = msg._senderId || msg.userId || msg.fromUserId;
+        if (senderId && senderId !== userRef.current.id) {
+          peerLastSeenRef.current.set(senderId, Date.now());
+        }
+
+        switch (msg.type) {
+          // --- Serverless Mesh Discovery & State Handshake ---
+          case 'mesh-join': {
+            if (!msg.user || msg.user.id === userRef.current.id) break;
+            const joiningUser: UserPresence = msg.user;
+            peerLastSeenRef.current.set(joiningUser.id, Date.now());
+
+            // Determine role in mesh mode
+            const currentOwnerId = roomSettingsRef.current.ownerId || userRef.current.id;
+            const assignedRole: UserRole =
+              joiningUser.id === currentOwnerId
+                ? 'owner'
+                : joiningUser.role === 'owner' && currentOwnerId !== joiningUser.id
+                ? roomSettingsRef.current.defaultRole || 'editor'
+                : joiningUser.role || roomSettingsRef.current.defaultRole || 'editor';
+
+            const normalizedJoiner: UserPresence = {
+              ...joiningUser,
+              role: assignedRole,
+            };
+
+            setUsers((prev) => {
+              const exists = prev.some((u) => u.id === normalizedJoiner.id);
+              if (!exists) {
+                soundEffects.playJoinSound();
+              }
+              const filtered = prev.filter((u) => u.id !== normalizedJoiner.id);
+              return [...filtered, normalizedJoiner];
+            });
+
+            // Send welcome packet with our presence and current room state
+            const meInList = usersRef.current.find((u) => u.id === userRef.current.id);
+            const myPresence: UserPresence = meInList || {
+              id: userRef.current.id,
+              name: userRef.current.name,
+              avatar: userRef.current.avatar,
+              color: userRef.current.color,
+              role: currentOwnerId === userRef.current.id ? 'owner' : 'editor',
+              cursor: localCursorRef.current.cursor,
+              isDrawing: localCursorRef.current.isDrawing,
+              activeTool: localCursorRef.current.activeTool,
+              isMuted: localVoiceRef.current.isMuted,
+              isDeafened: localVoiceRef.current.isDeafened,
+              isSpeaking: localVoiceRef.current.isSpeaking,
+              joinedAt: joinedAtRef.current,
+            };
+
+            publishMeshPacket(
+              {
+                type: 'mesh-welcome',
+                fromUser: myPresence,
+                joinedAt: joinedAtRef.current,
+                roomName: syncedRoomNameRef.current,
+                settings: roomSettingsRef.current,
+                elements: elementsRef.current,
+                code: codeRef.current,
+                notes: notesRef.current,
+                files: filesRef.current,
+                messages: chatMessagesRef.current,
+              },
+              joiningUser.id
+            );
+            break;
+          }
+
+          case 'mesh-welcome': {
+            if (!msg.fromUser || msg.fromUser.id === userRef.current.id) break;
+            const remoteUser: UserPresence = msg.fromUser;
+            peerLastSeenRef.current.set(remoteUser.id, Date.now());
+
+            // Check if remote peer joined earlier than us (making them the authoritative room host)
+            const remoteJoinedEarlier =
+              typeof msg.joinedAt === 'number' && msg.joinedAt < joinedAtRef.current;
+
+            setUsers((prev) => {
+              const filtered = prev.filter((u) => u.id !== remoteUser.id);
+              const updatedList = [...filtered, remoteUser];
+              if (remoteJoinedEarlier) {
+                return updatedList.map((u) =>
+                  u.id === userRef.current.id && u.role === 'owner'
+                    ? { ...u, role: msg.settings?.defaultRole || 'editor' }
+                    : u
+                );
+              }
+              return updatedList;
+            });
+
+            if (remoteJoinedEarlier) {
+              if (msg.roomName) setSyncedRoomName(msg.roomName);
+              if (msg.settings) setRoomSettings(msg.settings);
+            }
+
+            if (Array.isArray(msg.elements) && msg.elements.length > 0) {
+              setElements((prev) => {
+                const map = new Map(prev.map((e) => [e.id, e]));
+                for (const el of msg.elements) {
+                  if (el && el.id) map.set(el.id, el);
+                }
+                return Array.from(map.values());
+              });
+            }
+
+            if (
+              msg.code &&
+              typeof msg.code.content === 'string' &&
+              (remoteJoinedEarlier || codeRef.current.lastUpdatedBy === 'Sistem')
+            ) {
+              setCode(msg.code);
+            }
+
+            if (
+              msg.notes &&
+              typeof msg.notes.content === 'string' &&
+              (remoteJoinedEarlier || notesRef.current.lastUpdatedBy === 'Sistem')
+            ) {
+              setNotes(msg.notes);
+            }
+
+            if (Array.isArray(msg.messages) && msg.messages.length > 0) {
+              setChatMessages((prev) => {
+                const map = new Map(prev.map((m) => [m.id, m]));
+                for (const m of msg.messages) {
+                  if (m && m.id) map.set(m.id, m);
+                }
+                return Array.from(map.values()).sort((a, b) => a.timestamp - b.timestamp);
+              });
+            }
+
+            if (Array.isArray(msg.files) && msg.files.length > 0) {
+              setFiles((prev) => {
+                const map = new Map(prev.map((f) => [f.id, f]));
+                for (const f of msg.files) {
+                  if (f && f.id) map.set(f.id, f);
+                }
+                return Array.from(map.values());
+              });
+            }
+            break;
+          }
+
+          case 'mesh-heartbeat': {
+            if (!msg.user || msg.user.id === userRef.current.id) break;
+            const hbUser: UserPresence = msg.user;
+            peerLastSeenRef.current.set(hbUser.id, Date.now());
+            setUsers((prev) => {
+              const exists = prev.some((u) => u.id === hbUser.id);
+              if (!exists) {
+                soundEffects.playJoinSound();
+                return [...prev, hbUser];
+              }
+              return prev.map((u) => (u.id === hbUser.id ? { ...u, ...hbUser } : u));
+            });
+            break;
+          }
+
+          case 'mesh-leave': {
+            if (!msg.userId || msg.userId === userRef.current.id) break;
+            peerLastSeenRef.current.delete(msg.userId);
+            setUsers((prev) => prev.filter((u) => u.id !== msg.userId));
+            break;
+          }
+
+          // --- Standard Room & Workspace Events ---
+          case 'init-room': {
+            setRoomError(null);
+            setSyncedRoomName(msg.roomName || roomName);
+            if (msg.settings) {
+              setRoomSettings(msg.settings);
+            }
+            if (Array.isArray(msg.rooms)) {
+              setRoomsList(msg.rooms);
+            }
+            if (msg.limits) {
+              setServerLimits(msg.limits);
+            }
+            setElements(msg.elements || []);
+            if (msg.code) setCode(msg.code);
+            if (msg.notes) setNotes(msg.notes);
+            setFiles(msg.files || []);
+            setChatMessages(msg.messages || []);
+            setUsers(msg.users || []);
+            break;
+          }
+
+          case 'rooms-list-updated': {
+            if (Array.isArray(msg.rooms)) {
+              setRoomsList(msg.rooms);
+            }
+            if (msg.limits) {
+              setServerLimits(msg.limits);
+            }
+            break;
+          }
+
+          case 'room-settings-updated':
+          case 'room-settings-update': {
+            const changes = msg.settings || msg.changes;
+            if (msg.roomName || changes?.roomName) {
+              setSyncedRoomName(msg.roomName || changes.roomName);
+            }
+            if (changes) {
+              setRoomSettings((prev) => ({
+                ...prev,
+                ...changes,
+              }));
+            }
+            break;
+          }
+
+          case 'room-error': {
+            setRoomError({
+              code: msg.code || 'ERROR',
+              message: msg.message || 'Oda işlemi sırasında bir hata oluştu.',
+              roomId: msg.roomId,
+            });
+            break;
+          }
+
+          case 'user-role-updated':
+          case 'user-role-update': {
+            const targetId = msg.userId || msg.targetUserId;
+            const nextRole = msg.role || msg.newRole;
+            if (targetId && nextRole) {
+              setUsers((prev) =>
+                prev.map((u) => (u.id === targetId ? { ...u, role: nextRole } : u))
+              );
+            }
+            break;
+          }
+
+          case 'kicked-from-room':
+          case 'user-kick': {
+            const kickedId = msg.targetUserId;
+            if (msg.type === 'kicked-from-room' || kickedId === userRef.current.id) {
+              if (onKickedRef.current) {
+                onKickedRef.current(
+                  msg.roomId || roomId,
+                  msg.roomName || syncedRoomNameRef.current,
+                  msg.by || 'Yönetici'
+                );
+              }
+            } else if (kickedId) {
+              setUsers((prev) => prev.filter((u) => u.id !== kickedId));
+            }
+            break;
+          }
+
+          case 'user-joined': {
+            setUsers((prev) => {
+              const filtered = prev.filter((u) => u.id !== msg.user.id);
+              return [...filtered, msg.user];
+            });
+            soundEffects.playJoinSound();
+            break;
+          }
+
+          case 'user-updated':
+          case 'user-update': {
+            const updatedUser = msg.user;
+            const uid = updatedUser?.id || msg._senderId;
+            if (uid && updatedUser) {
+              setUsers((prev) =>
+                prev.map((u) =>
+                  u.id === uid
+                    ? {
+                        ...u,
+                        name: updatedUser.name || u.name,
+                        color: updatedUser.color || u.color,
+                        avatar:
+                          updatedUser.avatar ||
+                          (updatedUser.name || u.name).charAt(0).toUpperCase(),
+                      }
+                    : u
+                )
+              );
+            }
+            break;
+          }
+
+          case 'user-left': {
+            setUsers((prev) => prev.filter((u) => u.id !== msg.userId));
+            break;
+          }
+
+          case 'cursor-moved':
+          case 'cursor-move': {
+            const uid = msg.userId || msg._senderId;
+            if (!uid || uid === userRef.current.id) break;
+            setUsers((prev) =>
+              prev.map((u) => {
+                if (u.id === uid) {
+                  return {
+                    ...u,
+                    cursor: msg.cursor,
+                    isDrawing: !!msg.isDrawing,
+                    activeTool: msg.activeTool || u.activeTool,
+                  };
+                }
+                return u;
+              })
+            );
+            break;
+          }
+
+          case 'laser-moved':
+          case 'laser-move': {
+            const uid = msg.userId || msg._senderId;
+            if (uid === userRef.current.id) break;
+            if (msg.point) {
+              const senderUser = usersRef.current.find((u) => u.id === uid);
+              setRemoteLaserPoints((prev) => [
+                ...prev.slice(-60),
+                {
+                  x: msg.point.x,
+                  y: msg.point.y,
+                  time: Date.now(),
+                  userId: uid || 'remote',
+                  color: msg.color || senderUser?.color || '#ef4444',
+                },
+              ]);
+            }
+            break;
+          }
+
+          case 'element-created':
+          case 'element-create': {
+            if (!msg.element) break;
+            setElements((prev) => {
+              if (prev.some((el) => el.id === msg.element.id)) {
+                return prev.map((el) => (el.id === msg.element.id ? msg.element : el));
+              }
+              return [...prev, msg.element];
+            });
+            break;
+          }
+
+          case 'element-updated':
+          case 'element-update': {
+            setElements((prev) =>
+              prev.map((el) =>
+                el.id === msg.id ? { ...el, ...msg.changes, updatedAt: Date.now() } : el
+              )
+            );
+            break;
+          }
+
+          case 'elements-batch-updated':
+          case 'elements-batch-update': {
+            if (!Array.isArray(msg.updates)) break;
+            const updatesMap = new Map<string, Partial<CanvasElement>>();
+            for (const u of msg.updates) {
+              updatesMap.set(u.id, u.changes);
+            }
+            setElements((prev) =>
+              prev.map((el) => {
+                const ch = updatesMap.get(el.id);
+                if (ch) {
+                  return { ...el, ...ch, updatedAt: Date.now() };
+                }
+                return el;
+              })
+            );
+            break;
+          }
+
+          case 'element-deleted':
+          case 'element-delete': {
+            if (!Array.isArray(msg.ids)) break;
+            const idSet = new Set(msg.ids);
+            setElements((prev) => prev.filter((el) => !idSet.has(el.id)));
+            break;
+          }
+
+          case 'elements-replaced':
+          case 'elements-replace': {
+            if (Array.isArray(msg.elements)) {
+              setElements(msg.elements);
+            }
+            break;
+          }
+
+          case 'elements-cleared':
+          case 'elements-clear': {
+            setElements([]);
+            break;
+          }
+
+          case 'elements-template-loaded':
+          case 'elements-load-template': {
+            if (!Array.isArray(msg.elements)) break;
+            setElements((prev) => {
+              const existingMap = new Map(prev.map((el) => [el.id, el]));
+              for (const el of msg.elements) {
+                existingMap.set(el.id, el);
+              }
+              return Array.from(existingMap.values());
+            });
+            break;
+          }
+
+          case 'code-updated':
+          case 'code-change': {
+            if (msg.code) {
+              setCode(msg.code);
+            } else if (typeof msg.content === 'string') {
+              setCode((prev) => ({
+                content: msg.content,
+                language: msg.language || prev.language,
+                lastUpdatedBy: msg.userName || 'Kullanıcı',
+              }));
+            }
+            break;
+          }
+
+          case 'notes-updated':
+          case 'notes-change': {
+            if (msg.notes) {
+              setNotes(msg.notes);
+            } else if (typeof msg.content === 'string') {
+              setNotes({
+                content: msg.content,
+                lastUpdatedBy: msg.userName || 'Kullanıcı',
+              });
+            }
+            break;
+          }
+
+          case 'chat-received':
+          case 'chat-message': {
+            const chatMsg: ChatMessage = msg.message || {
+              id: msg.id || `msg-${msg._ts || Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              userId: msg._senderId || msg.userId || 'remote',
+              userName: msg.userName || 'Kullanıcı',
+              userColor: msg.userColor || '#2563eb',
+              text: msg.text,
+              timestamp: msg.timestamp || msg._ts || Date.now(),
+              fileAttachment: msg.fileAttachment,
+            };
+            setChatMessages((prev) => {
+              if (prev.some((m) => m.id === chatMsg.id)) return prev;
+              return [...prev, chatMsg];
+            });
+            if (chatMsg.userId !== userRef.current.id) {
+              soundEffects.playMessageSound();
+            }
+            break;
+          }
+
+          case 'file-added':
+          case 'file-upload': {
+            const fileObj: SharedFile = msg.file || {
+              id: msg.id || `file-${msg._ts || Date.now()}`,
+              name: msg.name,
+              size: msg.size,
+              type: msg.fileType || 'application/octet-stream',
+              dataUrl: msg.dataUrl,
+              uploadedBy: msg.uploadedBy || 'Kullanıcı',
+              uploadedAt: msg._ts || Date.now(),
+            };
+            setFiles((prev) => {
+              if (prev.some((f) => f.id === fileObj.id)) return prev;
+              return [...prev, fileObj];
+            });
+            break;
+          }
+
+          case 'file-deleted':
+          case 'file-delete': {
+            setFiles((prev) => prev.filter((f) => f.id !== msg.fileId));
+            break;
+          }
+
+          case 'voice-state-updated':
+          case 'voice-state': {
+            const uid = msg.userId || msg._senderId;
+            if (!uid) break;
+            setUsers((prev) =>
+              prev.map((u) => {
+                if (u.id === uid) {
+                  return {
+                    ...u,
+                    isMuted: msg.isMuted ?? u.isMuted,
+                    isDeafened: msg.isDeafened ?? u.isDeafened,
+                    isSpeaking: msg.isSpeaking ?? u.isSpeaking,
+                  };
+                }
+                return u;
+              })
+            );
+            break;
+          }
+
+          case 'ping-received':
+          case 'user-ping': {
+            const newPing: UserPing = {
+              x: msg.x,
+              y: msg.y,
+              userName: msg.userName,
+              userColor: msg.userColor,
+              timestamp: Date.now(),
+            };
+            setPings((prev) => [...prev.slice(-10), newPing]);
+            soundEffects.playPingSound();
+            break;
+          }
+
+          case 'reaction-received':
+          case 'reaction': {
+            const newReaction: UserReaction = {
+              id: `rx-${Date.now()}-${Math.random()}`,
+              x: msg.x,
+              y: msg.y,
+              emoji: msg.emoji,
+              userName: msg.userName,
+              timestamp: Date.now(),
+            };
+            setReactions((prev) => [...prev.slice(-20), newReaction]);
+            break;
+          }
+
+          case 'webrtc-signal': {
+            const fromId = msg.fromUserId || msg._senderId;
+            if (
+              fromId &&
+              fromId !== userRef.current.id &&
+              (!msg.targetUserId || msg.targetUserId === userRef.current.id)
+            ) {
+              if (onWebRTCSignalRef.current) {
+                onWebRTCSignalRef.current(fromId, msg.signal);
+              }
+            }
+            break;
+          }
+
+          default:
+            break;
+        }
+      } catch (err) {
+        console.error('Packet handling error:', err);
+      }
+    },
+    [roomId, roomName, publishMeshPacket]
+  );
 
   // Connect & reconnect logic per roomId
   useEffect(() => {
     let isCancelled = false;
+    joinedAtRef.current = Date.now();
+    peerLastSeenRef.current.clear();
 
     // Setup BroadcastChannel for instant local cross-tab/window sync
     if (typeof BroadcastChannel !== 'undefined') {
@@ -204,52 +846,28 @@ export function useWebSocket({
         const bc = new BroadcastChannel(`collabboard_room_${roomId}`);
         broadcastChannelRef.current = bc;
         bc.onmessage = (ev) => {
-          try {
-            const msg = JSON.parse(ev.data);
-            if (msg.type === 'element-create' && msg.element) {
-              setElements((prev) =>
-                prev.some((el) => el.id === msg.element.id)
-                  ? prev.map((el) => (el.id === msg.element.id ? msg.element : el))
-                  : [...prev, msg.element]
-              );
-            } else if (msg.type === 'element-update' && msg.id) {
-              setElements((prev) =>
-                prev.map((el) =>
-                  el.id === msg.id ? { ...el, ...msg.changes, updatedAt: Date.now() } : el
-                )
-              );
-            } else if (msg.type === 'element-delete' && Array.isArray(msg.ids)) {
-              const idSet = new Set(msg.ids);
-              setElements((prev) => prev.filter((el) => !idSet.has(el.id)));
-            } else if (
-              (msg.type === 'elements-replace' || msg.type === 'elements-load-template') &&
-              Array.isArray(msg.elements)
-            ) {
-              setElements(msg.elements);
-            } else if (msg.type === 'elements-clear') {
-              setElements([]);
-            } else if (msg.type === 'code-change' && typeof msg.content === 'string') {
-              setCode((prev) => ({
-                content: msg.content,
-                language: msg.language || prev.language,
-                lastUpdatedBy: msg.userName || 'Kullanıcı',
-              }));
-            } else if (msg.type === 'notes-change' && typeof msg.content === 'string') {
-              setNotes({
-                content: msg.content,
-                lastUpdatedBy: msg.userName || 'Kullanıcı',
-              });
-            }
-          } catch {
-            // Ignore malformed message
+          if (typeof ev.data === 'string') {
+            handleIncomingPacket(ev.data);
           }
         };
-      } catch {
-        // Ignore BroadcastChannel unsupported
-      }
+      } catch {}
     }
 
     function resolveWsUrl(): string | null {
+      const host = window.location.hostname;
+      const isStaticHost =
+        host.endsWith('.github.io') ||
+        host.endsWith('.web.app') ||
+        host.endsWith('.firebaseapp.com') ||
+        host.endsWith('.pages.dev') ||
+        host.endsWith('.netlify.app') ||
+        host.endsWith('.vercel.app');
+
+      if (isStaticHost) {
+        // On GitHub Pages and static hosts, always use Serverless WSS + WebRTC Mesh immediately
+        return null;
+      }
+
       try {
         const params = new URLSearchParams(window.location.search);
         const serverFromQuery = params.get('server');
@@ -268,68 +886,147 @@ export function useWebSocket({
             return wsConverted;
           }
         }
-        const savedServer = localStorage.getItem('collab_ws_server');
-        if (savedServer && (savedServer.startsWith('ws://') || savedServer.startsWith('wss://'))) {
-          httpFallbackBaseRef.current = savedServer
-            .trim()
-            .replace(/^wss:/, 'https:')
-            .replace(/^ws:/, 'http:');
-          return savedServer.trim();
-        }
-      } catch {
-        // Ignore storage error
-      }
-
-      const host = window.location.hostname;
-      const isStaticHost =
-        host.endsWith('.github.io') ||
-        host.endsWith('.web.app') ||
-        host.endsWith('.firebaseapp.com') ||
-        host.endsWith('.pages.dev') ||
-        host.endsWith('.netlify.app') ||
-        host.endsWith('.vercel.app');
-
-      if (isStaticHost) {
-        return null;
-      }
+      } catch {}
 
       httpFallbackBaseRef.current = '';
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       return `${protocol}//${window.location.host}`;
     }
 
-    async function fetchRoomRestFallback() {
-      try {
-        const base = httpFallbackBaseRef.current;
-        const res = await fetch(
-          `${base}/api/rooms/${encodeURIComponent(roomId)}?roomName=${encodeURIComponent(roomName)}`
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (isCancelled) return;
-        if (data.name) setSyncedRoomName(data.name);
-        if (data.settings) setRoomSettings(data.settings);
-        if (Array.isArray(data.elements) && data.elements.length > 0) {
-          setElements(data.elements);
-        }
-        if (data.code && typeof data.code.content === 'string') {
-          setCode(data.code);
-        }
-        if (data.notes && typeof data.notes.content === 'string') {
-          setNotes(data.notes);
-        }
-        if (Array.isArray(data.messages) && data.messages.length > 0) {
-          setChatMessages(data.messages);
-        }
-        if (Array.isArray(data.rooms)) {
-          setRoomsList(data.rooms);
-        }
-        if (data.limits) {
-          setServerLimits(data.limits);
-        }
-      } catch {
-        // Ignore if static host without backend
+    let meshHeartbeatTimer: number | null = null;
+    let beforeUnloadHandler: (() => void) | null = null;
+
+    function startServerlessMesh() {
+      if (isCancelled) return;
+      isMeshModeRef.current = true;
+      setIsConnected(true);
+
+      const initialSelfPresence: UserPresence = {
+        id: userRef.current.id,
+        name: userRef.current.name,
+        avatar: userRef.current.avatar || userRef.current.name.charAt(0).toUpperCase(),
+        color: userRef.current.color,
+        role: 'owner',
+        cursor: { x: 0, y: 0 },
+        isDrawing: false,
+        activeTool: 'select',
+        isMuted: localVoiceRef.current.isMuted,
+        isDeafened: localVoiceRef.current.isDeafened,
+        isSpeaking: false,
+        joinedAt: joinedAtRef.current,
+      };
+
+      setRoomSettings((prev) => ({
+        ...prev,
+        ownerId: prev.ownerId || userRef.current.id,
+      }));
+
+      setUsers((prev) => {
+        const others = prev.filter((u) => u.id !== userRef.current.id);
+        return [initialSelfPresence, ...others];
+      });
+
+      setRoomsList([
+        {
+          id: roomId,
+          name: roomName,
+          userCount: 1,
+          maxUsers: 12,
+          isLocked: false,
+          elementCount: elementsRef.current.length,
+          createdAt: joinedAtRef.current,
+          ownerName: userRef.current.name,
+        },
+      ]);
+
+      const eventsTopic = `collabboard/v3/room/${roomId}/events`;
+      const directPeerTopic = `collabboard/v3/room/${roomId}/peer/${userRef.current.id}`;
+
+      const clients: MqttClient[] = [];
+      for (const brokerUrl of PUBLIC_WSS_BROKERS) {
+        try {
+          const client = mqtt.connect(brokerUrl, {
+            clientId: `cb_${userRef.current.id.replace(/[^a-zA-Z0-9]/g, '')}_${Math.random().toString(36).slice(2, 6)}`,
+            clean: true,
+            connectTimeout: 5000,
+            reconnectPeriod: 3000,
+          });
+
+          client.on('connect', () => {
+            if (isCancelled) return;
+            setIsConnected(true);
+            client.subscribe([eventsTopic, directPeerTopic], { qos: 0 }, () => {
+              // Announce presence to everyone in the room
+              const selfNow =
+                usersRef.current.find((u) => u.id === userRef.current.id) || initialSelfPresence;
+              publishMeshPacket({
+                type: 'mesh-join',
+                roomId,
+                roomName,
+                user: selfNow,
+              });
+            });
+          });
+
+          client.on('message', (_topic, payloadBuffer) => {
+            if (isCancelled) return;
+            handleIncomingPacket(payloadBuffer.toString());
+          });
+
+          clients.push(client);
+        } catch {}
       }
+
+      mqttClientsRef.current = clients;
+
+      // Announce on BroadcastChannel immediately too
+      publishMeshPacket({
+        type: 'mesh-join',
+        roomId,
+        roomName,
+        user: initialSelfPresence,
+      });
+
+      // Periodic heartbeat & stale peer cleanup
+      meshHeartbeatTimer = window.setInterval(() => {
+        if (isCancelled) return;
+        const me = usersRef.current.find((u) => u.id === userRef.current.id);
+        if (me) {
+          publishMeshPacket({
+            type: 'mesh-heartbeat',
+            user: {
+              ...me,
+              cursor: localCursorRef.current.cursor,
+              isDrawing: localCursorRef.current.isDrawing,
+              activeTool: localCursorRef.current.activeTool,
+              isMuted: localVoiceRef.current.isMuted,
+              isDeafened: localVoiceRef.current.isDeafened,
+              isSpeaking: localVoiceRef.current.isSpeaking,
+            },
+          });
+        }
+
+        // Prune peers silent for > 15s
+        const now = Date.now();
+        const staleIds: string[] = [];
+        peerLastSeenRef.current.forEach((lastSeen, peerId) => {
+          if (now - lastSeen > 15000) {
+            staleIds.push(peerId);
+          }
+        });
+        if (staleIds.length > 0) {
+          staleIds.forEach((id) => peerLastSeenRef.current.delete(id));
+          setUsers((prev) => prev.filter((u) => u.id === userRef.current.id || !staleIds.includes(u.id)));
+        }
+      }, 4000);
+
+      beforeUnloadHandler = () => {
+        publishMeshPacket({
+          type: 'mesh-leave',
+          userId: userRef.current.id,
+        });
+      };
+      window.addEventListener('beforeunload', beforeUnloadHandler);
     }
 
     function connect() {
@@ -337,38 +1034,28 @@ export function useWebSocket({
 
       const wsUrl = resolveWsUrl();
       if (!wsUrl) {
-        setIsConnected(true);
-        setUsers([
-          {
-            id: userRef.current.id,
-            name: userRef.current.name,
-            avatar: userRef.current.avatar,
-            color: userRef.current.color,
-            role: 'owner',
-            cursor: { x: 0, y: 0 },
-            isDrawing: false,
-            activeTool: 'select',
-            isMuted: true,
-            isDeafened: false,
-            isSpeaking: false,
-            joinedAt: Date.now(),
-          },
-        ]);
+        // Static host (e.g. GitHub Pages ibrahimhyilmaz.github.io) -> Activate Serverless WSS + WebRTC Mesh!
+        startServerlessMesh();
         return;
       }
 
-      // Immediately fetch initial room snapshot over HTTP in parallel so mobile/invited devices
-      // render the room state even before WebSocket upgrade finishes
-      fetchRoomRestFallback();
-
+      isMeshModeRef.current = false;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
+      // If WS fails to open within 3.5s, automatically start Serverless Mesh as backup!
+      const fallbackTimer = window.setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN && !isCancelled && mqttClientsRef.current.length === 0) {
+          startServerlessMesh();
+        }
+      }, 3500);
+
       ws.onopen = () => {
+        clearTimeout(fallbackTimer);
         if (isCancelled) return;
+        isMeshModeRef.current = false;
         setIsConnected(true);
 
-        // Join the room
         ws.send(
           JSON.stringify({
             type: 'join-room',
@@ -378,7 +1065,6 @@ export function useWebSocket({
           })
         );
 
-        // Flush any pending queue
         while (pendingQueue.current.length > 0) {
           const item = pendingQueue.current.shift();
           if (item) ws.send(item);
@@ -395,280 +1081,13 @@ export function useWebSocket({
       };
 
       ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-
-          switch (msg.type) {
-            case 'init-room': {
-              setRoomError(null);
-              setSyncedRoomName(msg.roomName || roomName);
-              if (msg.settings) {
-                setRoomSettings(msg.settings);
-              }
-              if (Array.isArray(msg.rooms)) {
-                setRoomsList(msg.rooms);
-              }
-              if (msg.limits) {
-                setServerLimits(msg.limits);
-              }
-              setElements(msg.elements || []);
-              setCode(msg.code || { content: '', language: 'javascript', lastUpdatedBy: '' });
-              setNotes(msg.notes || { content: '', lastUpdatedBy: '' });
-              setFiles(msg.files || []);
-              setChatMessages(msg.messages || []);
-              setUsers(msg.users || []);
-              break;
-            }
-
-            case 'rooms-list-updated': {
-              if (Array.isArray(msg.rooms)) {
-                setRoomsList(msg.rooms);
-              }
-              if (msg.limits) {
-                setServerLimits(msg.limits);
-              }
-              break;
-            }
-
-            case 'room-settings-updated': {
-              if (msg.roomName) {
-                setSyncedRoomName(msg.roomName);
-              }
-              if (msg.settings) {
-                setRoomSettings(msg.settings);
-              }
-              break;
-            }
-
-            case 'room-error': {
-              setRoomError({
-                code: msg.code || 'ERROR',
-                message: msg.message || 'Oda işlemi sırasında bir hata oluştu.',
-                roomId: msg.roomId,
-              });
-              break;
-            }
-
-            case 'user-role-updated': {
-              setUsers((prev) =>
-                prev.map((u) => (u.id === msg.userId ? { ...u, role: msg.role } : u))
-              );
-              break;
-            }
-
-            case 'kicked-from-room': {
-              if (onKickedRef.current) {
-                onKickedRef.current(msg.roomId, msg.roomName, msg.by);
-              }
-              break;
-            }
-
-            case 'user-joined': {
-              setUsers((prev) => {
-                const filtered = prev.filter((u) => u.id !== msg.user.id);
-                return [...filtered, msg.user];
-              });
-              soundEffects.playJoinSound();
-              break;
-            }
-
-            case 'user-updated': {
-              setUsers((prev) =>
-                prev.map((u) => (u.id === msg.user.id ? { ...u, ...msg.user } : u))
-              );
-              break;
-            }
-
-            case 'user-left': {
-              setUsers((prev) => prev.filter((u) => u.id !== msg.userId));
-              break;
-            }
-
-            case 'cursor-moved': {
-              setUsers((prev) =>
-                prev.map((u) => {
-                  if (u.id === msg.userId) {
-                    return {
-                      ...u,
-                      cursor: msg.cursor,
-                      isDrawing: !!msg.isDrawing,
-                      activeTool: msg.activeTool || u.activeTool,
-                    };
-                  }
-                  return u;
-                })
-              );
-              break;
-            }
-
-            case 'laser-moved': {
-              if (msg.point) {
-                setRemoteLaserPoints((prev) => [
-                  ...prev.slice(-60),
-                  {
-                    x: msg.point.x,
-                    y: msg.point.y,
-                    time: Date.now(),
-                    userId: msg.userId,
-                    color: msg.color || '#ef4444',
-                  },
-                ]);
-              }
-              break;
-            }
-
-            case 'element-created': {
-              setElements((prev) => {
-                if (prev.some((el) => el.id === msg.element.id)) {
-                  return prev.map((el) => (el.id === msg.element.id ? msg.element : el));
-                }
-                return [...prev, msg.element];
-              });
-              break;
-            }
-
-            case 'element-updated': {
-              setElements((prev) =>
-                prev.map((el) =>
-                  el.id === msg.id ? { ...el, ...msg.changes, updatedAt: Date.now() } : el
-                )
-              );
-              break;
-            }
-
-            case 'elements-batch-updated': {
-              const updatesMap = new Map<string, Partial<CanvasElement>>();
-              for (const u of msg.updates) {
-                updatesMap.set(u.id, u.changes);
-              }
-              setElements((prev) =>
-                prev.map((el) => {
-                  const ch = updatesMap.get(el.id);
-                  if (ch) {
-                    return { ...el, ...ch, updatedAt: Date.now() };
-                  }
-                  return el;
-                })
-              );
-              break;
-            }
-
-            case 'element-deleted': {
-              const idSet = new Set(msg.ids);
-              setElements((prev) => prev.filter((el) => !idSet.has(el.id)));
-              break;
-            }
-
-            case 'elements-replaced': {
-              if (Array.isArray(msg.elements)) {
-                setElements(msg.elements);
-              }
-              break;
-            }
-
-            case 'elements-cleared': {
-              setElements([]);
-              break;
-            }
-
-            case 'elements-template-loaded': {
-              setElements((prev) => {
-                const existingMap = new Map(prev.map((el) => [el.id, el]));
-                for (const el of msg.elements) {
-                  existingMap.set(el.id, el);
-                }
-                return Array.from(existingMap.values());
-              });
-              break;
-            }
-
-            case 'code-updated': {
-              setCode(msg.code);
-              break;
-            }
-
-            case 'notes-updated': {
-              setNotes(msg.notes);
-              break;
-            }
-
-            case 'chat-received': {
-              setChatMessages((prev) => [...prev, msg.message]);
-              if (msg.message.userId !== userRef.current.id) {
-                soundEffects.playMessageSound();
-              }
-              break;
-            }
-
-            case 'file-added': {
-              setFiles((prev) => [...prev, msg.file]);
-              break;
-            }
-
-            case 'file-deleted': {
-              setFiles((prev) => prev.filter((f) => f.id !== msg.fileId));
-              break;
-            }
-
-            case 'voice-state-updated': {
-              setUsers((prev) =>
-                prev.map((u) => {
-                  if (u.id === msg.userId) {
-                    return {
-                      ...u,
-                      isMuted: msg.isMuted ?? u.isMuted,
-                      isDeafened: msg.isDeafened ?? u.isDeafened,
-                      isSpeaking: msg.isSpeaking ?? u.isSpeaking,
-                    };
-                  }
-                  return u;
-                })
-              );
-              break;
-            }
-
-            case 'ping-received': {
-              const newPing: UserPing = {
-                x: msg.x,
-                y: msg.y,
-                userName: msg.userName,
-                userColor: msg.userColor,
-                timestamp: Date.now(),
-              };
-              setPings((prev) => [...prev.slice(-10), newPing]);
-              soundEffects.playPingSound();
-              break;
-            }
-
-            case 'reaction-received': {
-              const newReaction: UserReaction = {
-                id: `rx-${Date.now()}-${Math.random()}`,
-                x: msg.x,
-                y: msg.y,
-                emoji: msg.emoji,
-                userName: msg.userName,
-                timestamp: Date.now(),
-              };
-              setReactions((prev) => [...prev.slice(-20), newReaction]);
-              break;
-            }
-
-            case 'webrtc-signal': {
-              if (onWebRTCSignalRef.current) {
-                onWebRTCSignalRef.current(msg.fromUserId, msg.signal);
-              }
-              break;
-            }
-
-            default:
-              break;
-          }
-        } catch (err) {
-          console.error('Socket message error:', err);
+        if (typeof event.data === 'string') {
+          handleIncomingPacket(event.data);
         }
       };
 
       ws.onclose = () => {
+        clearTimeout(fallbackTimer);
         if (isCancelled) return;
         setIsConnected(false);
         if (keepAliveIntervalRef.current) {
@@ -676,7 +1095,7 @@ export function useWebSocket({
         }
         reconnectTimeoutRef.current = window.setTimeout(() => {
           connect();
-        }, 2000);
+        }, 2500);
       };
 
       ws.onerror = () => {
@@ -688,6 +1107,24 @@ export function useWebSocket({
 
     return () => {
       isCancelled = true;
+      if (beforeUnloadHandler) {
+        window.removeEventListener('beforeunload', beforeUnloadHandler);
+      }
+      if (isMeshModeRef.current) {
+        publishMeshPacket({
+          type: 'mesh-leave',
+          userId: userRef.current.id,
+        });
+      }
+      if (meshHeartbeatTimer) {
+        clearInterval(meshHeartbeatTimer);
+      }
+      for (const client of mqttClientsRef.current) {
+        try {
+          client.end(true);
+        } catch {}
+      }
+      mqttClientsRef.current = [];
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
@@ -700,13 +1137,29 @@ export function useWebSocket({
       if (broadcastChannelRef.current) {
         try {
           broadcastChannelRef.current.close();
-        } catch {
-          // Ignore
-        }
+        } catch {}
         broadcastChannelRef.current = null;
       }
     };
-  }, [roomId]);
+  }, [roomId, roomName, handleIncomingPacket, publishMeshPacket]);
+
+  // Keep roomsList summary updated in mesh mode
+  useEffect(() => {
+    if (!isMeshModeRef.current) return;
+    setRoomsList([
+      {
+        id: roomId,
+        name: syncedRoomName,
+        userCount: users.length,
+        maxUsers: roomSettings.maxUsers,
+        isLocked: roomSettings.isLocked,
+        elementCount: elements.length,
+        createdAt: joinedAtRef.current,
+        ownerName:
+          users.find((u) => u.role === 'owner')?.name || userRef.current.name,
+      },
+    ]);
+  }, [roomId, syncedRoomName, users, roomSettings.maxUsers, roomSettings.isLocked, elements.length]);
 
   // Clean up old pings, reactions, and remote laser points periodically
   useEffect(() => {
@@ -736,7 +1189,9 @@ export function useWebSocket({
 
   // Public Actions
   const requestRoomsList = useCallback(() => {
-    sendMessage({ type: 'get-rooms' });
+    if (!isMeshModeRef.current) {
+      sendMessage({ type: 'get-rooms' });
+    }
   }, [sendMessage]);
 
   const updateRoomSettings = useCallback(
@@ -746,6 +1201,13 @@ export function useWebSocket({
       defaultRole?: 'editor' | 'viewer';
       roomName?: string;
     }) => {
+      if (changes.roomName) {
+        setSyncedRoomName(changes.roomName);
+      }
+      setRoomSettings((prev) => ({
+        ...prev,
+        ...changes,
+      }));
       sendMessage({
         type: 'room-settings-update',
         changes,
@@ -756,6 +1218,9 @@ export function useWebSocket({
 
   const updateUserRole = useCallback(
     (targetUserId: string, newRole: UserRole) => {
+      setUsers((prev) =>
+        prev.map((u) => (u.id === targetUserId ? { ...u, role: newRole } : u))
+      );
       sendMessage({
         type: 'user-role-update',
         targetUserId,
@@ -767,18 +1232,31 @@ export function useWebSocket({
 
   const kickUser = useCallback(
     (targetUserId: string) => {
+      setUsers((prev) => prev.filter((u) => u.id !== targetUserId));
       sendMessage({
         type: 'user-kick',
         targetUserId,
+        roomId,
+        roomName: syncedRoomNameRef.current,
+        by: userRef.current.name,
       });
     },
-    [sendMessage]
+    [sendMessage, roomId]
   );
 
+  const lastCursorSentAtRef = useRef<number>(0);
   const sendCursor = useCallback(
     (cursor: Point, isDrawing: boolean, activeTool: string) => {
+      localCursorRef.current = { cursor, isDrawing, activeTool };
+      const now = Date.now();
+      // Throttle cursor packets to ~25fps on mesh to keep bandwidth crisp
+      if (isMeshModeRef.current && now - lastCursorSentAtRef.current < 40 && !isDrawing) {
+        return;
+      }
+      lastCursorSentAtRef.current = now;
       sendMessage({
         type: 'cursor-move',
+        userId: userRef.current.id,
         cursor,
         isDrawing,
         activeTool,
@@ -791,6 +1269,8 @@ export function useWebSocket({
     (point: Point) => {
       sendMessage({
         type: 'laser-move',
+        userId: userRef.current.id,
+        color: userRef.current.color,
         point,
       });
     },
@@ -899,15 +1379,16 @@ export function useWebSocket({
   const updateCode = useCallback(
     (newContent: string, newLanguage?: string) => {
       if (!canEdit) return;
-      setCode((prev) => ({
+      const nextLang = newLanguage || code.language;
+      setCode({
         content: newContent,
-        language: newLanguage || prev.language,
+        language: nextLang,
         lastUpdatedBy: userRef.current.name,
-      }));
+      });
       sendMessage({
         type: 'code-change',
         content: newContent,
-        language: newLanguage || code.language,
+        language: nextLang,
         userName: userRef.current.name,
       });
     },
@@ -932,11 +1413,26 @@ export function useWebSocket({
 
   const sendChatMessage = useCallback(
     (text: string, fileAttachment?: { name: string; url: string }) => {
+      const msgObj: ChatMessage = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        userId: userRef.current.id,
+        userName: userRef.current.name,
+        userColor: userRef.current.color,
+        text,
+        timestamp: Date.now(),
+        fileAttachment,
+      };
+      if (isMeshModeRef.current) {
+        setChatMessages((prev) => [...prev, msgObj]);
+      }
       sendMessage({
         type: 'chat-message',
+        id: msgObj.id,
+        userId: msgObj.userId,
         text,
         userName: userRef.current.name,
         userColor: userRef.current.color,
+        timestamp: msgObj.timestamp,
         fileAttachment,
       });
     },
@@ -946,8 +1442,24 @@ export function useWebSocket({
   const uploadFile = useCallback(
     (fileData: { name: string; size: number; fileType: string; dataUrl: string }) => {
       if (!canEdit) return;
+      const fileId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      if (isMeshModeRef.current) {
+        setFiles((prev) => [
+          ...prev,
+          {
+            id: fileId,
+            name: fileData.name,
+            size: fileData.size,
+            type: fileData.fileType,
+            dataUrl: fileData.dataUrl,
+            uploadedBy: userRef.current.name,
+            uploadedAt: Date.now(),
+          },
+        ]);
+      }
       sendMessage({
         type: 'file-upload',
+        id: fileId,
         ...fileData,
         uploadedBy: userRef.current.name,
       });
@@ -969,6 +1481,11 @@ export function useWebSocket({
 
   const updateVoiceState = useCallback(
     (voiceState: { isMuted?: boolean; isDeafened?: boolean; isSpeaking?: boolean }) => {
+      localVoiceRef.current = {
+        isMuted: voiceState.isMuted ?? localVoiceRef.current.isMuted,
+        isDeafened: voiceState.isDeafened ?? localVoiceRef.current.isDeafened,
+        isSpeaking: voiceState.isSpeaking ?? localVoiceRef.current.isSpeaking,
+      };
       setUsers((prev) =>
         prev.map((u) =>
           u.id === userRef.current.id
@@ -983,6 +1500,7 @@ export function useWebSocket({
       );
       sendMessage({
         type: 'voice-state',
+        userId: userRef.current.id,
         ...voiceState,
       });
     },
@@ -991,6 +1509,19 @@ export function useWebSocket({
 
   const sendPing = useCallback(
     (x: number, y: number) => {
+      if (isMeshModeRef.current) {
+        setPings((prev) => [
+          ...prev.slice(-10),
+          {
+            x,
+            y,
+            userName: userRef.current.name,
+            userColor: userRef.current.color,
+            timestamp: Date.now(),
+          },
+        ]);
+        soundEffects.playPingSound();
+      }
       sendMessage({
         type: 'user-ping',
         x,
@@ -1004,6 +1535,19 @@ export function useWebSocket({
 
   const sendReaction = useCallback(
     (emoji: string, x: number, y: number) => {
+      if (isMeshModeRef.current) {
+        setReactions((prev) => [
+          ...prev.slice(-20),
+          {
+            id: `rx-${Date.now()}-${Math.random()}`,
+            x,
+            y,
+            emoji,
+            userName: userRef.current.name,
+            timestamp: Date.now(),
+          },
+        ]);
+      }
       sendMessage({
         type: 'reaction',
         emoji,
@@ -1017,13 +1561,26 @@ export function useWebSocket({
 
   const sendWebRTCSignal = useCallback(
     (targetUserId: string, signal: unknown) => {
+      if (isMeshModeRef.current) {
+        publishMeshPacket(
+          {
+            type: 'webrtc-signal',
+            fromUserId: userRef.current.id,
+            targetUserId,
+            signal,
+          },
+          targetUserId
+        );
+        return;
+      }
       sendMessage({
         type: 'webrtc-signal',
+        fromUserId: userRef.current.id,
         targetUserId,
         signal,
       });
     },
-    [sendMessage]
+    [sendMessage, publishMeshPacket]
   );
 
   return {
