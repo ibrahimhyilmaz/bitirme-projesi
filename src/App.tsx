@@ -19,20 +19,82 @@ import { AIPromptModal } from './components/AIPromptModal';
 import { RoomsModal, decodeRoomSnapshot } from './components/RoomsModal';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 
+function extractRoomInfoFromLocation(): { roomId: string; roomName: string; snapshot?: string } {
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    let roomId =
+      searchParams.get('room') ||
+      searchParams.get('r') ||
+      searchParams.get('roomId') ||
+      searchParams.get('board') ||
+      searchParams.get('oda') ||
+      '';
+    let roomName = searchParams.get('rname') || searchParams.get('name') || '';
+    let snapshot = searchParams.get('snap') || '';
+
+    // If query string didn't contain room, check hash (common when links are routed or shared via chat apps)
+    if (!roomId && window.location.hash) {
+      const rawHash = window.location.hash.replace(/^#\/?/, '');
+      const qIndex = rawHash.indexOf('?');
+      if (qIndex !== -1) {
+        const hashParams = new URLSearchParams(rawHash.slice(qIndex + 1));
+        roomId =
+          hashParams.get('room') ||
+          hashParams.get('r') ||
+          hashParams.get('roomId') ||
+          hashParams.get('board') ||
+          hashParams.get('oda') ||
+          '';
+        if (!roomName) roomName = hashParams.get('rname') || hashParams.get('name') || '';
+        if (!snapshot) snapshot = hashParams.get('snap') || '';
+      }
+      if (!roomId && rawHash.includes('=')) {
+        const hashParams = new URLSearchParams(rawHash);
+        roomId =
+          hashParams.get('room') ||
+          hashParams.get('r') ||
+          hashParams.get('roomId') ||
+          hashParams.get('board') ||
+          hashParams.get('oda') ||
+          '';
+        if (!roomName) roomName = hashParams.get('rname') || hashParams.get('name') || '';
+        if (!snapshot) snapshot = hashParams.get('snap') || '';
+      }
+      if (!roomId) {
+        const match = rawHash.match(/^(?:room|oda)\/([^/?#]+)/i);
+        if (match) {
+          roomId = match[1];
+        }
+      }
+    }
+
+    // Also check path, e.g. /room/xyz
+    if (!roomId && window.location.pathname) {
+      const match = window.location.pathname.match(/\/(?:room|oda)\/([^/?#]+)/i);
+      if (match) {
+        roomId = match[1];
+      }
+    }
+
+    const cleanRoomId = roomId
+      ? decodeURIComponent(roomId).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+      : '';
+    const cleanRoomName = roomName ? decodeURIComponent(roomName).trim() : '';
+
+    return {
+      roomId: cleanRoomId || 'ana-oda',
+      roomName: cleanRoomName,
+      snapshot: snapshot || undefined,
+    };
+  } catch {
+    return { roomId: 'ana-oda', roomName: '' };
+  }
+}
+
 export default function App() {
-  // Derive or initialize room from URL query
-  const getInitialRoomId = () => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('room') || 'ana-oda';
-  };
-
-  const getInitialRoomName = () => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('rname') || '';
-  };
-
-  const [roomId, setRoomId] = useState<string>(getInitialRoomId);
-  const [customRoomName, setCustomRoomName] = useState<string>(getInitialRoomName);
+  const initialRoomInfo = useMemo(() => extractRoomInfoFromLocation(), []);
+  const [roomId, setRoomId] = useState<string>(initialRoomInfo.roomId);
+  const [customRoomName, setCustomRoomName] = useState<string>(initialRoomInfo.roomName);
   const fallbackRoomName = useMemo(() => {
     if (customRoomName.trim()) return customRoomName.trim();
     return roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : `Oda #${roomId}`;
@@ -68,11 +130,39 @@ export default function App() {
     localStorage.setItem('collab_usercolor', currentUser.color);
   }, [currentUser]);
 
-  // Update URL search param when roomId changes
+  // Keep URL search param synced when roomId changes and listen to popstate/hashchange
   useEffect(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('room', roomId);
-    window.history.replaceState({}, '', url.toString());
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', roomId);
+      if (customRoomName.trim()) {
+        url.searchParams.set('rname', customRoomName.trim());
+      } else {
+        url.searchParams.delete('rname');
+      }
+      if (window.location.hash && (window.location.hash.includes('room=') || window.location.hash.includes('/room/'))) {
+        url.hash = '';
+      }
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+  }, [roomId, customRoomName]);
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      const info = extractRoomInfoFromLocation();
+      if (info.roomId && info.roomId !== roomId) {
+        setRoomId(info.roomId);
+        if (info.roomName) {
+          setCustomRoomName(info.roomName);
+        }
+      }
+    };
+    window.addEventListener('popstate', handleLocationChange);
+    window.addEventListener('hashchange', handleLocationChange);
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      window.removeEventListener('hashchange', handleLocationChange);
+    };
   }, [roomId]);
 
   // Voice Chat State

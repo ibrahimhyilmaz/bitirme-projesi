@@ -187,12 +187,15 @@ function broadcastGlobalRoomsList() {
 
 // Helper to create or retrieve a room
 function getOrCreateRoom(
-  roomId: string,
+  rawRoomId: string,
   roomName?: string,
   creatorId?: string,
   creatorName?: string,
   customMaxUsers?: number
 ): { room: RoomState | null; error?: string } {
+  const roomId = rawRoomId
+    ? rawRoomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'ana-oda'
+    : 'ana-oda';
   if (!rooms.has(roomId)) {
     if (rooms.size >= MAX_ROOMS) {
       return {

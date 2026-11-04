@@ -167,11 +167,15 @@ export function useWebSocket({
   const httpFallbackBaseRef = useRef<string>('');
 
   // Publish helper for Serverless WSS Mesh Mode (GitHub Pages / Static Hosts)
+  const safeTopicRoomId = useMemo(() => {
+    return roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'ana-oda';
+  }, [roomId]);
+
   const publishMeshPacket = useCallback(
     (msg: Record<string, unknown>, targetUserId?: string) => {
       const pktId = `${userRef.current.id}-${Date.now()}-${++packetSeqRef.current}`;
       seenPacketsRef.current.add(pktId);
-      if (seenPacketsRef.current.size > 600) {
+      if (seenPacketsRef.current.size > 800) {
         const first = seenPacketsRef.current.values().next().value;
         if (first) seenPacketsRef.current.delete(first);
       }
@@ -192,9 +196,10 @@ export function useWebSocket({
       }
 
       // 2. Publish to all connected WSS MQTT brokers
-      const topic = targetUserId
-        ? `collabboard/v3/room/${roomId}/peer/${targetUserId}`
-        : `collabboard/v3/room/${roomId}/events`;
+      const safeTarget = targetUserId ? targetUserId.replace(/[^a-zA-Z0-9_-]/g, '_') : undefined;
+      const topic = safeTarget
+        ? `collabboard/v3/room/${safeTopicRoomId}/peer/${safeTarget}`
+        : `collabboard/v3/room/${safeTopicRoomId}/events`;
 
       for (const client of mqttClientsRef.current) {
         if (client && client.connected) {
@@ -204,38 +209,35 @@ export function useWebSocket({
         }
       }
     },
-    [roomId]
+    [roomId, safeTopicRoomId]
   );
 
-  // Unified message sender (works on both Node.js WS backend and GitHub Pages Serverless Mesh)
+  // Unified message sender: Always broadcasts to mesh peers (MQTT + BroadcastChannel)
+  // and simultaneously notifies local WebSocket if connected.
   const sendMessage = useCallback(
     (msg: Record<string, unknown>) => {
-      if (isMeshModeRef.current) {
-        publishMeshPacket(msg);
-        return;
-      }
+      // 1. Always publish to mesh peers across all containers, preview hosts, and devices
+      publishMeshPacket(msg);
 
-      const payload = JSON.stringify(msg);
-      if (broadcastChannelRef.current) {
-        try {
-          broadcastChannelRef.current.postMessage(payload);
-        } catch {}
-      }
-
+      // 2. Also send to local WebSocket server to keep server-side in-memory room state updated
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(payload);
+        try {
+          const payload = JSON.stringify({
+            ...msg,
+            _senderId: userRef.current.id,
+            _roomId: roomId,
+          });
+          wsRef.current.send(payload);
+        } catch {}
       } else {
+        const payload = JSON.stringify(msg);
         pendingQueue.current.push(payload);
         if (pendingQueue.current.length > 100) {
           pendingQueue.current.shift();
         }
-        // Also send over mesh if WS is temporarily down
-        if (mqttClientsRef.current.length > 0) {
-          publishMeshPacket(msg);
-        }
       }
     },
-    [publishMeshPacket]
+    [publishMeshPacket, roomId]
   );
 
   // Sync user profile changes without dropping connection
@@ -465,12 +467,57 @@ export function useWebSocket({
             if (msg.limits) {
               setServerLimits(msg.limits);
             }
-            setElements(msg.elements || []);
-            if (msg.code) setCode(msg.code);
-            if (msg.notes) setNotes(msg.notes);
-            setFiles(msg.files || []);
-            setChatMessages(msg.messages || []);
-            setUsers(msg.users || []);
+            if (Array.isArray(msg.elements) && msg.elements.length > 0) {
+              setElements((prev) => {
+                if (prev.length === 0) return msg.elements;
+                const map = new Map<string, CanvasElement>();
+                for (const el of prev) {
+                  if (el && el.id) map.set(el.id, el);
+                }
+                for (const el of msg.elements) {
+                  if (el && el.id && !map.has(el.id)) {
+                    map.set(el.id, el);
+                  }
+                }
+                return Array.from(map.values());
+              });
+            }
+            if (msg.code && (msg.code.content || msg.code.language)) {
+              setCode((prev) => (prev.lastUpdatedBy === 'Sistem' ? msg.code : prev));
+            }
+            if (msg.notes && msg.notes.content) {
+              setNotes((prev) => (prev.lastUpdatedBy === 'Sistem' ? msg.notes : prev));
+            }
+            if (Array.isArray(msg.files) && msg.files.length > 0) {
+              setFiles((prev) => {
+                const map = new Map(prev.map((f) => [f.id, f]));
+                for (const f of msg.files) {
+                  if (f && f.id) map.set(f.id, f);
+                }
+                return Array.from(map.values());
+              });
+            }
+            if (Array.isArray(msg.messages) && msg.messages.length > 0) {
+              setChatMessages((prev) => {
+                const map = new Map(prev.map((m) => [m.id, m]));
+                for (const m of msg.messages) {
+                  if (m && m.id) map.set(m.id, m);
+                }
+                return Array.from(map.values()).sort((a, b) => a.timestamp - b.timestamp);
+              });
+            }
+            if (Array.isArray(msg.users) && msg.users.length > 0) {
+              setUsers((prev) => {
+                const map = new Map<string, UserPresence>();
+                for (const u of prev) {
+                  if (u && u.id) map.set(u.id, u);
+                }
+                for (const u of msg.users) {
+                  if (u && u.id) map.set(u.id, u);
+                }
+                return Array.from(map.values());
+              });
+            }
             break;
           }
 
@@ -896,7 +943,7 @@ export function useWebSocket({
     let meshHeartbeatTimer: number | null = null;
     let beforeUnloadHandler: (() => void) | null = null;
 
-    function startServerlessMesh() {
+    function initMeshNetwork() {
       if (isCancelled) return;
       isMeshModeRef.current = true;
       setIsConnected(true);
@@ -939,8 +986,10 @@ export function useWebSocket({
         },
       ]);
 
-      const eventsTopic = `collabboard/v3/room/${roomId}/events`;
-      const directPeerTopic = `collabboard/v3/room/${roomId}/peer/${userRef.current.id}`;
+      const safeRoom = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'ana-oda';
+      const safeUid = userRef.current.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const eventsTopic = `collabboard/v3/room/${safeRoom}/events`;
+      const directPeerTopic = `collabboard/v3/room/${safeRoom}/peer/${safeUid}`;
 
       const clients: MqttClient[] = [];
       for (const brokerUrl of PUBLIC_WSS_BROKERS) {
@@ -1029,31 +1078,17 @@ export function useWebSocket({
       window.addEventListener('beforeunload', beforeUnloadHandler);
     }
 
-    function connect() {
+    function connectWs() {
       if (isCancelled) return;
 
       const wsUrl = resolveWsUrl();
-      if (!wsUrl) {
-        // Static host (e.g. GitHub Pages ibrahimhyilmaz.github.io) -> Activate Serverless WSS + WebRTC Mesh!
-        startServerlessMesh();
-        return;
-      }
+      if (!wsUrl) return;
 
-      isMeshModeRef.current = false;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
-      // If WS fails to open within 3.5s, automatically start Serverless Mesh as backup!
-      const fallbackTimer = window.setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN && !isCancelled && mqttClientsRef.current.length === 0) {
-          startServerlessMesh();
-        }
-      }, 3500);
-
       ws.onopen = () => {
-        clearTimeout(fallbackTimer);
         if (isCancelled) return;
-        isMeshModeRef.current = false;
         setIsConnected(true);
 
         ws.send(
@@ -1087,14 +1122,12 @@ export function useWebSocket({
       };
 
       ws.onclose = () => {
-        clearTimeout(fallbackTimer);
         if (isCancelled) return;
-        setIsConnected(false);
         if (keepAliveIntervalRef.current) {
           clearInterval(keepAliveIntervalRef.current);
         }
         reconnectTimeoutRef.current = window.setTimeout(() => {
-          connect();
+          connectWs();
         }, 2500);
       };
 
@@ -1103,7 +1136,10 @@ export function useWebSocket({
       };
     }
 
-    connect();
+    // Always initiate global mesh network so peers across instances, previews, and domains always connect
+    initMeshNetwork();
+    // Also connect to local WebSocket if available
+    connectWs();
 
     return () => {
       isCancelled = true;

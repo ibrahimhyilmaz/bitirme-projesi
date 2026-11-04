@@ -33,11 +33,17 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   const [color, setColor] = useState(initialColor || AVATAR_COLORS[0]);
   const [roomId, setRoomId] = useState(initialRoomId || 'ana-oda');
 
+  React.useEffect(() => {
+    if (initialRoomId) {
+      setRoomId(initialRoomId);
+    }
+  }, [initialRoomId]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const finalName = name.trim() || 'Kullanıcı';
-    const finalRoom = roomId.trim() || 'ana-oda';
-    onJoin(finalName, color, finalRoom);
+    const cleanRoom = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'ana-oda';
+    onJoin(finalName, color, cleanRoom);
   };
 
   return (

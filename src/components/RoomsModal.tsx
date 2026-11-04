@@ -127,51 +127,56 @@ export function decodeRoomSnapshot(encoded: string): {
   }
 }
 
-const DEFAULT_GITHUB_PAGES_URL = 'https://ibrahimhyilmaz.github.io/bitirme-projesi/';
-
 export function getShareableRoomUrl(roomId: string, options?: ShareUrlOptions): string {
   try {
-    const isAlreadyOnGitHubPages = window.location.hostname.endsWith('.github.io');
-    const savedCustomUrl =
-      options?.customBaseUrl !== undefined
-        ? options.customBaseUrl.trim()
-        : (localStorage.getItem('collab_public_base_url') || DEFAULT_GITHUB_PAGES_URL).trim();
-
+    const isDevHost = window.location.hostname.startsWith('ais-dev-');
+    const defaultMode: ShareLinkTargetMode = isDevHost ? 'shared' : 'current';
     const savedMode =
       options?.targetMode ||
-      ((localStorage.getItem('collab_share_target_mode') as ShareLinkTargetMode) ||
-        (isAlreadyOnGitHubPages ? 'current' : 'custom'));
+      (localStorage.getItem('collab_share_target_mode') as ShareLinkTargetMode) ||
+      defaultMode;
 
     let url: URL;
 
-    if (savedMode === 'custom' && savedCustomUrl) {
+    if (savedMode === 'custom' && options?.customBaseUrl?.trim()) {
+      const base = options.customBaseUrl.trim();
       const normalized =
-        savedCustomUrl.startsWith('http://') || savedCustomUrl.startsWith('https://')
-          ? savedCustomUrl
-          : `https://${savedCustomUrl}`;
+        base.startsWith('http://') || base.startsWith('https://') ? base : `https://${base}`;
       url = new URL(normalized);
-    } else {
+    } else if (savedMode === 'shared' || isDevHost) {
+      // In AI Studio, ensure ais-pre- hostname is used so non-developer participants can join freely without auth errors
       url = new URL(window.location.origin + window.location.pathname);
-      if (savedMode === 'shared' && url.hostname.startsWith('ais-dev-')) {
+      if (url.hostname.startsWith('ais-dev-')) {
         url.hostname = url.hostname.replace(/^ais-dev-/, 'ais-pre-');
       }
+    } else {
+      url = new URL(window.location.origin + window.location.pathname);
     }
 
-    url.searchParams.set('room', roomId);
-    if (options?.roomName) {
-      url.searchParams.set('rname', options.roomName);
+    // Clean any hash that might have been copied from previous route
+    url.hash = '';
+
+    const cleanRoomId = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'ana-oda';
+    url.searchParams.set('room', cleanRoomId);
+    if (options?.roomName?.trim()) {
+      url.searchParams.set('rname', options.roomName.trim());
+    } else {
+      url.searchParams.delete('rname');
     }
 
     if (options?.includeSnapshot) {
       const snap = encodeRoomSnapshot(options.elements, options.code);
       if (snap) {
         url.searchParams.set('snap', snap);
+      } else {
+        url.searchParams.delete('snap');
       }
     }
 
     return url.toString();
   } catch {
-    return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
+    const cleanRoom = encodeURIComponent(roomId.trim() || 'ana-oda');
+    return `${window.location.origin}${window.location.pathname}?room=${cleanRoom}`;
   }
 }
 
@@ -246,23 +251,21 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   // Multi-device Share Link & QR Code state
   const [customBaseUrl, setCustomBaseUrl] = useState<string>(() => {
     try {
-      return localStorage.getItem('collab_public_base_url') || DEFAULT_GITHUB_PAGES_URL;
+      return localStorage.getItem('collab_public_base_url') || '';
     } catch {
-      return DEFAULT_GITHUB_PAGES_URL;
+      return '';
     }
   });
   const [targetMode, setTargetMode] = useState<ShareLinkTargetMode>(() => {
     try {
-      if (window.location.hostname.endsWith('.github.io')) {
-        return 'current';
-      }
+      const isDevHost = window.location.hostname.startsWith('ais-dev-');
       const savedMode = localStorage.getItem('collab_share_target_mode') as ShareLinkTargetMode;
       if (savedMode === 'shared' || savedMode === 'custom' || savedMode === 'current') {
         return savedMode;
       }
-      return 'custom';
+      return isDevHost ? 'shared' : 'current';
     } catch {
-      return 'custom';
+      return window.location.hostname.startsWith('ais-dev-') ? 'shared' : 'current';
     }
   });
   const [includeSnapshot, setIncludeSnapshot] = useState<boolean>(false);
