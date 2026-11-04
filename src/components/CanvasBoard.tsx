@@ -69,12 +69,137 @@ interface CanvasBoardProps {
   onBatchUpdateElements: (updates: { id: string; changes: Partial<CanvasElement> }[]) => void;
   onDeleteElements: (ids: string[]) => void;
   selectedElementId: string | null;
+  selectedElementIds?: string[];
   onSelectElement: (id: string | null) => void;
+  onSelectElements?: (ids: string[]) => void;
   zoom: number;
   setZoom: React.Dispatch<React.SetStateAction<number>>;
   pan: Point;
   setPan: React.Dispatch<React.SetStateAction<Point>>;
   canEdit?: boolean;
+}
+
+// Bounding box intersection test for marquee drag multi-selection
+function doesElementIntersectBox(
+  el: CanvasElement,
+  box: { minX: number; minY: number; maxX: number; maxY: number }
+): boolean {
+  const b = getElementBounds(el);
+  if (!el.rotation) {
+    return !(b.maxX < box.minX || b.minX > box.maxX || b.maxY < box.minY || b.minY > box.maxY);
+  }
+  const rad = ((el.rotation || 0) * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const corners = [
+    { x: b.minX, y: b.minY },
+    { x: b.maxX, y: b.minY },
+    { x: b.maxX, y: b.maxY },
+    { x: b.minX, y: b.maxY },
+  ];
+  let rotMinX = Infinity;
+  let rotMaxX = -Infinity;
+  let rotMinY = Infinity;
+  let rotMaxY = -Infinity;
+  for (const c of corners) {
+    const rx = b.cx + (c.x - b.cx) * cos - (c.y - b.cy) * sin;
+    const ry = b.cy + (c.x - b.cx) * sin + (c.y - b.cy) * cos;
+    rotMinX = Math.min(rotMinX, rx);
+    rotMaxX = Math.max(rotMaxX, rx);
+    rotMinY = Math.min(rotMinY, ry);
+    rotMaxY = Math.max(rotMaxY, ry);
+  }
+  return !(rotMaxX < box.minX || rotMinX > box.maxX || rotMaxY < box.minY || rotMinY > box.maxY);
+}
+
+// Compute group encompassing bounding box
+function getGroupBounds(elements: CanvasElement[], zoom: number) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const el of elements) {
+    const b = getElementBounds(el);
+    if (el.rotation) {
+      const rad = (el.rotation * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      const corners = [
+        { x: b.minX, y: b.minY },
+        { x: b.maxX, y: b.minY },
+        { x: b.maxX, y: b.maxY },
+        { x: b.minX, y: b.maxY },
+      ];
+      for (const c of corners) {
+        const rx = b.cx + (c.x - b.cx) * cos - (c.y - b.cy) * sin;
+        const ry = b.cy + (c.x - b.cx) * sin + (c.y - b.cy) * cos;
+        minX = Math.min(minX, rx);
+        maxX = Math.max(maxX, rx);
+        minY = Math.min(minY, ry);
+        maxY = Math.max(maxY, ry);
+      }
+    } else {
+      minX = Math.min(minX, b.minX);
+      maxX = Math.max(maxX, b.maxX);
+      minY = Math.min(minY, b.minY);
+      maxY = Math.max(maxY, b.maxY);
+    }
+  }
+
+  const pad = 6 / zoom;
+  const gX = minX - pad;
+  const gY = minY - pad;
+  const gW = Math.max(20, maxX - minX + pad * 2);
+  const gH = Math.max(20, maxY - minY + pad * 2);
+
+  return {
+    rawMinX: minX,
+    rawMinY: minY,
+    rawMaxX: maxX,
+    rawMaxY: maxY,
+    gX,
+    gY,
+    gW,
+    gH,
+    minX: gX,
+    minY: gY,
+    maxX: gX + gW,
+    maxY: gY + gH,
+    width: gW,
+    height: gH,
+    cx: gX + gW / 2,
+    cy: gY + gH / 2,
+  };
+}
+
+// Hit test for group handles (8 handles)
+function hitTestGroupHandle(
+  pt: Point,
+  groupBounds: ReturnType<typeof getGroupBounds>,
+  zoom: number
+): TransformHandleType | null {
+  const threshold = Math.max(8, 10 / zoom);
+  const { gX, gY, gW, gH } = groupBounds;
+
+  const handles: { type: TransformHandleType; x: number; y: number }[] = [
+    { type: 'nw', x: gX, y: gY },
+    { type: 'n', x: gX + gW / 2, y: gY },
+    { type: 'ne', x: gX + gW, y: gY },
+    { type: 'e', x: gX + gW, y: gY + gH / 2 },
+    { type: 'se', x: gX + gW, y: gY + gH },
+    { type: 's', x: gX + gW / 2, y: gY + gH },
+    { type: 'sw', x: gX, y: gY + gH },
+    { type: 'w', x: gX, y: gY + gH / 2 },
+  ];
+
+  for (const h of handles) {
+    if (Math.hypot(pt.x - h.x, pt.y - h.y) <= threshold) {
+      return h.type;
+    }
+  }
+
+  return null;
 }
 
 export const CanvasBoard: React.FC<CanvasBoardProps> = ({
@@ -101,7 +226,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   onBatchUpdateElements,
   onDeleteElements,
   selectedElementId,
+  selectedElementIds = [],
   onSelectElement,
+  onSelectElements,
   zoom,
   setZoom,
   pan,
@@ -129,6 +256,33 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const dragStartCanvasPointRef = useRef<Point>({ x: 0, y: 0 });
   const initialElementSnapshotRef = useRef<CanvasElement | null>(null);
   const initialBoundsRef = useRef<ReturnType<typeof getElementBounds> | null>(null);
+  const initialGroupBoundsRef = useRef<ReturnType<typeof getGroupBounds> | null>(null);
+
+  // Marquee / Box drag multi-selection states
+  const isMarqueeSelectingRef = useRef<boolean>(false);
+  const marqueeStartRef = useRef<Point | null>(null);
+  const [marqueeBox, setMarqueeBox] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+
+  // Dragging multiple elements snapshot
+  const initialElementsSnapshotRef = useRef<Map<string, CanvasElement>>(new Map());
+
+  // Active selected IDs helper
+  const activeSelectedIds = selectedElementIds.length > 0
+    ? selectedElementIds
+    : (selectedElementId ? [selectedElementId] : []);
+
+  const updateSelectedIds = useCallback((ids: string[]) => {
+    if (onSelectElements) {
+      onSelectElements(ids);
+    } else if (onSelectElement) {
+      onSelectElement(ids.length > 0 ? ids[ids.length - 1] : null);
+    }
+  }, [onSelectElements, onSelectElement]);
 
   // Laser pointer path
   const [laserPoints, setLaserPoints] = useState<{ x: number; y: number; time: number }[]>([]);
@@ -299,11 +453,111 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       drawElement(ctx, currentDrawingElement);
     }
 
-    // Render selection gizmo (bounding box + 8 resize handles + rotation handle)
-    if (selectedElementId && editingElementId !== selectedElementId) {
-      const selectedEl = elements.find((e) => e.id === selectedElementId);
+    // Render Marquee Selection Box
+    if (marqueeBox) {
+      const mLeft = Math.min(marqueeBox.startX, marqueeBox.currentX);
+      const mTop = Math.min(marqueeBox.startY, marqueeBox.currentY);
+      const mW = Math.abs(marqueeBox.currentX - marqueeBox.startX);
+      const mH = Math.abs(marqueeBox.currentY - marqueeBox.startY);
+
+      if (mW > 1 || mH > 1) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(37, 99, 235, 0.08)';
+        ctx.fillRect(mLeft, mTop, mW, mH);
+
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 1.5 / zoom;
+        ctx.setLineDash([5 / zoom, 4 / zoom]);
+        ctx.strokeRect(mLeft, mTop, mW, mH);
+        ctx.restore();
+      }
+    }
+
+    // Render selection gizmo (bounding box + 8 resize handles + rotation handle or multi-selection box)
+    if (activeSelectedIds.length === 1 && editingElementId !== activeSelectedIds[0]) {
+      const selectedEl = elements.find((e) => e.id === activeSelectedIds[0]);
       if (selectedEl) {
         drawSelectionGizmo(ctx, selectedEl, zoom, isRotatingActive);
+      }
+    } else if (activeSelectedIds.length > 1) {
+      const selectedList = elements.filter((e) => activeSelectedIds.includes(e.id));
+      if (selectedList.length > 0) {
+        let groupMinX = Infinity;
+        let groupMinY = Infinity;
+        let groupMaxX = -Infinity;
+        let groupMaxY = -Infinity;
+
+        // Individual item dashed outlines
+        ctx.save();
+        for (const el of selectedList) {
+          const b = getElementBounds(el);
+          groupMinX = Math.min(groupMinX, b.minX);
+          groupMinY = Math.min(groupMinY, b.minY);
+          groupMaxX = Math.max(groupMaxX, b.maxX);
+          groupMaxY = Math.max(groupMaxY, b.maxY);
+
+          ctx.save();
+          if (el.rotation) {
+            ctx.translate(b.cx, b.cy);
+            ctx.rotate((el.rotation * Math.PI) / 180);
+            ctx.translate(-b.cx, -b.cy);
+          }
+          ctx.strokeStyle = el.isLocked ? '#d97706' : '#3b82f6';
+          ctx.lineWidth = 1.2 / zoom;
+          ctx.setLineDash([4 / zoom, 3 / zoom]);
+          ctx.strokeRect(b.minX, b.minY, b.width, b.height);
+          ctx.restore();
+        }
+
+        // Group encompassing bounding box
+        const gBounds = getGroupBounds(selectedList, zoom);
+        const { gX, gY, gW, gH } = gBounds;
+
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 1.5 / zoom;
+        ctx.setLineDash([]);
+        ctx.strokeRect(gX, gY, gW, gH);
+
+        // Group 8 interactive resize handles
+        const handleSize = 8 / zoom;
+        const handles: { x: number; y: number }[] = [
+          { x: gX, y: gY },
+          { x: gX + gW / 2, y: gY },
+          { x: gX + gW, y: gY },
+          { x: gX + gW, y: gY + gH / 2 },
+          { x: gX + gW, y: gY + gH },
+          { x: gX + gW / 2, y: gY + gH },
+          { x: gX, y: gY + gH },
+          { x: gX, y: gY + gH / 2 },
+        ];
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 1.5 / zoom;
+        for (const h of handles) {
+          ctx.beginPath();
+          ctx.rect(h.x - handleSize / 2, h.y - handleSize / 2, handleSize, handleSize);
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Floating badge on top-left of group
+        const badgeText = `${selectedList.length} öğe seçildi`;
+        ctx.font = `600 ${11 / zoom}px 'Plus Jakarta Sans', sans-serif`;
+        const textWidth = ctx.measureText(badgeText).width;
+        const badgeW = textWidth + 14 / zoom;
+        const badgeH = 20 / zoom;
+        const badgeX = gX;
+        const badgeY = gY - badgeH - 4 / zoom;
+
+        ctx.fillStyle = '#2563eb';
+        ctx.beginPath();
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4 / zoom);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(badgeText, badgeX + 7 / zoom, badgeY + badgeH / 2);
+        ctx.restore();
       }
     }
 
@@ -393,6 +647,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     elements,
     currentDrawingElement,
     selectedElementId,
+    selectedElementIds,
+    activeSelectedIds,
+    marqueeBox,
     isRotatingActive,
     laserPoints,
     remoteLaserPoints,
@@ -462,38 +719,51 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedElementId && canEdit) {
-          onDeleteElements([selectedElementId]);
-          onSelectElement(null);
+        if (activeSelectedIds.length > 0 && canEdit) {
+          onDeleteElements(activeSelectedIds);
+          updateSelectedIds([]);
         }
       }
 
       if (e.key === 'Escape') {
-        onSelectElement(null);
+        updateSelectedIds([]);
         setEditingElementId(null);
       }
 
-      // Nudge selected element with arrow keys
+      // Nudge selected elements with arrow keys
       if (
         canEdit &&
-        selectedElementId &&
+        activeSelectedIds.length > 0 &&
         ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)
       ) {
-        const sel = elements.find((el) => el.id === selectedElementId);
-        if (sel && !sel.isLocked) {
-          e.preventDefault();
-          const step = e.shiftKey ? 10 : 2;
-          const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
-          const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
-          if (sel.points && sel.points.length > 0) {
-            onUpdateElement(sel.id, {
-              x: sel.x + dx,
-              y: sel.y + dy,
-              points: sel.points.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })),
-            });
-          } else {
-            onUpdateElement(sel.id, { x: sel.x + dx, y: sel.y + dy });
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 2;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        const updates: { id: string; changes: Partial<CanvasElement> }[] = [];
+
+        for (const id of activeSelectedIds) {
+          const sel = elements.find((el) => el.id === id);
+          if (sel && !sel.isLocked) {
+            if (sel.points && sel.points.length > 0) {
+              updates.push({
+                id: sel.id,
+                changes: {
+                  x: sel.x + dx,
+                  y: sel.y + dy,
+                  points: sel.points.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })),
+                },
+              });
+            } else {
+              updates.push({
+                id: sel.id,
+                changes: { x: sel.x + dx, y: sel.y + dy },
+              });
+            }
           }
+        }
+        if (updates.length > 0) {
+          onBatchUpdateElements(updates);
         }
       }
     };
@@ -514,11 +784,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   }, [
     canEdit,
     editingElementId,
-    selectedElementId,
+    activeSelectedIds,
     elements,
     onDeleteElements,
-    onSelectElement,
-    onUpdateElement,
+    updateSelectedIds,
+    onBatchUpdateElements,
+    onPing,
+    pan,
+    zoom,
   ]);
 
   // Request animation frame for continuous animations
@@ -695,10 +968,36 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Select Tool (including rotation & resize handles)
+    // Handle Select Tool (including handles, multi-drag, and marquee box drag)
     if (activeTool === 'select') {
-      if (selectedElementId) {
-        const selectedEl = elements.find((el) => el.id === selectedElementId);
+      // 1. Group Transform Handle Hit (Multiple elements selected):
+      if (activeSelectedIds.length > 1) {
+        const selectedList = elements.filter((el) => activeSelectedIds.includes(el.id));
+        if (selectedList.length > 1) {
+          const gBounds = getGroupBounds(selectedList, zoom);
+          const hitHandle = hitTestGroupHandle(canvasPt, gBounds, zoom);
+          if (hitHandle) {
+            if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+            activeTransformHandleRef.current = hitHandle;
+            setIsRotatingActive(false);
+            dragStartCanvasPointRef.current = canvasPt;
+            initialGroupBoundsRef.current = gBounds;
+            const snapMap = new Map<string, CanvasElement>();
+            selectedList.forEach((el) => {
+              snapMap.set(el.id, {
+                ...el,
+                points: el.points ? el.points.map((p) => ({ ...p })) : undefined,
+              });
+            });
+            initialElementsSnapshotRef.current = snapMap;
+            return;
+          }
+        }
+      }
+
+      // 2. Single element transform handle hit:
+      if (activeSelectedIds.length === 1) {
+        const selectedEl = elements.find((el) => el.id === activeSelectedIds[0]);
         if (selectedEl && !selectedEl.isLocked) {
           const hitHandle = hitTestTransformHandle(canvasPt, selectedEl, zoom);
           if (hitHandle) {
@@ -716,22 +1015,76 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
       }
 
-      // Otherwise check if clicking on any element body
-      const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
-      if (hitElement) {
-        onSelectElement(hitElement.id);
-        if (!hitElement.isLocked) {
+      // 2. Check if clicked inside an already-selected element (drag selected group)
+      const hitSelected = [...elements]
+        .reverse()
+        .find((el) => activeSelectedIds.includes(el.id) && isPointInsideElement(canvasPt, el));
+
+      if (hitSelected) {
+        if (!hitSelected.isLocked) {
           if (onSaveHistorySnapshot) onSaveHistorySnapshot();
           isDraggingSelectedRef.current = true;
           dragStartCanvasPointRef.current = canvasPt;
+          const snapMap = new Map<string, CanvasElement>();
+          elements
+            .filter((el) => activeSelectedIds.includes(el.id))
+            .forEach((el) => {
+              snapMap.set(el.id, {
+                ...el,
+                points: el.points ? el.points.map((p) => ({ ...p })) : undefined,
+              });
+            });
+          initialElementsSnapshotRef.current = snapMap;
           initialElementSnapshotRef.current = {
-            ...hitElement,
-            points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
+            ...hitSelected,
+            points: hitSelected.points ? hitSelected.points.map((p) => ({ ...p })) : undefined,
           };
-          initialBoundsRef.current = getElementBounds(hitElement);
+          initialBoundsRef.current = getElementBounds(hitSelected);
         }
-      } else {
-        onSelectElement(null);
+        return;
+      }
+
+      // 3. Otherwise check if clicked on any unselected element
+      const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
+      if (hitElement) {
+        if (e.shiftKey) {
+          const next = activeSelectedIds.includes(hitElement.id)
+            ? activeSelectedIds.filter((id) => id !== hitElement.id)
+            : [...activeSelectedIds, hitElement.id];
+          updateSelectedIds(next);
+        } else {
+          updateSelectedIds([hitElement.id]);
+          if (!hitElement.isLocked) {
+            if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+            isDraggingSelectedRef.current = true;
+            dragStartCanvasPointRef.current = canvasPt;
+            const snapMap = new Map<string, CanvasElement>();
+            snapMap.set(hitElement.id, {
+              ...hitElement,
+              points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
+            });
+            initialElementsSnapshotRef.current = snapMap;
+            initialElementSnapshotRef.current = {
+              ...hitElement,
+              points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
+            };
+            initialBoundsRef.current = getElementBounds(hitElement);
+          }
+        }
+        return;
+      }
+
+      // 4. Clicked on empty canvas with Select Tool: Start Marquee Selection Box!
+      isMarqueeSelectingRef.current = true;
+      marqueeStartRef.current = canvasPt;
+      setMarqueeBox({
+        startX: canvasPt.x,
+        startY: canvasPt.y,
+        currentX: canvasPt.x,
+        currentY: canvasPt.y,
+      });
+      if (!e.shiftKey) {
+        updateSelectedIds([]);
       }
       return;
     }
@@ -742,7 +1095,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       if (hitElement && !hitElement.isLocked) {
         if (onSaveHistorySnapshot) onSaveHistorySnapshot();
         onDeleteElements([hitElement.id]);
-        if (selectedElementId === hitElement.id) onSelectElement(null);
+        if (activeSelectedIds.includes(hitElement.id)) {
+          updateSelectedIds(activeSelectedIds.filter((id) => id !== hitElement.id));
+        }
       }
       return;
     }
@@ -806,6 +1161,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
     // Handle Freehand Pencil / Highlighter
     if (activeTool === 'pencil' || activeTool === 'highlighter') {
+      if (activeSelectedIds.length > 0) {
+        updateSelectedIds([]);
+      }
       const newDrawing: CanvasElement = {
         id: `draw-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         type: activeTool,
@@ -880,7 +1238,147 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       onCursorMove(cursorPt, isPointerDownRef.current, activeTool);
     }
 
-    // Handle Active Transform Handle (Rotation or Resize)
+    // Handle Marquee Box dragging
+    if (isMarqueeSelectingRef.current && marqueeStartRef.current) {
+      setMarqueeBox({
+        startX: marqueeStartRef.current.x,
+        startY: marqueeStartRef.current.y,
+        currentX: canvasPt.x,
+        currentY: canvasPt.y,
+      });
+      return;
+    }
+
+    // Handle Active Group Transform Handle (Resize multiple selected elements)
+    if (
+      activeTransformHandleRef.current &&
+      initialGroupBoundsRef.current &&
+      initialElementsSnapshotRef.current.size > 0
+    ) {
+      const handle = activeTransformHandleRef.current;
+      const init = initialGroupBoundsRef.current;
+      const dx = canvasPt.x - dragStartCanvasPointRef.current.x;
+      const dy = canvasPt.y - dragStartCanvasPointRef.current.y;
+
+      let newMinX = init.minX;
+      let newMaxX = init.maxX;
+      let newMinY = init.minY;
+      let newMaxY = init.maxY;
+
+      if (handle.includes('w')) newMinX = Math.min(init.maxX - 20, init.minX + dx);
+      if (handle.includes('e')) newMaxX = Math.max(init.minX + 20, init.maxX + dx);
+      if (handle.includes('n')) newMinY = Math.min(init.maxY - 20, init.minY + dy);
+      if (handle.includes('s')) newMaxY = Math.max(init.minY + 20, init.maxY + dy);
+
+      // Lock aspect ratio with Shift or corner handles
+      if (e.shiftKey && (handle === 'nw' || handle === 'ne' || handle === 'se' || handle === 'sw')) {
+        const initRatio = init.width / Math.max(1, init.height);
+        const curW = newMaxX - newMinX;
+        const curH = newMaxY - newMinY;
+        if (curW / initRatio > curH) {
+          const adjH = curW / initRatio;
+          if (handle.includes('n')) newMinY = newMaxY - adjH;
+          else newMaxY = newMinY + adjH;
+        } else {
+          const adjW = curH * initRatio;
+          if (handle.includes('w')) newMinX = newMaxX - adjW;
+          else newMaxX = newMinX + adjW;
+        }
+      }
+
+      const newW = Math.max(20, newMaxX - newMinX);
+      const newH = Math.max(20, newMaxY - newMinY);
+      const scaleX = newW / Math.max(1, init.width);
+      const scaleY = newH / Math.max(1, init.height);
+
+      const batchUpdates: { id: string; changes: Partial<CanvasElement> }[] = [];
+
+      for (const [id, initEl] of initialElementsSnapshotRef.current.entries()) {
+        if (initEl.isLocked) continue;
+
+        const mapPoint = (px: number, py: number) => {
+          const uX = (px - init.minX) / Math.max(1, init.width);
+          const uY = (py - init.minY) / Math.max(1, init.height);
+          return {
+            x: newMinX + uX * newW,
+            y: newMinY + uY * newH,
+          };
+        };
+
+        if (initEl.points && initEl.points.length > 0) {
+          const scaledPoints = initEl.points.map((pt) => mapPoint(pt.x, pt.y));
+          const pOrigin = mapPoint(initEl.x, initEl.y);
+          batchUpdates.push({
+            id,
+            changes: {
+              x: pOrigin.x,
+              y: pOrigin.y,
+              points: scaledPoints,
+            },
+          });
+        } else if (initEl.type === 'arrow' || initEl.type === 'line') {
+          const pStart = mapPoint(initEl.x, initEl.y);
+          const pEnd = mapPoint(initEl.x + (initEl.width ?? 0), initEl.y + (initEl.height ?? 0));
+          batchUpdates.push({
+            id,
+            changes: {
+              x: pStart.x,
+              y: pStart.y,
+              width: pEnd.x - pStart.x,
+              height: pEnd.y - pStart.y,
+            },
+          });
+        } else if (initEl.type === 'text') {
+          const pTL = mapPoint(initEl.x, initEl.y);
+          const pBR = mapPoint(initEl.x + (initEl.width ?? 60), initEl.y + (initEl.height ?? 30));
+          const fontScale = (scaleX + scaleY) / 2;
+          const nextFontSize = Math.min(128, Math.max(10, Math.round((initEl.fontSize || 20) * fontScale)));
+          batchUpdates.push({
+            id,
+            changes: {
+              x: pTL.x,
+              y: pTL.y,
+              width: Math.max(30, Math.abs(pBR.x - pTL.x)),
+              height: Math.max(16, Math.abs(pBR.y - pTL.y)),
+              fontSize: nextFontSize,
+            },
+          });
+        } else if (initEl.rotation) {
+          const b = getElementBounds(initEl);
+          const newCenter = mapPoint(b.cx, b.cy);
+          const nextW = Math.max(12, (initEl.width || 0) * scaleX);
+          const nextH = Math.max(12, (initEl.height || 0) * scaleY);
+          batchUpdates.push({
+            id,
+            changes: {
+              x: newCenter.x - nextW / 2,
+              y: newCenter.y - nextH / 2,
+              width: nextW,
+              height: nextH,
+            },
+          });
+        } else {
+          const pTL = mapPoint(initEl.x, initEl.y);
+          const pBR = mapPoint(initEl.x + (initEl.width ?? 0), initEl.y + (initEl.height ?? 0));
+          batchUpdates.push({
+            id,
+            changes: {
+              x: pTL.x,
+              y: pTL.y,
+              width: Math.max(12, Math.abs(pBR.x - pTL.x)),
+              height: Math.max(12, Math.abs(pBR.y - pTL.y)),
+            },
+          });
+        }
+      }
+
+      if (batchUpdates.length > 0) {
+        onBatchUpdateElements(batchUpdates);
+      }
+      return;
+    }
+
+    // Handle Active Single Element Transform Handle (Rotation or Resize)
     if (
       activeTransformHandleRef.current &&
       selectedElementId &&
@@ -981,35 +1479,62 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Dragging Selected Element Body
+    // Handle Dragging Selected Elements Body (single or group)
     if (
       isDraggingSelectedRef.current &&
-      selectedElementId &&
-      initialElementSnapshotRef.current
+      initialElementsSnapshotRef.current &&
+      initialElementsSnapshotRef.current.size > 0
     ) {
-      const initEl = initialElementSnapshotRef.current;
       const dx = canvasPt.x - dragStartCanvasPointRef.current.x;
       const dy = canvasPt.y - dragStartCanvasPointRef.current.y;
 
-      if (initEl.points && initEl.points.length > 0) {
-        onUpdateElement(selectedElementId, {
-          x: initEl.x + dx,
-          y: initEl.y + dy,
-          points: initEl.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
-        });
-      } else {
-        onUpdateElement(selectedElementId, {
-          x: initEl.x + dx,
-          y: initEl.y + dy,
-        });
+      const batchUpdates: { id: string; changes: Partial<CanvasElement> }[] = [];
+      for (const [id, initEl] of initialElementsSnapshotRef.current.entries()) {
+        if (initEl.isLocked) continue;
+        if (initEl.points && initEl.points.length > 0) {
+          batchUpdates.push({
+            id,
+            changes: {
+              x: initEl.x + dx,
+              y: initEl.y + dy,
+              points: initEl.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+            },
+          });
+        } else {
+          batchUpdates.push({
+            id,
+            changes: {
+              x: initEl.x + dx,
+              y: initEl.y + dy,
+            },
+          });
+        }
+      }
+      if (batchUpdates.length > 0) {
+        onBatchUpdateElements(batchUpdates);
       }
       return;
     }
 
     // Update hover cursor state when in select mode and pointer is not down
     if (!isPointerDownRef.current && activeTool === 'select') {
-      if (selectedElementId) {
-        const selEl = elements.find((el) => el.id === selectedElementId);
+      if (activeSelectedIds.length > 1) {
+        const selectedList = elements.filter((el) => activeSelectedIds.includes(el.id));
+        if (selectedList.length > 1) {
+          const gBounds = getGroupBounds(selectedList, zoom);
+          const hitH = hitTestGroupHandle(canvasPt, gBounds, zoom);
+          if (hitH) {
+            setHoveredHandle(hitH);
+            return;
+          }
+          const hitBody = [...elements]
+            .reverse()
+            .find((el) => activeSelectedIds.includes(el.id) && isPointInsideElement(canvasPt, el));
+          setHoveredHandle(hitBody ? 'body' : null);
+          return;
+        }
+      } else if (activeSelectedIds.length === 1) {
+        const selEl = elements.find((el) => el.id === activeSelectedIds[0]);
         if (selEl && !selEl.isLocked) {
           const h = hitTestTransformHandle(canvasPt, selEl, zoom);
           if (h) {
@@ -1077,12 +1602,46 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   };
 
   // Pointer Up
-  const handlePointerUp = () => {
+  const handlePointerUp = (e?: React.PointerEvent) => {
     isPointerDownRef.current = false;
     isPanningRef.current = false;
     isDraggingSelectedRef.current = false;
     activeTransformHandleRef.current = null;
+    initialGroupBoundsRef.current = null;
     setIsRotatingActive(false);
+
+    // Complete marquee / box selection drag
+    if (isMarqueeSelectingRef.current) {
+      isMarqueeSelectingRef.current = false;
+      const startPt = marqueeStartRef.current;
+      marqueeStartRef.current = null;
+      setMarqueeBox(null);
+
+      if (startPt) {
+        let endX = lastCanvasPtRef.current.x;
+        let endY = lastCanvasPtRef.current.y;
+        if (e && containerRef.current) {
+          const rect = containerRef.current.getBoundingClientRect();
+          const p = screenToCanvas({ x: e.clientX - rect.left, y: e.clientY - rect.top }, pan, zoom);
+          endX = p.x;
+          endY = p.y;
+        }
+
+        const minX = Math.min(startPt.x, endX);
+        const maxX = Math.max(startPt.x, endX);
+        const minY = Math.min(startPt.y, endY);
+        const maxY = Math.max(startPt.y, endY);
+
+        // If dragged more than 4px, find all elements intersecting the area
+        if (maxX - minX > 4 || maxY - minY > 4) {
+          const box = { minX, minY, maxX, maxY };
+          const matched = elements.filter((el) => doesElementIntersectBox(el, box));
+          const matchedIds = matched.map((el) => el.id);
+          updateSelectedIds(matchedIds);
+        }
+      }
+      return;
+    }
 
     if (currentDrawingElementRef.current) {
       let finished = currentDrawingElementRef.current;
@@ -1126,13 +1685,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           };
         }
         onCreateElement(finished);
-        onSelectElement(finished.id);
-        if (
-          finished.type !== 'pencil' &&
-          finished.type !== 'highlighter' &&
-          onSelectTool
-        ) {
-          onSelectTool('select');
+
+        // Continuous drawing: NEVER auto-select pencil or highlighter strokes
+        // so no editing toolbar or selection gizmo pops up, allowing uninterrupted writing!
+        if (finished.type !== 'pencil' && finished.type !== 'highlighter') {
+          updateSelectedIds([finished.id]);
+          if (onSelectTool) {
+            onSelectTool('select');
+          }
         }
       } else {
         // User single-clicked to place shape: provide default standard dimensions centered on click point
@@ -1151,7 +1711,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           finished.height = 100;
         }
         onCreateElement(finished);
-        onSelectElement(finished.id);
+        updateSelectedIds([finished.id]);
         if (onSelectTool) {
           onSelectTool('select');
         }

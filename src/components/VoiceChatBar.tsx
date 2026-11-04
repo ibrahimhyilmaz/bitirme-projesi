@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Mic,
   MicOff,
@@ -8,6 +8,9 @@ import {
   Sliders,
   ChevronDown,
   ChevronUp,
+  GripVertical,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { UserPresence } from '../types';
 
@@ -42,12 +45,234 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [activeVolumeSettingsUserId, setActiveVolumeSettingsUserId] = useState<string | null>(null);
 
+  // Draggable position (null = default top-4 right-4 position)
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const saved = localStorage.getItem('collab_voicebar_pos');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+          return {
+            x: Math.max(12, Math.min(window.innerWidth - 120, parsed.x)),
+            y: Math.max(12, Math.min(window.innerHeight - 80, parsed.y)),
+          };
+        }
+      }
+    } catch {
+      // Ignore storage error
+    }
+    return null;
+  });
+
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const barRef = useRef<HTMLDivElement>(null);
+
+  // Minimized / hidden state (persisted)
+  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('collab_hide_voicebar') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (position) {
+        localStorage.setItem('collab_voicebar_pos', JSON.stringify(position));
+      } else {
+        localStorage.removeItem('collab_voicebar_pos');
+      }
+    } catch {
+      // Ignore storage error
+    }
+  }, [position]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('collab_hide_voicebar', String(isMinimized));
+    } catch {
+      // Ignore storage error
+    }
+  }, [isMinimized]);
+
+  // Viewport resize clamping
+  useEffect(() => {
+    const handleResize = () => {
+      setPosition((prev) => {
+        if (!prev || !barRef.current) return prev;
+        const rect = barRef.current.getBoundingClientRect();
+        const maxX = Math.max(12, window.innerWidth - rect.width - 12);
+        const maxY = Math.max(12, window.innerHeight - rect.height - 12);
+        return {
+          x: Math.min(Math.max(12, prev.x), maxX),
+          y: Math.min(Math.max(12, prev.y), maxY),
+        };
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleGripPointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const bar = barRef.current;
+    if (!bar) return;
+
+    const parentRect = bar.offsetParent?.getBoundingClientRect() || {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+    const barRect = bar.getBoundingClientRect();
+
+    const currentX = barRect.left - parentRect.left;
+    const currentY = barRect.top - parentRect.top;
+
+    dragOffsetRef.current = {
+      x: e.clientX - currentX,
+      y: e.clientY - currentY,
+    };
+
+    setPosition({ x: currentX, y: currentY });
+    setIsDragging(true);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const currentBar = barRef.current;
+      const pRect = currentBar?.offsetParent?.getBoundingClientRect() || {
+        left: 0,
+        top: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
+      const bW = currentBar?.offsetWidth || 180;
+      const bH = currentBar?.offsetHeight || 44;
+
+      const nextX = moveEvent.clientX - dragOffsetRef.current.x;
+      const nextY = moveEvent.clientY - dragOffsetRef.current.y;
+
+      const clampedX = Math.max(8, Math.min(pRect.width - bW - 8, nextX));
+      const clampedY = Math.max(8, Math.min(pRect.height - bH - 8, nextY));
+
+      setPosition({ x: clampedX, y: clampedY });
+    };
+
+    const handlePointerUp = () => {
+      setIsDragging(false);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
   const activeSpeakersCount = users.filter((u) => u.isSpeaking).length;
 
+  // Minimized collapsed floating pill
+  if (isMinimized) {
+    return (
+      <div
+        ref={barRef}
+        style={
+          position
+            ? {
+                left: `${position.x}px`,
+                top: `${position.y}px`,
+                right: 'auto',
+                bottom: 'auto',
+              }
+            : undefined
+        }
+        className={`absolute ${
+          !position ? 'top-4 right-4' : ''
+        } z-20 flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+          isDragging
+            ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
+            : 'border-slate-200/90 shadow-lg'
+        } rounded-xl select-none`}
+      >
+        {/* Grip Handle */}
+        <div
+          onPointerDown={handleGripPointerDown}
+          onDoubleClick={() => setPosition(null)}
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
+          title="Sesli Kanalı Taşı (Sıfırlamak için çift tıkla)"
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+
+        {/* Live Audio Status */}
+        <div className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
+          <Radio
+            className={`w-3.5 h-3.5 ${
+              activeSpeakersCount > 0 ? 'text-emerald-600 animate-pulse' : 'text-slate-400'
+            }`}
+          />
+          <span>{activeSpeakersCount > 0 ? `${activeSpeakersCount} konuşuyor` : `${users.length} kişi`}</span>
+        </div>
+
+        {/* Quick Mute Toggle */}
+        <button
+          onClick={onToggleMute}
+          className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
+            isMuted
+              ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
+              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+          }`}
+          title={isMuted ? 'Mikrofonu Aç (M)' : 'Mikrofonu Kapat (M)'}
+        >
+          {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+        </button>
+
+        {/* Restore / Show Button */}
+        <button
+          onClick={() => setIsMinimized(false)}
+          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          title="Sesli Kanal Panelini Genişlet / Göster"
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="absolute top-4 right-4 z-20 flex flex-col items-end select-none">
+    <div
+      ref={barRef}
+      style={
+        position
+          ? {
+              left: `${position.x}px`,
+              top: `${position.y}px`,
+              right: 'auto',
+              bottom: 'auto',
+            }
+          : undefined
+      }
+      className={`absolute ${!position ? 'top-4 right-4' : ''} z-20 flex flex-col items-end select-none`}
+    >
       {/* Voice Channel Bar */}
-      <div className="flex items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl shadow-lg">
+      <div
+        className={`flex items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border ${
+          isDragging
+            ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
+            : 'border-slate-200/90 shadow-lg'
+        } rounded-xl`}
+      >
+        {/* Grip Handle for Repositioning */}
+        <div
+          onPointerDown={handleGripPointerDown}
+          onDoubleClick={() => setPosition(null)}
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
+          title="Sesli Kanalı Taşı (Sıfırlamak için çift tıkla)"
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+
         {/* Speaking Status / Live Indicator */}
         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs">
           <Radio
@@ -109,6 +334,15 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
           title="Katılımcı Ses Ayarları"
         >
           {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+
+        {/* Hide / Minimize Button */}
+        <button
+          onClick={() => setIsMinimized(true)}
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+          title="Sesli Kanalı Gizle"
+        >
+          <EyeOff className="w-4 h-4" />
         </button>
       </div>
 

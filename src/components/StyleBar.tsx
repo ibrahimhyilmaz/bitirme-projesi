@@ -13,11 +13,14 @@ import {
   FlipVertical2,
   GripVertical,
   SlidersHorizontal,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { CanvasElement, StrokeStyle } from '../types';
 
 interface StyleBarProps {
   selectedElement: CanvasElement | null;
+  selectedElements?: CanvasElement[];
   strokeColor: string;
   fillColor: string;
   strokeWidth: number;
@@ -74,6 +77,7 @@ const SHAPE_FILL_COLORS = [
 
 export const StyleBar: React.FC<StyleBarProps> = ({
   selectedElement,
+  selectedElements,
   strokeColor,
   fillColor,
   strokeWidth,
@@ -102,10 +106,74 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   const advancedMenuRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
-  // Draggable position for StyleBar
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  // Draggable position for StyleBar (persisted)
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const saved = localStorage.getItem('collab_stylebar_pos');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+          return {
+            x: Math.max(12, Math.min(window.innerWidth - 120, parsed.x)),
+            y: Math.max(12, Math.min(window.innerHeight - 80, parsed.y)),
+          };
+        }
+      }
+    } catch {
+      // Ignore storage error
+    }
+    return null;
+  });
+
   const [isDragging, setIsDragging] = useState(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Minimized / hidden state (persisted)
+  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('collab_hide_stylebar') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (position) {
+        localStorage.setItem('collab_stylebar_pos', JSON.stringify(position));
+      } else {
+        localStorage.removeItem('collab_stylebar_pos');
+      }
+    } catch {
+      // Ignore storage error
+    }
+  }, [position]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('collab_hide_stylebar', String(isMinimized));
+    } catch {
+      // Ignore storage error
+    }
+  }, [isMinimized]);
+
+  // Keep StyleBar inside viewport on resize
+  useEffect(() => {
+    const handleResize = () => {
+      setPosition((prev) => {
+        if (!prev || !barRef.current) return prev;
+        const rect = barRef.current.getBoundingClientRect();
+        const maxX = Math.max(12, window.innerWidth - rect.width - 12);
+        const maxY = Math.max(12, window.innerHeight - rect.height - 12);
+        return {
+          x: Math.min(Math.max(12, prev.x), maxX),
+          y: Math.min(Math.max(12, prev.y), maxY),
+        };
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
@@ -175,6 +243,9 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     window.addEventListener('pointerup', handleUp);
   };
 
+  const effectiveCount = selectedElements && selectedElements.length > 0 ? selectedElements.length : (selectedElement ? 1 : 0);
+  const isMulti = effectiveCount > 1;
+
   const isSticky = selectedElement?.type === 'sticky';
   const isText = selectedElement?.type === 'text';
   const isImage = selectedElement?.type === 'image';
@@ -188,7 +259,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       'triangle',
       'star',
       'sticky',
-    ].includes(selectedElement.type);
+    ].includes(selectedElement.type) ||
+    (selectedElements && selectedElements.some((e) => ['rectangle', 'rounded-rect', 'circle', 'diamond', 'triangle', 'star', 'sticky'].includes(e.type)));
 
   const activeStrokeColor = selectedElement?.color || strokeColor;
   const activeFillColor = selectedElement?.fillColor || fillColor;
@@ -197,6 +269,63 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   const activeFontSize = selectedElement?.fontSize || fontSize;
   const activeOpacity = selectedElement?.opacity ?? opacity;
   const currentRotation = (((Math.round(selectedElement?.rotation || 0) % 360) + 360) % 360);
+  const isAnyLocked = selectedElements && selectedElements.length > 0
+    ? selectedElements.some((e) => e.isLocked)
+    : !!selectedElement?.isLocked;
+  const isAllFlipX = selectedElements && selectedElements.length > 0
+    ? selectedElements.every((e) => e.flipX)
+    : !!selectedElement?.flipX;
+  const isAllFlipY = selectedElements && selectedElements.length > 0
+    ? selectedElements.every((e) => e.flipY)
+    : !!selectedElement?.flipY;
+
+  if (isMinimized) {
+    return (
+      <div
+        ref={barRef}
+        style={
+          position
+            ? {
+                left: `${position.x}px`,
+                top: `${position.y}px`,
+                bottom: 'auto',
+                transform: 'none',
+              }
+            : undefined
+        }
+        className={`absolute z-20 flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+          isDragging
+            ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
+            : 'border-slate-200/90 shadow-lg'
+        } rounded-xl select-none ${!position ? 'bottom-5 left-1/2 -translate-x-1/2' : ''}`}
+      >
+        <div
+          onPointerDown={handleGripPointerDown}
+          onDoubleClick={() => setPosition(null)}
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
+          title="Stil Çubuğunu Taşı (Sıfırlamak için çift tıkla)"
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
+          <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+          <span>Stil</span>
+          {effectiveCount > 0 && (
+            <span className="ml-0.5 px-1.5 py-0.2 bg-blue-100 text-blue-700 rounded-full text-[10px] font-bold">
+              {effectiveCount}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => setIsMinimized(false)}
+          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          title="Stil Çubuğunu Göster"
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -228,6 +357,15 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       >
         <GripVertical className="w-4 h-4" />
       </div>
+
+      {/* Hide / Minimize Button */}
+      <button
+        onClick={() => setIsMinimized(true)}
+        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+        title="Stil Çubuğunu Gizle"
+      >
+        <EyeOff className="w-4 h-4" />
+      </button>
 
       {/* Stroke Colors (hidden for pure image elements) */}
       {!isImage && (
@@ -380,12 +518,20 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       )}
 
       {/* Selected Object Transformation & Layer Controls (Rotate, Mirror/Flip, Order, Lock, Delete) */}
-      {selectedElement && (
+      {(selectedElement || isMulti) && (
         <div className="flex items-center gap-1">
+          {/* Multi-Selection Counter Badge */}
+          {isMulti && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold rounded-lg mr-1 shadow-xs">
+              <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+              <span>{effectiveCount} öğe seçildi</span>
+            </div>
+          )}
+
           {/* Rotate -45 deg */}
           <button
             onClick={() => onRotateBy(-45)}
-            disabled={selectedElement.isLocked}
+            disabled={isAnyLocked}
             className="p-1.5 rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40 transition-colors"
             title="Sola Döndür (-45° | Kısayol: [)"
           >
@@ -396,7 +542,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           <div className="relative" ref={rotationMenuRef}>
             <button
               onClick={() => setRotationMenuOpen((v) => !v)}
-              disabled={selectedElement.isLocked}
+              disabled={isAnyLocked}
               className={`px-2 py-1 rounded-lg text-xs font-mono tabular-nums font-semibold transition-colors ${
                 currentRotation !== 0 || rotationMenuOpen
                   ? 'bg-blue-50 text-blue-600 border border-blue-200'
@@ -446,7 +592,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           {/* Rotate +45 deg */}
           <button
             onClick={() => onRotateBy(45)}
-            disabled={selectedElement.isLocked}
+            disabled={isAnyLocked}
             className="p-1.5 rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40 transition-colors"
             title="Sağa Döndür (+45° | Kısayol: ])"
           >
@@ -458,9 +604,9 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           {/* Flip Horizontal (Yatay Aynalama) */}
           <button
             onClick={onFlipHorizontal}
-            disabled={selectedElement.isLocked}
+            disabled={isAnyLocked}
             className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
-              selectedElement.flipX
+              isAllFlipX
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
@@ -472,9 +618,9 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           {/* Flip Vertical (Dikey Aynalama) */}
           <button
             onClick={onFlipVertical}
-            disabled={selectedElement.isLocked}
+            disabled={isAnyLocked}
             className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
-              selectedElement.flipY
+              isAllFlipY
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
@@ -489,7 +635,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           <button
             onClick={onDuplicate}
             className="p-1.5 rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-            title="Çoğalt (Ctrl+D)"
+            title={isMulti ? "Seçilenleri Çoğalt (Ctrl+D)" : "Çoğalt (Ctrl+D)"}
           >
             <Copy className="w-4 h-4" />
           </button>
@@ -516,13 +662,13 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           <button
             onClick={onToggleLock}
             className={`p-1.5 rounded-lg transition-colors ${
-              selectedElement.isLocked
+              isAnyLocked
                 ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
             }`}
-            title={selectedElement.isLocked ? 'Kilidi Aç' : 'Nesneyi Kilitle'}
+            title={isAnyLocked ? 'Kilidi Aç' : (isMulti ? 'Tümünü Kilitle' : 'Nesneyi Kilitle')}
           >
-            {selectedElement.isLocked ? (
+            {isAnyLocked ? (
               <Lock className="w-4 h-4" />
             ) : (
               <Unlock className="w-4 h-4" />
@@ -533,7 +679,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           <button
             onClick={onDelete}
             className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
-            title="Sil (Delete)"
+            title={isMulti ? `Seçilenleri Sil (${effectiveCount} öğe | Delete)` : "Sil (Delete)"}
           >
             <Trash2 className="w-4 h-4" />
           </button>

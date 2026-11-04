@@ -33,6 +33,7 @@ import {
   X,
   Wand2,
   Eye,
+  EyeOff,
 } from 'lucide-react';
 import { ToolType } from '../types';
 
@@ -127,6 +128,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   const [isDraggingBar, setIsDraggingBar] = useState(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Minimized / hidden state (persisted)
+  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('collab_hide_toolbar') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('collab_hide_toolbar', String(isMinimized));
+    } catch {
+      // Ignore storage error
+    }
+  }, [isMinimized]);
 
   // Persist toolbar layout preferences
   useEffect(() => {
@@ -304,6 +322,48 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const openPopoverLeftward =
     position && typeof window !== 'undefined' && position.x > window.innerWidth * 0.65;
 
+  if (isMinimized) {
+    return (
+      <div
+        ref={toolbarRef}
+        style={
+          position
+            ? {
+                left: `${position.x}px`,
+                top: `${position.y}px`,
+                transform: 'none',
+              }
+            : undefined
+        }
+        className={`absolute z-20 flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+          isDraggingBar
+            ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
+            : 'border-slate-200/90 shadow-lg'
+        } rounded-xl select-none ${!position ? 'top-4 left-1/2 -translate-x-1/2' : ''}`}
+      >
+        <div
+          onPointerDown={handleGripPointerDown}
+          onDoubleClick={handleResetPosition}
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
+          title="Araç Çubuğunu Taşı (Sıfırlamak için çift tıkla)"
+        >
+          {isVertical ? <GripHorizontal className="w-4 h-4" /> : <GripVertical className="w-4 h-4" />}
+        </div>
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
+          <Pencil className="w-3.5 h-3.5 text-blue-600" />
+          <span>Araçlar</span>
+        </div>
+        <button
+          onClick={() => setIsMinimized(false)}
+          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          title="Araç Çubuğunu Göster"
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={toolbarRef}
@@ -360,6 +420,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
         )}
+
+        <button
+          onClick={() => setIsMinimized(true)}
+          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+          title="Araç Çubuğunu Gizle"
+        >
+          <EyeOff className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* Select & Move */}

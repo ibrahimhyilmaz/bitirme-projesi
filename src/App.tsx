@@ -188,7 +188,7 @@ export default function App() {
   const [strokeStyle, setStrokeStyle] = useState<StrokeStyle>('solid');
   const [fontSize, setFontSize] = useState<number>(18);
   const [opacity, setOpacity] = useState<number>(1);
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
 
@@ -408,62 +408,108 @@ export default function App() {
     replaceElements(nextElements);
   }, [redoStack, elements, replaceElements]);
 
-  // Selected element object
-  const selectedElement = useMemo(() => {
-    return elements.find((e) => e.id === selectedElementId) || null;
-  }, [elements, selectedElementId]);
+  // Selected element objects
+  const selectedElements = useMemo(() => {
+    return elements.filter((e) => selectedElementIds.includes(e.id));
+  }, [elements, selectedElementIds]);
 
-  // Duplicate Selected Element
+  const selectedElement = useMemo(() => {
+    return selectedElements.length > 0 ? selectedElements[0] : null;
+  }, [selectedElements]);
+
+  const selectedElementId = useMemo(() => {
+    return selectedElement ? selectedElement.id : null;
+  }, [selectedElement]);
+
+  const handleSelectElement = useCallback((id: string | null) => {
+    if (id === null) {
+      setSelectedElementIds([]);
+    } else {
+      setSelectedElementIds([id]);
+    }
+  }, []);
+
+  const handleSelectElements = useCallback((ids: string[]) => {
+    setSelectedElementIds(ids);
+  }, []);
+
+  // Duplicate Selected Elements
   const handleDuplicateSelected = useCallback(() => {
-    if (!selectedElementId) return;
-    const el = elements.find((e) => e.id === selectedElementId);
-    if (!el) return;
+    if (selectedElementIds.length === 0) return;
+    const toClone = elements.filter((e) => selectedElementIds.includes(e.id));
+    if (toClone.length === 0) return;
 
     recordUndo();
-    const cloned: CanvasElement = {
-      ...el,
-      id: `clone-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      x: el.x + 28,
-      y: el.y + 28,
-      points: el.points ? el.points.map((p) => ({ x: p.x + 28, y: p.y + 28 })) : undefined,
-      isLocked: false,
-      updatedAt: Date.now(),
-    };
-    createElement(cloned);
-    setSelectedElementId(cloned.id);
-  }, [selectedElementId, elements, recordUndo, createElement]);
+    const newIds: string[] = [];
+    toClone.forEach((el, index) => {
+      const cloned: CanvasElement = {
+        ...el,
+        id: `clone-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 6)}`,
+        x: el.x + 28,
+        y: el.y + 28,
+        points: el.points ? el.points.map((p) => ({ x: p.x + 28, y: p.y + 28 })) : undefined,
+        isLocked: false,
+        updatedAt: Date.now(),
+      };
+      createElement(cloned);
+      newIds.push(cloned.id);
+    });
+    setSelectedElementIds(newIds);
+  }, [selectedElementIds, elements, recordUndo, createElement]);
 
-  // Rotate & Mirror Selected Element
+  // Rotate & Mirror Selected Elements
   const handleRotateBy = useCallback(
     (deltaDegrees: number) => {
-      if (!selectedElementId || !selectedElement || selectedElement.isLocked) return;
+      if (selectedElementIds.length === 0) return;
       recordUndo();
-      const nextAngle = (((selectedElement.rotation || 0) + deltaDegrees) % 360 + 360) % 360;
-      updateElement(selectedElementId, { rotation: Math.round(nextAngle) });
+      const updates = elements
+        .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+        .map((el) => {
+          const nextAngle = (((el.rotation || 0) + deltaDegrees) % 360 + 360) % 360;
+          return { id: el.id, changes: { rotation: Math.round(nextAngle) } };
+        });
+      if (updates.length > 0) {
+        batchUpdateElements(updates);
+      }
     },
-    [selectedElementId, selectedElement, recordUndo, updateElement]
+    [selectedElementIds, elements, recordUndo, batchUpdateElements]
   );
 
   const handleSetRotation = useCallback(
     (degrees: number) => {
-      if (!selectedElementId || !selectedElement || selectedElement.isLocked) return;
+      if (selectedElementIds.length === 0) return;
       const nextAngle = ((degrees % 360) + 360) % 360;
-      updateElement(selectedElementId, { rotation: Math.round(nextAngle) });
+      const updates = elements
+        .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+        .map((el) => ({ id: el.id, changes: { rotation: Math.round(nextAngle) } }));
+      if (updates.length > 0) {
+        batchUpdateElements(updates);
+      }
     },
-    [selectedElementId, selectedElement, updateElement]
+    [selectedElementIds, elements, batchUpdateElements]
   );
 
   const handleFlipHorizontal = useCallback(() => {
-    if (!selectedElementId || !selectedElement || selectedElement.isLocked) return;
+    if (selectedElementIds.length === 0) return;
     recordUndo();
-    updateElement(selectedElementId, { flipX: !selectedElement.flipX });
-  }, [selectedElementId, selectedElement, recordUndo, updateElement]);
+    const updates = elements
+      .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+      .map((el) => ({ id: el.id, changes: { flipX: !el.flipX } }));
+    if (updates.length > 0) {
+      batchUpdateElements(updates);
+    }
+  }, [selectedElementIds, elements, recordUndo, batchUpdateElements]);
 
   const handleFlipVertical = useCallback(() => {
-    if (!selectedElementId || !selectedElement || selectedElement.isLocked) return;
+    if (selectedElementIds.length === 0) return;
     recordUndo();
-    updateElement(selectedElementId, { flipY: !selectedElement.flipY });
-  }, [selectedElementId, selectedElement, recordUndo, updateElement]);
+    const updates = elements
+      .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+      .map((el) => ({ id: el.id, changes: { flipY: !el.flipY } }));
+    if (updates.length > 0) {
+      batchUpdateElements(updates);
+    }
+  }, [selectedElementIds, elements, recordUndo, batchUpdateElements]);
 
   // Global Keyboard Shortcuts (Tools, Voice, Undo/Redo, Duplicate, Rotate, Flip)
   useEffect(() => {
@@ -474,6 +520,17 @@ export default function App() {
         e.target instanceof HTMLSelectElement
       ) {
         return;
+      }
+
+      // Delete / Backspace for selected elements
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedElementIds.length > 0) {
+          e.preventDefault();
+          recordUndo();
+          deleteElements(selectedElementIds);
+          setSelectedElementIds([]);
+          return;
+        }
       }
 
       // Ctrl/Cmd Shortcuts
@@ -500,8 +557,8 @@ export default function App() {
         return;
       }
 
-      // Shift + H / Shift + V for Horizontal / Vertical Mirroring when an element is selected
-      if (e.shiftKey && selectedElementId) {
+      // Shift + H / Shift + V for Horizontal / Vertical Mirroring when elements are selected
+      if (e.shiftKey && selectedElementIds.length > 0) {
         if (e.key.toLowerCase() === 'h') {
           e.preventDefault();
           handleFlipHorizontal();
@@ -515,12 +572,12 @@ export default function App() {
       }
 
       // [ and ] for quick rotation
-      if (e.key === '[' && selectedElementId) {
+      if (e.key === '[' && selectedElementIds.length > 0) {
         e.preventDefault();
         handleRotateBy(-15);
         return;
       }
-      if (e.key === ']' && selectedElementId) {
+      if (e.key === ']' && selectedElementIds.length > 0) {
         e.preventDefault();
         handleRotateBy(15);
         return;
@@ -539,11 +596,11 @@ export default function App() {
           break;
         case 'h':
           setActiveTool('pan');
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         case 'p':
           setActiveTool('pencil');
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         case 'e':
           if (e.shiftKey) {
@@ -555,35 +612,35 @@ export default function App() {
             const savedEraser = (localStorage.getItem('collab_last_eraser') as ToolType) || 'eraser';
             setActiveTool(savedEraser === 'point-eraser' ? 'point-eraser' : 'eraser');
           }
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         case 'r':
           setActiveTool('rectangle');
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         case 'o':
           setActiveTool('circle');
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         case 'a':
           setActiveTool('arrow');
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         case 'l':
           setActiveTool('line');
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         case 'n':
           setActiveTool('sticky');
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         case 't':
           setActiveTool('text');
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         case 'k':
           setActiveTool('laser');
-          setSelectedElementId(null);
+          setSelectedElementIds([]);
           break;
         default:
           break;
@@ -601,7 +658,9 @@ export default function App() {
     handleFlipHorizontal,
     handleFlipVertical,
     handleRotateBy,
-    selectedElementId,
+    selectedElementIds,
+    recordUndo,
+    deleteElements,
   ]);
 
   // Element Actions
@@ -617,37 +676,43 @@ export default function App() {
   const handleDeleteElements = (ids: string[]) => {
     recordUndo();
     deleteElements(ids);
+    setSelectedElementIds((prev) => prev.filter((id) => !ids.includes(id)));
   };
 
   const handleClearElements = () => {
     recordUndo();
     clearElements();
-    setSelectedElementId(null);
+    setSelectedElementIds([]);
   };
 
   // Bring to front & send to back
   const handleBringForward = () => {
-    if (!selectedElementId) return;
-    const el = elements.find((e) => e.id === selectedElementId);
-    if (!el) return;
+    if (selectedElementIds.length === 0) return;
     recordUndo();
-    const reordered = [...elements.filter((e) => e.id !== selectedElementId), el];
-    replaceElements(reordered);
+    const toBring = elements.filter((e) => selectedElementIds.includes(e.id));
+    const remaining = elements.filter((e) => !selectedElementIds.includes(e.id));
+    replaceElements([...remaining, ...toBring]);
   };
 
   const handleSendBackward = () => {
-    if (!selectedElementId) return;
-    const el = elements.find((e) => e.id === selectedElementId);
-    if (!el) return;
+    if (selectedElementIds.length === 0) return;
     recordUndo();
-    const reordered = [el, ...elements.filter((e) => e.id !== selectedElementId)];
-    replaceElements(reordered);
+    const toSend = elements.filter((e) => selectedElementIds.includes(e.id));
+    const remaining = elements.filter((e) => !selectedElementIds.includes(e.id));
+    replaceElements([...toSend, ...remaining]);
   };
 
   // Toggle Lock
   const handleToggleLock = () => {
-    if (!selectedElementId || !selectedElement) return;
-    updateElement(selectedElementId, { isLocked: !selectedElement.isLocked });
+    if (selectedElementIds.length === 0) return;
+    recordUndo();
+    const anyUnlocked = elements.some((el) => selectedElementIds.includes(el.id) && !el.isLocked);
+    const updates = elements
+      .filter((el) => selectedElementIds.includes(el.id))
+      .map((el) => ({ id: el.id, changes: { isLocked: anyUnlocked } }));
+    if (updates.length > 0) {
+      batchUpdateElements(updates);
+    }
   };
 
   // Send Ping at center screen
@@ -687,7 +752,7 @@ export default function App() {
     };
 
     createElement(imgEl);
-    setSelectedElementId(imgEl.id);
+    setSelectedElementIds([imgEl.id]);
     setActiveTool('select');
     if (activePanel === 'files') {
       setActivePanel('none');
@@ -761,7 +826,7 @@ export default function App() {
           activeTool={activeTool}
           onSelectTool={(tool) => {
             setActiveTool(tool);
-            if (tool !== 'select') setSelectedElementId(null);
+            if (tool !== 'select') setSelectedElementIds([]);
           }}
           canUndo={undoStack.length > 0}
           canRedo={redoStack.length > 0}
@@ -798,6 +863,7 @@ export default function App() {
         {canEdit && (
           <StyleBar
             selectedElement={selectedElement}
+            selectedElements={selectedElements}
             strokeColor={strokeColor}
             fillColor={fillColor}
             strokeWidth={strokeWidth}
@@ -806,27 +872,57 @@ export default function App() {
             opacity={opacity}
             onChangeStrokeColor={(color) => {
               setStrokeColor(color);
-              if (selectedElementId) updateElement(selectedElementId, { color });
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { color } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
             }}
             onChangeFillColor={(fc) => {
               setFillColor(fc);
-              if (selectedElementId) updateElement(selectedElementId, { fillColor: fc });
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { fillColor: fc } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
             }}
             onChangeStrokeWidth={(w) => {
               setStrokeWidth(w);
-              if (selectedElementId) updateElement(selectedElementId, { strokeWidth: w });
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { strokeWidth: w } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
             }}
             onChangeStrokeStyle={(st) => {
               setStrokeStyle(st);
-              if (selectedElementId) updateElement(selectedElementId, { strokeStyle: st });
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { strokeStyle: st } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
             }}
             onChangeFontSize={(fs) => {
               setFontSize(fs);
-              if (selectedElementId) updateElement(selectedElementId, { fontSize: fs });
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { fontSize: fs } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
             }}
             onChangeOpacity={(op) => {
               setOpacity(op);
-              if (selectedElementId) updateElement(selectedElementId, { opacity: op });
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { opacity: op } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
             }}
             onRotateBy={handleRotateBy}
             onSetRotation={handleSetRotation}
@@ -834,9 +930,9 @@ export default function App() {
             onFlipVertical={handleFlipVertical}
             onDuplicate={handleDuplicateSelected}
             onDelete={() => {
-              if (selectedElementId) {
-                handleDeleteElements([selectedElementId]);
-                setSelectedElementId(null);
+              if (selectedElementIds.length > 0) {
+                handleDeleteElements(selectedElementIds);
+                setSelectedElementIds([]);
               }
             }}
             onBringForward={handleBringForward}
@@ -869,7 +965,9 @@ export default function App() {
           onBatchUpdateElements={batchUpdateElements}
           onDeleteElements={handleDeleteElements}
           selectedElementId={selectedElementId}
-          onSelectElement={setSelectedElementId}
+          selectedElementIds={selectedElementIds}
+          onSelectElement={handleSelectElement}
+          onSelectElements={handleSelectElements}
           onSelectTool={setActiveTool}
           zoom={zoom}
           setZoom={setZoom}
@@ -938,7 +1036,7 @@ export default function App() {
             recordUndo();
             loadTemplate(aiElements);
             if (aiElements.length > 0) {
-              setSelectedElementId(aiElements[0].id);
+              setSelectedElementIds([aiElements[0].id]);
               setActiveTool('select');
             }
           }}
