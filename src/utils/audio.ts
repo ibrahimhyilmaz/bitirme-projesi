@@ -327,7 +327,22 @@ export class VoiceManager {
   }
 
   getUserVolume(userId: string): number {
-    return this.userVolumes.get(userId) ?? 100;
+    if (this.userVolumes.has(userId)) {
+      return this.userVolumes.get(userId)!;
+    }
+    try {
+      const saved = localStorage.getItem('collab_peer_volumes');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed[userId] === 'number') {
+          this.userVolumes.set(userId, parsed[userId]);
+          return parsed[userId];
+        }
+      }
+    } catch {
+      // Ignore storage error
+    }
+    return 100;
   }
 
   broadcastDataChannel(payload: string) {

@@ -2,10 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Mic,
   MicOff,
+  Volume1,
   Volume2,
   VolumeX,
   Radio,
-  Sliders,
   ChevronDown,
   ChevronUp,
   GripVertical,
@@ -43,7 +43,6 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   onSetUserVolume,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
-  const [activeVolumeSettingsUserId, setActiveVolumeSettingsUserId] = useState<string | null>(null);
 
   // Draggable position (null = default top-4 right-4 position)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
@@ -348,13 +347,18 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
 
       {/* Expanded Participant List & Individual Volume Sliders */}
       {isExpanded && (
-        <div className="mt-2 w-72 bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl p-3 flex flex-col gap-2 z-30">
+        <div className="mt-2 w-80 sm:w-84 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl p-3 flex flex-col gap-2.5 z-30">
           <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs font-semibold text-slate-700">
-            <span>Sesli Kanal Üyeleri</span>
-            <span className="text-[11px] font-normal text-slate-400">WebRTC P2P</span>
+            <div className="flex items-center gap-1.5">
+              <span>Sesli Kanal Üyeleri</span>
+              <span className="px-1.5 py-0.2 bg-blue-50 text-blue-600 rounded-full text-[10px] font-bold">
+                {users.length}
+              </span>
+            </div>
+            <span className="text-[10px] font-medium text-slate-400">Kişiye Özel Ses Ayarı</span>
           </div>
 
-          <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
+          <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-0.5">
             {users.map((u) => {
               const isSelf = u.id === currentUser.id;
               const currentVol = getUserVolume(u.id);
@@ -362,67 +366,99 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
               return (
                 <div
                   key={u.id}
-                  className="relative flex items-center justify-between p-1.5 rounded-lg hover:bg-slate-50 text-xs transition-colors"
+                  className={`p-2 rounded-xl border transition-all ${
+                    u.isSpeaking
+                      ? 'bg-emerald-50/50 border-emerald-200/80 shadow-xs'
+                      : 'bg-slate-50/70 border-slate-200/60 hover:bg-slate-50'
+                  } flex flex-col gap-1.5 text-xs`}
                 >
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`relative w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold ${
-                        u.isSpeaking ? 'speaking-active' : ''
-                      }`}
-                      style={{ backgroundColor: u.color || '#2563eb' }}
-                    >
-                      {u.avatar || u.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="font-medium text-slate-800 truncate max-w-[120px]">
-                        {u.name} {isSelf && '(Sen)'}
-                      </span>
-                      <span className="text-[10px] text-slate-400">
-                        {u.isSpeaking
-                          ? 'Konuşuyor'
-                          : u.isMuted
-                          ? 'Mikrofon kapalı'
-                          : 'Dinliyor'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    {u.isMuted ? (
-                      <MicOff className="w-3.5 h-3.5 text-rose-500" />
-                    ) : (
-                      <Mic className="w-3.5 h-3.5 text-emerald-500" />
-                    )}
-
-                    {!isSelf && (
-                      <button
-                        onClick={() =>
-                          setActiveVolumeSettingsUserId(
-                            activeVolumeSettingsUserId === u.id ? null : u.id
-                          )
-                        }
-                        className="p-1 rounded text-slate-400 hover:text-slate-700"
-                        title="Kullanıcı Ses Düzeyi"
+                  {/* Top: Avatar, Name, Status, Mic State */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className={`relative w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0 ${
+                          u.isSpeaking ? 'ring-2 ring-emerald-500 ring-offset-1 animate-pulse' : ''
+                        }`}
+                        style={{ backgroundColor: u.color || '#2563eb' }}
                       >
-                        <Sliders className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                        {u.avatar || u.name.charAt(0).toUpperCase()}
+                        {u.isSpeaking && (
+                          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white" />
+                        )}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold text-slate-800 text-xs truncate max-w-[140px]">
+                          {u.name} {isSelf && <span className="text-[10px] text-blue-600 font-normal">(Sen)</span>}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {u.isSpeaking ? 'Konuşuyor' : u.isMuted ? 'Mikrofon kapalı' : 'Dinliyor'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {u.isMuted ? (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-600 text-[10px] font-medium border border-rose-100">
+                          <MicOff className="w-3 h-3" />
+                          <span>Kapalı</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-600 text-[10px] font-medium border border-emerald-100">
+                          <Mic className="w-3 h-3" />
+                          <span>Açık</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Volume Slider Dropdown */}
-                  {!isSelf && activeVolumeSettingsUserId === u.id && (
-                    <div className="absolute right-0 top-full mt-1 p-2 bg-white border border-slate-200 rounded-lg shadow-lg z-50 flex items-center gap-2">
-                      <span className="text-[10px] text-slate-500 font-mono tabular-nums">
-                        {currentVol}%
-                      </span>
+                  {/* Bottom: Inline Individual Volume Control */}
+                  {!isSelf && (
+                    <div className="flex items-center gap-2 pt-1.5 border-t border-slate-200/50">
+                      <button
+                        type="button"
+                        onClick={() => onSetUserVolume(u.id, currentVol === 0 ? 100 : 0)}
+                        className="p-1 text-slate-500 hover:text-slate-800 rounded transition-colors shrink-0"
+                        title={currentVol === 0 ? 'Sesi Aç (%100)' : 'Kullanıcıyı Sustur (%0)'}
+                      >
+                        {currentVol === 0 ? (
+                          <VolumeX className="w-3.5 h-3.5 text-rose-500" />
+                        ) : currentVol < 50 ? (
+                          <Volume1 className="w-3.5 h-3.5 text-slate-500" />
+                        ) : (
+                          <Volume2 className="w-3.5 h-3.5 text-blue-600" />
+                        )}
+                      </button>
+
                       <input
                         type="range"
                         min="0"
-                        max="150"
+                        max="100"
                         value={currentVol}
                         onChange={(e) => onSetUserVolume(u.id, Number(e.target.value))}
-                        className="w-24 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        className="flex-1 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        title={`${u.name} ses düzeyi: %${currentVol}`}
                       />
+
+                      <span className="text-[11px] font-mono tabular-nums text-slate-600 w-9 text-right font-medium shrink-0">
+                        %{currentVol}
+                      </span>
+                    </div>
+                  )}
+
+                  {isSelf && (
+                    <div className="flex items-center gap-2 pt-1.5 border-t border-slate-200/50 text-[10px] text-slate-500">
+                      <span className="text-slate-400">Giriş:</span>
+                      <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-75 ${
+                            isMuted ? 'bg-slate-300 w-0' : localVolume > 15 ? 'bg-emerald-500' : 'bg-slate-400'
+                          }`}
+                          style={{ width: `${isMuted ? 0 : Math.min(100, localVolume * 1.5)}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[10px] text-slate-600 w-9 text-right">
+                        {isMuted ? 'Sessiz' : `%${Math.min(100, Math.round(localVolume * 1.5))}`}
+                      </span>
                     </div>
                   )}
                 </div>

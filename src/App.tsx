@@ -18,6 +18,7 @@ import { UserSetupModal } from './components/UserSetupModal';
 import { AIPromptModal } from './components/AIPromptModal';
 import { RoomsModal, decodeRoomSnapshot } from './components/RoomsModal';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
+import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 
 function extractRoomInfoFromLocation(): { roomId: string; roomName: string; snapshot?: string } {
   try {
@@ -320,13 +321,18 @@ export default function App() {
     }
   }, [canEdit, activeTool]);
 
-  // Track unread chat messages when chat drawer is closed
-  const prevChatCountRef = useRef(chatMessages.length);
+  // Track unread chat messages when chat drawer is closed (only actual user messages, ignore system announcements)
+  const prevChatCountRef = useRef(
+    chatMessages.filter((m) => m.userId !== 'system' && m.userColor !== 'system').length
+  );
   useEffect(() => {
-    if (activePanel !== 'chat' && chatMessages.length > prevChatCountRef.current) {
-      setUnreadChatCount((prev) => prev + (chatMessages.length - prevChatCountRef.current));
+    const userMsgsCount = chatMessages.filter(
+      (m) => m.userId !== 'system' && m.userColor !== 'system'
+    ).length;
+    if (activePanel !== 'chat' && userMsgsCount > prevChatCountRef.current) {
+      setUnreadChatCount((prev) => prev + (userMsgsCount - prevChatCountRef.current));
     }
-    prevChatCountRef.current = chatMessages.length;
+    prevChatCountRef.current = userMsgsCount;
   }, [chatMessages, activePanel]);
 
   // Initialize Voice Manager
@@ -375,16 +381,39 @@ export default function App() {
     updateVoiceState({ isDeafened: nextDeafened });
   }, [isDeafened, updateVoiceState]);
 
-  // Voice volume per peer
-  const handleGetUserVolume = (userId: string) => {
-    return voiceManagerRef.current?.getUserVolume(userId) ?? 100;
-  };
-
-  const handleSetUserVolume = (userId: string, volume: number) => {
-    if (voiceManagerRef.current) {
-      voiceManagerRef.current.setUserVolume(userId, volume);
+  // Voice volume per peer (reactive state persisted to localStorage)
+  const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem('collab_peer_volumes');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // Ignore storage error
     }
-  };
+    return {};
+  });
+
+  const handleGetUserVolume = useCallback((userId: string) => {
+    if (typeof peerVolumes[userId] === 'number') {
+      return peerVolumes[userId];
+    }
+    return voiceManagerRef.current?.getUserVolume(userId) ?? 100;
+  }, [peerVolumes]);
+
+  const handleSetUserVolume = useCallback((userId: string, volume: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(volume)));
+    setPeerVolumes((prev) => {
+      const next = { ...prev, [userId]: clamped };
+      try {
+        localStorage.setItem('collab_peer_volumes', JSON.stringify(next));
+      } catch {
+        // Ignore storage error
+      }
+      return next;
+    });
+    if (voiceManagerRef.current) {
+      voiceManagerRef.current.setUserVolume(userId, clamped);
+    }
+  }, []);
 
   // Snapshot for Undo before modifying
   const recordUndo = useCallback(() => {
@@ -759,6 +788,78 @@ export default function App() {
     }
   };
 
+  // Add PDF from File vault or drop directly to canvas center
+  const handleAddPdfToCanvas = async (pdfUrl: string, name?: string) => {
+    try {
+      const { totalPages, defaultWidth, defaultHeight } = await getPdfInfo(pdfUrl);
+      const page1ImageUrl = await renderPdfPage(pdfUrl, 1);
+
+      const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - defaultWidth / 2;
+      const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - defaultHeight / 2;
+
+      recordUndo();
+      const pdfEl: CanvasElement = {
+        id: `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'pdf',
+        x: canvasCenterX,
+        y: canvasCenterY,
+        width: defaultWidth,
+        height: defaultHeight,
+        imageUrl: page1ImageUrl,
+        pdfUrl: pdfUrl,
+        currentPage: 1,
+        totalPages: totalPages || 1,
+        fileName: name || 'Belge.pdf',
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
+
+      createElement(pdfEl);
+      setSelectedElementIds([pdfEl.id]);
+      setActiveTool('select');
+      if (activePanel === 'files') {
+        setActivePanel('none');
+      }
+    } catch (err) {
+      console.error('Failed to add PDF to canvas:', err);
+    }
+  };
+
+  // Add Video from File vault or drop directly to canvas center
+  const handleAddVideoToCanvas = (videoUrl: string, name?: string) => {
+    const defaultW = 480;
+    const defaultH = 270;
+    const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - defaultW / 2;
+    const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - defaultH / 2;
+
+    recordUndo();
+    const videoEl: CanvasElement = {
+      id: `vid-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      type: 'video',
+      x: canvasCenterX,
+      y: canvasCenterY,
+      width: defaultW,
+      height: defaultH,
+      videoUrl,
+      fileName: name || 'Video.mp4',
+      rotation: 0,
+      flipX: false,
+      flipY: false,
+      createdBy: currentUser.name,
+      updatedAt: Date.now(),
+    };
+
+    createElement(videoEl);
+    setSelectedElementIds([videoEl.id]);
+    setActiveTool('select');
+    if (activePanel === 'files') {
+      setActivePanel('none');
+    }
+  };
+
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden bg-slate-50 select-none font-sans">
       {/* Top Bar Contract */}
@@ -1005,7 +1106,9 @@ export default function App() {
             files={files}
             onUploadFile={uploadFile}
             onDeleteFile={deleteFile}
-            onAddImageToCanvas={(dataUrl) => handleAddImageToCanvas(dataUrl)}
+            onAddImageToCanvas={(dataUrl, name) => handleAddImageToCanvas(dataUrl, 320, 240)}
+            onAddPdfToCanvas={(pdfUrl, name) => handleAddPdfToCanvas(pdfUrl, name)}
+            onAddVideoToCanvas={(videoUrl, name) => handleAddVideoToCanvas(videoUrl, name)}
             onClose={() => setActivePanel('none')}
           />
         )}

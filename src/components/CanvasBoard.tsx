@@ -24,6 +24,8 @@ import {
   smoothPoints,
   sampleShapeToWorldPoints,
 } from '../utils/canvasRenderer';
+import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { getPdfInfo, renderPdfPage } from '../utils/pdfRenderer';
 
 // Custom SVG Cursors for Pencil, Highlighter, Erasers, and Ping (matching button icons & sizing)
 const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/><path d='m15 5 4 4'/></g><g stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z' fill='%23ffffff'/><path d='m15 5 4 4'/></g></svg>") 2 18, crosshair`;
@@ -1736,24 +1738,239 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
   const editingInfo = getEditingElementScreenRect();
 
+  // PDF Page Loading states and helpers
+  const [loadingPdfPages, setLoadingPdfPages] = useState<Record<string, boolean>>({});
+
+  const handlePdfPageTurn = async (el: CanvasElement, direction: 'prev' | 'next') => {
+    if (!el.pdfUrl || loadingPdfPages[el.id]) return;
+    const cur = el.currentPage || 1;
+    const total = el.totalPages || 1;
+    const targetPage = direction === 'prev' ? cur - 1 : cur + 1;
+    if (targetPage < 1 || targetPage > total) return;
+
+    try {
+      setLoadingPdfPages((prev) => ({ ...prev, [el.id]: true }));
+      const newPageImageUrl = await renderPdfPage(el.pdfUrl, targetPage);
+      onUpdateElement(el.id, {
+        currentPage: targetPage,
+        imageUrl: newPageImageUrl,
+      });
+    } catch (err) {
+      console.error('Failed to turn PDF page:', err);
+    } finally {
+      setLoadingPdfPages((prev) => ({ ...prev, [el.id]: false }));
+    }
+  };
+
+  const handleAddPdfAtPosition = async (
+    pdfUrl: string,
+    fileName: string,
+    targetX: number,
+    targetY: number
+  ) => {
+    try {
+      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+      const { totalPages, defaultWidth, defaultHeight } = await getPdfInfo(pdfUrl);
+      const page1ImageUrl = await renderPdfPage(pdfUrl, 1);
+
+      const pdfEl: CanvasElement = {
+        id: `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'pdf',
+        x: targetX - defaultWidth / 2,
+        y: targetY - defaultHeight / 2,
+        width: defaultWidth,
+        height: defaultHeight,
+        imageUrl: page1ImageUrl,
+        pdfUrl: pdfUrl,
+        currentPage: 1,
+        totalPages: totalPages || 1,
+        fileName: fileName || 'Belge.pdf',
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
+
+      onCreateElement(pdfEl);
+      if (onSelectElements) {
+        onSelectElements([pdfEl.id]);
+      } else {
+        onSelectElement(pdfEl.id);
+      }
+      if (onSelectTool) {
+        onSelectTool('select');
+      }
+    } catch (err) {
+      console.error('Failed to add PDF element:', err);
+    }
+  };
+
+  const handleAddImageAtPosition = (
+    imageUrl: string,
+    targetX: number,
+    targetY: number,
+    w = 320,
+    h = 240
+  ) => {
+    if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+    const imgEl: CanvasElement = {
+      id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      type: 'image',
+      x: targetX - w / 2,
+      y: targetY - h / 2,
+      width: w,
+      height: h,
+      imageUrl,
+      rotation: 0,
+      flipX: false,
+      flipY: false,
+      createdBy: currentUser.name,
+      updatedAt: Date.now(),
+    };
+    onCreateElement(imgEl);
+    if (onSelectElements) {
+      onSelectElements([imgEl.id]);
+    } else {
+      onSelectElement(imgEl.id);
+    }
+    if (onSelectTool) {
+      onSelectTool('select');
+    }
+  };
+
+  const handleAddVideoAtPosition = (
+    videoUrl: string,
+    fileName: string,
+    targetX: number,
+    targetY: number,
+    w = 480,
+    h = 270
+  ) => {
+    if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+    const videoEl: CanvasElement = {
+      id: `vid-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      type: 'video',
+      x: targetX - w / 2,
+      y: targetY - h / 2,
+      width: w,
+      height: h,
+      videoUrl,
+      fileName: fileName || 'Video.mp4',
+      rotation: 0,
+      flipX: false,
+      flipY: false,
+      createdBy: currentUser.name,
+      updatedAt: Date.now(),
+    };
+    onCreateElement(videoEl);
+    if (onSelectElements) {
+      onSelectElements([videoEl.id]);
+    } else {
+      onSelectElement(videoEl.id);
+    }
+    if (onSelectTool) {
+      onSelectTool('select');
+    }
+  };
+
   // Drop files or images directly onto canvas
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    const files = e.dataTransfer.files;
-    if (files.length === 0) return;
-
     const container = containerRef.current;
     if (!container) return;
     const rect = container.getBoundingClientRect();
     const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const canvasPt = screenToCanvas(screenPt, pan, zoom);
 
+    // 1. Check for collab-file JSON data dragged from FileShareModal
+    const rawCollabFile = e.dataTransfer.getData('application/json');
+    if (rawCollabFile) {
+      try {
+        const parsed = JSON.parse(rawCollabFile);
+        if (parsed.type === 'collab-file' && parsed.file) {
+          const file = parsed.file;
+          const isPdf =
+            file.type === 'application/pdf' ||
+            file.name.toLowerCase().endsWith('.pdf') ||
+            (typeof file.dataUrl === 'string' && file.dataUrl.startsWith('data:application/pdf'));
+
+          const isVideo =
+            file.type.startsWith('video/') ||
+            file.name.toLowerCase().endsWith('.mp4') ||
+            file.name.toLowerCase().endsWith('.webm') ||
+            file.name.toLowerCase().endsWith('.mov') ||
+            (typeof file.dataUrl === 'string' && file.dataUrl.startsWith('data:video/'));
+
+          if (isPdf) {
+            await handleAddPdfAtPosition(file.dataUrl, file.name, canvasPt.x, canvasPt.y);
+            return;
+          } else if (isVideo) {
+            handleAddVideoAtPosition(file.dataUrl, file.name, canvasPt.x, canvasPt.y);
+            return;
+          } else if (file.type && file.type.startsWith('image/')) {
+            const img = new Image();
+            img.src = file.dataUrl;
+            img.onload = () => {
+              const maxDim = 320;
+              let w = img.width || 300;
+              let h = img.height || 240;
+              if (w > maxDim || h > maxDim) {
+                if (w > h) {
+                  h = (h / w) * maxDim;
+                  w = maxDim;
+                } else {
+                  w = (w / h) * maxDim;
+                  h = maxDim;
+                }
+              }
+              handleAddImageAtPosition(file.dataUrl, canvasPt.x, canvasPt.y, w, h);
+            };
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('Error handling dropped collab-file:', err);
+      }
+    }
+
+    // 2. Direct drop of files from OS desktop or folder
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+
     const file = files[0];
-    if (file.type.startsWith('image/')) {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const isVideo =
+      file.type.startsWith('video/') ||
+      file.name.toLowerCase().endsWith('.mp4') ||
+      file.name.toLowerCase().endsWith('.webm') ||
+      file.name.toLowerCase().endsWith('.mov');
+    const isImage = file.type.startsWith('image/');
+
+    if (isPdf) {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const dataUrl = event.target?.result as string;
+        if (dataUrl) {
+          await handleAddPdfAtPosition(dataUrl, file.name, canvasPt.x, canvasPt.y);
+        }
+      };
+      reader.readAsDataURL(file);
+    } else if (isVideo) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        if (dataUrl) {
+          handleAddVideoAtPosition(dataUrl, file.name, canvasPt.x, canvasPt.y);
+        }
+      };
+      reader.readAsDataURL(file);
+    } else if (isImage) {
       const reader = new FileReader();
       reader.onload = (event) => {
         const dataUrl = event.target?.result as string;
@@ -1772,26 +1989,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               h = maxDim;
             }
           }
-
-          const newImageEl: CanvasElement = {
-            id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            type: 'image',
-            x: canvasPt.x - w / 2,
-            y: canvasPt.y - h / 2,
-            width: w,
-            height: h,
-            imageUrl: dataUrl,
-            rotation: 0,
-            flipX: false,
-            flipY: false,
-            createdBy: currentUser.name,
-            updatedAt: Date.now(),
-          };
-          onCreateElement(newImageEl);
-          onSelectElement(newImageEl.id);
-          if (onSelectTool) {
-            onSelectTool('select');
-          }
+          handleAddImageAtPosition(dataUrl, canvasPt.x, canvasPt.y, w, h);
         };
       };
       reader.readAsDataURL(file);
@@ -1922,6 +2120,184 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           </div>
         </div>
       )}
+
+      {/* Interactive PDF Page Navigation Controls (Left & Right side buttons) */}
+      {elements
+        .filter((el) => el.type === 'pdf')
+        .map((pdfEl) => {
+          const bounds = getElementBounds(pdfEl);
+          const screenX = bounds.minX * zoom + pan.x;
+          const screenY = bounds.minY * zoom + pan.y;
+          const screenW = bounds.width * zoom;
+          const screenH = bounds.height * zoom;
+
+          // Render only when within or near visible screen area
+          if (
+            screenX + screenW < -60 ||
+            screenX > window.innerWidth + 60 ||
+            screenY + screenH < -60 ||
+            screenY > window.innerHeight + 60
+          ) {
+            return null;
+          }
+
+          const curPage = pdfEl.currentPage || 1;
+          const totalPgs = pdfEl.totalPages || 1;
+          const isLoading = !!loadingPdfPages[pdfEl.id];
+          const isSelected = activeSelectedIds.includes(pdfEl.id);
+
+          return (
+            <React.Fragment key={`pdf-nav-${pdfEl.id}`}>
+              {/* Left Page Turn Button (<) */}
+              <button
+                type="button"
+                disabled={curPage <= 1 || isLoading}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePdfPageTurn(pdfEl, 'prev');
+                }}
+                style={{
+                  left: `${screenX - 22}px`,
+                  top: `${screenY + screenH / 2 - 20}px`,
+                }}
+                className={`absolute z-30 w-10 h-10 rounded-full bg-white text-slate-700 shadow-xl border border-slate-300 flex items-center justify-center transition-all ${
+                  curPage <= 1 || isLoading
+                    ? 'opacity-40 cursor-not-allowed'
+                    : 'hover:bg-blue-600 hover:text-white hover:scale-110 active:scale-95 cursor-pointer hover:border-blue-600'
+                }`}
+                title={`Önceki Sayfa (${Math.max(1, curPage - 1)} / ${totalPgs})`}
+              >
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                ) : (
+                  <ChevronLeft className="w-6 h-6 stroke-[2.5]" />
+                )}
+              </button>
+
+              {/* Right Page Turn Button (>) */}
+              <button
+                type="button"
+                disabled={curPage >= totalPgs || isLoading}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePdfPageTurn(pdfEl, 'next');
+                }}
+                style={{
+                  left: `${screenX + screenW - 18}px`,
+                  top: `${screenY + screenH / 2 - 20}px`,
+                }}
+                className={`absolute z-30 w-10 h-10 rounded-full bg-white text-slate-700 shadow-xl border border-slate-300 flex items-center justify-center transition-all ${
+                  curPage >= totalPgs || isLoading
+                    ? 'opacity-40 cursor-not-allowed'
+                    : 'hover:bg-blue-600 hover:text-white hover:scale-110 active:scale-95 cursor-pointer hover:border-blue-600'
+                }`}
+                title={`Sonraki Sayfa (${Math.min(totalPgs, curPage + 1)} / ${totalPgs})`}
+              >
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                ) : (
+                  <ChevronRight className="w-6 h-6 stroke-[2.5]" />
+                )}
+              </button>
+
+              {/* Page Counter Badge underneath PDF */}
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  left: `${screenX + screenW / 2}px`,
+                  top: `${screenY + screenH + 8}px`,
+                  transform: 'translateX(-50%)',
+                }}
+                className={`absolute z-20 px-3.5 py-1 bg-slate-900/90 text-white rounded-full text-xs font-semibold shadow-lg flex items-center gap-1.5 backdrop-blur-xs select-none pointer-events-none transition-opacity ${
+                  isSelected ? 'ring-2 ring-blue-500' : ''
+                }`}
+              >
+                <span>Sayfa {curPage} / {totalPgs}</span>
+              </div>
+            </React.Fragment>
+          );
+        })}
+
+      {/* Interactive Video Players on the Whiteboard */}
+      {elements
+        .filter((el) => el.type === 'video' && el.videoUrl)
+        .map((videoEl) => {
+          const bounds = getElementBounds(videoEl);
+          const screenX = bounds.minX * zoom + pan.x;
+          const screenY = bounds.minY * zoom + pan.y;
+          const screenW = bounds.width * zoom;
+          const screenH = bounds.height * zoom;
+
+          // Render only when within or near visible screen area
+          if (
+            screenX + screenW < -100 ||
+            screenX > window.innerWidth + 100 ||
+            screenY + screenH < -100 ||
+            screenY > window.innerHeight + 100
+          ) {
+            return null;
+          }
+
+          const isSelected = activeSelectedIds.includes(videoEl.id);
+
+          return (
+            <div
+              key={`video-player-${videoEl.id}`}
+              style={{
+                left: `${screenX}px`,
+                top: `${screenY}px`,
+                width: `${Math.max(180, screenW)}px`,
+                height: `${Math.max(120, screenH)}px`,
+              }}
+              onPointerDown={(e) => {
+                if (activeTool === 'select' && !isSelected) {
+                  e.stopPropagation();
+                  updateSelectedIds([videoEl.id]);
+                }
+              }}
+              className={`absolute z-20 rounded-xl overflow-hidden shadow-2xl flex flex-col bg-slate-950 border-2 transition-shadow ${
+                isSelected
+                  ? 'border-blue-500 ring-4 ring-blue-500/20'
+                  : 'border-slate-700/80 hover:border-slate-500'
+              }`}
+            >
+              {/* Header Bar: Draggable handle to select & move video */}
+              <div
+                onPointerDown={(e) => {
+                  if (activeTool === 'select' && !isSelected) {
+                    updateSelectedIds([videoEl.id]);
+                  }
+                }}
+                className="h-7 bg-slate-900/95 px-2.5 flex items-center justify-between text-[11px] text-slate-300 border-b border-slate-800 shrink-0 cursor-move select-none"
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
+                  <span className="truncate font-medium text-slate-200" title={videoEl.fileName || 'Video'}>
+                    {videoEl.fileName || 'Video Oynatıcı'}
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-2">
+                  {Math.round(videoEl.width || 480)}x{Math.round(videoEl.height || 270)}
+                </span>
+              </div>
+
+              {/* Video Player */}
+              <div className="relative flex-1 w-full bg-black flex items-center justify-center overflow-hidden">
+                <video
+                  src={videoEl.videoUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            </div>
+          );
+        })}
 
       {/* Grid Pattern Selector (Bottom Left) */}
       <div

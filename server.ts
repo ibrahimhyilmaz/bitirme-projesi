@@ -958,13 +958,23 @@ wss.on('connection', (ws: WebSocket) => {
           const room = rooms.get(currentRoomId);
           if (!room) return;
 
+          const msgId =
+            typeof msg.id === 'string' && msg.id.length > 0
+              ? msg.id
+              : `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+          // Deduplicate if already processed
+          if (room.messages.some((m) => m.id === msgId)) {
+            break;
+          }
+
           const chatMessage: ChatMessage = {
-            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-            userId: currentUserId || 'unknown',
+            id: msgId,
+            userId: currentUserId || msg.userId || 'unknown',
             userName: msg.userName || 'Kullanıcı',
             userColor: msg.userColor || '#2563eb',
             text: msg.text,
-            timestamp: Date.now(),
+            timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
             fileAttachment: msg.fileAttachment,
           };
 
@@ -973,10 +983,15 @@ wss.on('connection', (ws: WebSocket) => {
             room.messages.shift();
           }
 
-          broadcastToRoom(currentRoomId, {
-            type: 'chat-received',
-            message: chatMessage,
-          });
+          // Broadcast to everyone else in the room (sender already has it in optimistic state)
+          broadcastToRoom(
+            currentRoomId,
+            {
+              type: 'chat-received',
+              message: chatMessage,
+            },
+            currentUserId || undefined
+          );
           break;
         }
 
@@ -988,11 +1003,40 @@ wss.on('connection', (ws: WebSocket) => {
           const sender = room.users.get(currentUserId);
           if (sender && !canEditWorkspace(sender.presence.role)) return;
 
+          // Reject forbidden executable files (.exe, .bat, etc.)
+          const fileName = String(msg.name || '').toLowerCase();
+          const forbiddenExts = ['.exe', '.bat', '.cmd', '.sh', '.msi', '.vbs', '.ps1', '.com', '.scr', '.bin', '.jar', '.apk', '.app', '.dll'];
+          if (forbiddenExts.some((ext) => fileName.endsWith(ext))) {
+            ws.send(
+              JSON.stringify({
+                type: 'system-error',
+                message: 'Güvenlik nedeniyle çalıştırılabilir (.exe vb.) dosyalar yüklenemez.',
+              })
+            );
+            break;
+          }
+
+          const fileId =
+            typeof msg.id === 'string' && msg.id.length > 0
+              ? msg.id
+              : `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+          // Deduplicate by ID or file signature
+          if (
+            room.files.some(
+              (f) =>
+                f.id === fileId ||
+                (f.name === msg.name && f.size === msg.size && f.dataUrl === msg.dataUrl)
+            )
+          ) {
+            break;
+          }
+
           const file: SharedFile = {
-            id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            id: fileId,
             name: msg.name,
             size: msg.size,
-            type: msg.fileType || 'application/octet-stream',
+            type: msg.fileType || msg.type || 'application/octet-stream',
             dataUrl: msg.dataUrl,
             uploadedBy: msg.uploadedBy || 'Kullanıcı',
             uploadedAt: Date.now(),
@@ -1000,10 +1044,15 @@ wss.on('connection', (ws: WebSocket) => {
 
           room.files.push(file);
 
-          broadcastToRoom(currentRoomId, {
-            type: 'file-added',
-            file,
-          });
+          // Broadcast to everyone else in the room (sender already has it)
+          broadcastToRoom(
+            currentRoomId,
+            {
+              type: 'file-added',
+              file,
+            },
+            currentUserId || undefined
+          );
           break;
         }
 

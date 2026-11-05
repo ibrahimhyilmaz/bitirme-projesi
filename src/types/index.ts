@@ -68,7 +68,9 @@ export interface CanvasElement {
     | 'line'
     | 'text'
     | 'sticky'
-    | 'image';
+    | 'image'
+    | 'pdf'
+    | 'video';
   x: number;
   y: number;
   width?: number;
@@ -83,6 +85,15 @@ export interface CanvasElement {
   fontSize?: number;
   textAlign?: 'left' | 'center' | 'right';
   imageUrl?: string;
+  pdfUrl?: string;
+  videoUrl?: string;
+  isPlaying?: boolean;
+  currentTime?: number;
+  volume?: number;
+  isMuted?: boolean;
+  currentPage?: number;
+  totalPages?: number;
+  fileName?: string;
   rotation?: number;
   flipX?: boolean;
   flipY?: boolean;
@@ -111,6 +122,7 @@ export interface ChatMessage {
   fileAttachment?: {
     name: string;
     url: string;
+    type?: string;
   };
 }
 

@@ -777,6 +777,17 @@ export function useWebSocket({
             };
             setChatMessages((prev) => {
               if (prev.some((m) => m.id === chatMsg.id)) return prev;
+              // Secondary deduplication: same author & text within 3000ms
+              if (
+                prev.some(
+                  (m) =>
+                    m.userId === chatMsg.userId &&
+                    m.text === chatMsg.text &&
+                    Math.abs((m.timestamp || 0) - (chatMsg.timestamp || 0)) < 3000
+                )
+              ) {
+                return prev;
+              }
               return [...prev, chatMsg];
             });
             if (chatMsg.userId !== userRef.current.id) {
@@ -791,13 +802,23 @@ export function useWebSocket({
               id: msg.id || `file-${msg._ts || Date.now()}`,
               name: msg.name,
               size: msg.size,
-              type: msg.fileType || 'application/octet-stream',
+              type: msg.fileType || msg.type || 'application/octet-stream',
               dataUrl: msg.dataUrl,
               uploadedBy: msg.uploadedBy || 'Kullanıcı',
               uploadedAt: msg._ts || Date.now(),
             };
             setFiles((prev) => {
               if (prev.some((f) => f.id === fileObj.id)) return prev;
+              if (
+                prev.some(
+                  (f) =>
+                    f.name === fileObj.name &&
+                    f.size === fileObj.size &&
+                    f.dataUrl === fileObj.dataUrl
+                )
+              ) {
+                return prev;
+              }
               return [...prev, fileObj];
             });
             break;
@@ -1448,7 +1469,7 @@ export function useWebSocket({
   );
 
   const sendChatMessage = useCallback(
-    (text: string, fileAttachment?: { name: string; url: string }) => {
+    (text: string, fileAttachment?: { name: string; url: string; type?: string }) => {
       const msgObj: ChatMessage = {
         id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         userId: userRef.current.id,
@@ -1458,9 +1479,10 @@ export function useWebSocket({
         timestamp: Date.now(),
         fileAttachment,
       };
-      if (isMeshModeRef.current) {
-        setChatMessages((prev) => [...prev, msgObj]);
-      }
+      setChatMessages((prev) => {
+        if (prev.some((m) => m.id === msgObj.id)) return prev;
+        return [...prev, msgObj];
+      });
       sendMessage({
         type: 'chat-message',
         id: msgObj.id,
@@ -1479,20 +1501,29 @@ export function useWebSocket({
     (fileData: { name: string; size: number; fileType: string; dataUrl: string }) => {
       if (!canEdit) return;
       const fileId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      if (isMeshModeRef.current) {
-        setFiles((prev) => [
-          ...prev,
-          {
-            id: fileId,
-            name: fileData.name,
-            size: fileData.size,
-            type: fileData.fileType,
-            dataUrl: fileData.dataUrl,
-            uploadedBy: userRef.current.name,
-            uploadedAt: Date.now(),
-          },
-        ]);
-      }
+      const newFileItem: SharedFile = {
+        id: fileId,
+        name: fileData.name,
+        size: fileData.size,
+        type: fileData.fileType,
+        dataUrl: fileData.dataUrl,
+        uploadedBy: userRef.current.name,
+        uploadedAt: Date.now(),
+      };
+      setFiles((prev) => {
+        if (
+          prev.some(
+            (f) =>
+              f.id === fileId ||
+              (f.name === newFileItem.name &&
+                f.size === newFileItem.size &&
+                f.dataUrl === newFileItem.dataUrl)
+          )
+        ) {
+          return prev;
+        }
+        return [...prev, newFileItem];
+      });
       sendMessage({
         type: 'file-upload',
         id: fileId,

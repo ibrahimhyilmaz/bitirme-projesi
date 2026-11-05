@@ -135,8 +135,11 @@ export function getElementBounds(el: CanvasElement): {
 
   const x = el.x;
   const y = el.y;
-  const w = el.width ?? (el.type === 'image' ? 200 : 0);
-  const h = el.height ?? (el.type === 'image' ? 200 : 0);
+  const isMedia = el.type === 'image' || el.type === 'pdf' || el.type === 'video';
+  const defaultW = el.type === 'pdf' ? 440 : el.type === 'video' ? 480 : 200;
+  const defaultH = el.type === 'pdf' ? 620 : el.type === 'video' ? 270 : 200;
+  const w = el.width ?? (isMedia ? defaultW : 0);
+  const h = el.height ?? (isMedia ? defaultH : 0);
 
   const minX = Math.min(x, x + w);
   const maxX = Math.max(x, x + w);
@@ -569,6 +572,135 @@ export function drawElement(
           ctx.fillText('Görsel yükleniyor...', element.x + 12, element.y + 24);
         }
       }
+      break;
+    }
+
+    case 'pdf': {
+      const w = element.width || 440;
+      const h = element.height || 620;
+
+      // Draw subtle sheet drop shadow and white paper background
+      ctx.save();
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(15, 23, 42, 0.08)';
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetY = 4;
+      ctx.beginPath();
+      ctx.roundRect(element.x, element.y, w, h, 6);
+      ctx.fill();
+      ctx.restore();
+
+      if (element.imageUrl) {
+        const img = getCachedImage(element.imageUrl, onImageLoadNeedRedraw);
+        if (img) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(element.x, element.y, w, h, 6);
+          ctx.clip();
+          ctx.drawImage(img, element.x, element.y, w, h);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = '#f8fafc';
+          ctx.beginPath();
+          ctx.roundRect(element.x, element.y, w, h, 6);
+          ctx.fill();
+          ctx.fillStyle = '#64748b';
+          ctx.font = '500 13px "Plus Jakarta Sans", sans-serif';
+          ctx.fillText(`PDF Sayfa ${element.currentPage || 1} yükleniyor...`, element.x + 20, element.y + 40);
+        }
+      } else {
+        ctx.fillStyle = '#f8fafc';
+        ctx.beginPath();
+        ctx.roundRect(element.x, element.y, w, h, 6);
+        ctx.fill();
+        ctx.fillStyle = '#64748b';
+        ctx.font = '500 13px "Plus Jakarta Sans", sans-serif';
+        ctx.fillText(`PDF Sayfa ${element.currentPage || 1} yükleniyor...`, element.x + 20, element.y + 40);
+      }
+
+      // Crisp paper border
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(element.x, element.y, w, h, 6);
+      ctx.stroke();
+
+      // Top-left badge indicating PDF & Page
+      const curPage = element.currentPage || 1;
+      const totalPgs = element.totalPages || 1;
+      const label = `${element.fileName ? `${element.fileName} · ` : ''}Sayfa ${curPage} / ${totalPgs}`;
+      ctx.save();
+      ctx.font = '600 11px "Plus Jakarta Sans", sans-serif';
+      const textMetrics = ctx.measureText(label);
+      const badgeW = textMetrics.width + 16;
+      const badgeH = 22;
+      const badgeX = element.x + 8;
+      const badgeY = element.y + 8;
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, badgeX + 8, badgeY + badgeH / 2);
+      ctx.restore();
+
+      break;
+    }
+
+    case 'video': {
+      const w = element.width || 480;
+      const h = element.height || 270;
+
+      // Draw modern dark video container placeholder (real interactive player renders in DOM layer)
+      ctx.save();
+      ctx.fillStyle = '#0f172a';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.16)';
+      ctx.shadowBlur = 14;
+      ctx.shadowOffsetY = 4;
+      ctx.beginPath();
+      ctx.roundRect(element.x, element.y, w, h, 8);
+      ctx.fill();
+      ctx.restore();
+
+      // Top video title bar
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.beginPath();
+      ctx.roundRect(element.x, element.y, w, 28, [8, 8, 0, 0]);
+      ctx.fill();
+
+      // Video title
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = '600 11px "Plus Jakarta Sans", sans-serif';
+      ctx.textBaseline = 'middle';
+      const videoTitle = element.fileName || 'Video Oynatıcı';
+      ctx.fillText(videoTitle, element.x + 10, element.y + 14);
+
+      // Play button icon in center
+      const cx = element.x + w / 2;
+      const cy = element.y + h / 2 + 10;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 24, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(cx - 7, cy - 10);
+      ctx.lineTo(cx + 10, cy);
+      ctx.lineTo(cx - 7, cy + 10);
+      ctx.closePath();
+      ctx.fill();
+
+      // Thin player border
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(element.x, element.y, w, h, 8);
+      ctx.stroke();
+
       break;
     }
   }
