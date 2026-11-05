@@ -76,27 +76,16 @@ export function handleFirestoreError(
     operationType,
     path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.warn('Firestore operation notice:', errInfo.operationType, errInfo.path);
   throw new Error(JSON.stringify(errInfo));
 }
-
-// Validate connection to Firestore on application boot
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'rooms', 'ana-oda'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
-    }
-  }
-}
-testConnection();
 
 export {
   signInWithPopup,
   signOut,
   onAuthStateChanged,
   doc,
+  getDocFromServer,
   getDoc,
   setDoc,
   updateDoc,

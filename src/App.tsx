@@ -17,6 +17,7 @@ import { ExportModal } from './components/ExportModal';
 import { UserSetupModal } from './components/UserSetupModal';
 import { AIPromptModal } from './components/AIPromptModal';
 import { RoomsModal, decodeRoomSnapshot } from './components/RoomsModal';
+import { OnboardingTour } from './components/OnboardingTour';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 
@@ -180,6 +181,100 @@ export default function App() {
   const [roomsModalTab, setRoomsModalTab] = useState<'rooms' | 'permissions' | 'invite'>('rooms');
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
   const [unreadChatCount, setUnreadChatCount] = useState<number>(0);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
+    const hasUsername = !!localStorage.getItem('collab_username');
+    const tourDone = localStorage.getItem('collabboard_onboarding_v2_done') === 'true';
+    return hasUsername && !tourDone;
+  });
+
+  // Workspace Widget Visibility & Layout States (Synced across TopNav Kutucuklar, Toolbar, StyleBar, VoiceBar, Minimap)
+  const [showToolbar, setShowToolbar] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('collab_hide_toolbar') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [showStyleBar, setShowStyleBar] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('collab_hide_stylebar') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [showVoiceBar, setShowVoiceBar] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('collab_hide_voicebar') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [showMinimap, setShowMinimap] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('collab_hide_minimap') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [layoutResetCounter, setLayoutResetCounter] = useState<number>(0);
+
+  const handleToggleToolbar = useCallback(() => {
+    setShowToolbar((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('collab_hide_toolbar', String(!next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleToggleStyleBar = useCallback(() => {
+    setShowStyleBar((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('collab_hide_stylebar', String(!next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleToggleVoiceBar = useCallback(() => {
+    setShowVoiceBar((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('collab_hide_voicebar', String(!next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleToggleMinimap = useCallback(() => {
+    setShowMinimap((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('collab_hide_minimap', String(!next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleResetWidgetLayout = useCallback(() => {
+    try {
+      localStorage.removeItem('collab_toolbar_pos');
+      localStorage.removeItem('collab_toolbar_vertical');
+      localStorage.removeItem('collab_stylebar_pos');
+      localStorage.removeItem('collab_voicebar_pos');
+      localStorage.setItem('collab_hide_toolbar', 'false');
+      localStorage.setItem('collab_hide_stylebar', 'false');
+      localStorage.setItem('collab_hide_voicebar', 'false');
+      localStorage.setItem('collab_hide_minimap', 'false');
+    } catch {}
+    setShowToolbar(true);
+    setShowStyleBar(true);
+    setShowVoiceBar(true);
+    setShowMinimap(true);
+    setLayoutResetCounter((c) => c + 1);
+  }, []);
 
   // Canvas Tools and Styling
   const [activeTool, setActiveTool] = useState<ToolType>('select');
@@ -187,7 +282,11 @@ export default function App() {
   const [fillColor, setFillColor] = useState<string>('transparent');
   const [strokeWidth, setStrokeWidth] = useState<number>(3);
   const [strokeStyle, setStrokeStyle] = useState<StrokeStyle>('solid');
-  const [fontSize, setFontSize] = useState<number>(18);
+  const [fontSize, setFontSize] = useState<number>(20);
+  const [fontFamily, setFontFamily] = useState<string>('Plus Jakarta Sans');
+  const [fontWeight, setFontWeight] = useState<'normal' | 'bold'>('normal');
+  const [fontStyle, setFontStyle] = useState<'normal' | 'italic'>('normal');
+  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('left');
   const [opacity, setOpacity] = useState<number>(1);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState<number>(1);
@@ -218,6 +317,7 @@ export default function App() {
     pings,
     reactions,
     remoteLaserPoints,
+    codeCursors,
     sendCursor,
     sendLaserPoint,
     createElement,
@@ -228,6 +328,7 @@ export default function App() {
     clearElements,
     loadTemplate,
     updateCode,
+    sendCodeCursor,
     updateNotes,
     sendChatMessage,
     uploadFile,
@@ -540,7 +641,67 @@ export default function App() {
     }
   }, [selectedElementIds, elements, recordUndo, batchUpdateElements]);
 
-  // Global Keyboard Shortcuts (Tools, Voice, Undo/Redo, Duplicate, Rotate, Flip)
+  // Bring to front (En Öne Getir) & send to back (En Arkaya Gönder)
+  const handleBringForward = useCallback(() => {
+    if (selectedElementIds.length === 0) return;
+    recordUndo();
+    const toBring = elements.filter((e) => selectedElementIds.includes(e.id));
+    const remaining = elements.filter((e) => !selectedElementIds.includes(e.id));
+    replaceElements([...remaining, ...toBring]);
+  }, [selectedElementIds, elements, recordUndo, replaceElements]);
+
+  const handleSendBackward = useCallback(() => {
+    if (selectedElementIds.length === 0) return;
+    recordUndo();
+    const toSend = elements.filter((e) => selectedElementIds.includes(e.id));
+    const remaining = elements.filter((e) => !selectedElementIds.includes(e.id));
+    replaceElements([...toSend, ...remaining]);
+  }, [selectedElementIds, elements, recordUndo, replaceElements]);
+
+  // Step-by-step layer ordering: Bring 1 layer forward / Send 1 layer backward
+  const handleBringStepForward = useCallback(() => {
+    if (selectedElementIds.length === 0 || elements.length <= 1) return;
+    const selectedSet = new Set(selectedElementIds);
+    const next = [...elements];
+    let changed = false;
+
+    for (let i = next.length - 2; i >= 0; i--) {
+      if (selectedSet.has(next[i].id) && !selectedSet.has(next[i + 1].id)) {
+        const temp = next[i];
+        next[i] = next[i + 1];
+        next[i + 1] = temp;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      recordUndo();
+      replaceElements(next);
+    }
+  }, [selectedElementIds, elements, recordUndo, replaceElements]);
+
+  const handleSendStepBackward = useCallback(() => {
+    if (selectedElementIds.length === 0 || elements.length <= 1) return;
+    const selectedSet = new Set(selectedElementIds);
+    const next = [...elements];
+    let changed = false;
+
+    for (let i = 1; i < next.length; i++) {
+      if (selectedSet.has(next[i].id) && !selectedSet.has(next[i - 1].id)) {
+        const temp = next[i];
+        next[i] = next[i - 1];
+        next[i - 1] = temp;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      recordUndo();
+      replaceElements(next);
+    }
+  }, [selectedElementIds, elements, recordUndo, replaceElements]);
+
+  // Global Keyboard Shortcuts (Tools, Voice, Undo/Redo, Duplicate, Rotate, Flip, Layer Order, Select All)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -581,6 +742,32 @@ export default function App() {
         if (e.key.toLowerCase() === 'd') {
           e.preventDefault();
           handleDuplicateSelected();
+          return;
+        }
+        if (e.key.toLowerCase() === 'a') {
+          e.preventDefault();
+          if (elements.length > 0) {
+            setActiveTool('select');
+            setSelectedElementIds(elements.map((el) => el.id));
+          }
+          return;
+        }
+        if (e.key === ']') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleBringForward();
+          } else {
+            handleBringStepForward();
+          }
+          return;
+        }
+        if (e.key === '[') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleSendBackward();
+          } else {
+            handleSendStepBackward();
+          }
           return;
         }
         return;
@@ -687,7 +874,12 @@ export default function App() {
     handleFlipHorizontal,
     handleFlipVertical,
     handleRotateBy,
+    handleBringForward,
+    handleSendBackward,
+    handleBringStepForward,
+    handleSendStepBackward,
     selectedElementIds,
+    elements,
     recordUndo,
     deleteElements,
   ]);
@@ -712,23 +904,6 @@ export default function App() {
     recordUndo();
     clearElements();
     setSelectedElementIds([]);
-  };
-
-  // Bring to front & send to back
-  const handleBringForward = () => {
-    if (selectedElementIds.length === 0) return;
-    recordUndo();
-    const toBring = elements.filter((e) => selectedElementIds.includes(e.id));
-    const remaining = elements.filter((e) => !selectedElementIds.includes(e.id));
-    replaceElements([...remaining, ...toBring]);
-  };
-
-  const handleSendBackward = () => {
-    if (selectedElementIds.length === 0) return;
-    recordUndo();
-    const toSend = elements.filter((e) => selectedElementIds.includes(e.id));
-    const remaining = elements.filter((e) => !selectedElementIds.includes(e.id));
-    replaceElements([...toSend, ...remaining]);
   };
 
   // Toggle Lock
@@ -884,11 +1059,21 @@ export default function App() {
           setIsInitialSetup(false);
           setIsUserSetupOpen(true);
         }}
+        onStartOnboardingTour={() => setIsOnboardingOpen(true)}
         isMuted={isMuted}
         isDeafened={isDeafened}
         onToggleMute={handleToggleMute}
         onToggleDeafen={handleToggleDeafen}
         unreadChatCount={unreadChatCount}
+        showToolbar={showToolbar}
+        showStyleBar={showStyleBar}
+        showVoiceBar={showVoiceBar}
+        showMinimap={showMinimap}
+        onToggleToolbar={handleToggleToolbar}
+        onToggleStyleBar={handleToggleStyleBar}
+        onToggleVoiceBar={handleToggleVoiceBar}
+        onToggleMinimap={handleToggleMinimap}
+        onResetWidgetLayout={handleResetWidgetLayout}
       />
 
       {/* Room Error / Capacity / Lock Banner */}
@@ -921,55 +1106,70 @@ export default function App() {
       )}
 
       {/* Main Workspace Body */}
-      <div className="relative flex-1 w-full h-full overflow-hidden">
-        {/* Draggable Floating Toolbar */}
-        <Toolbar
-          activeTool={activeTool}
-          onSelectTool={(tool) => {
-            setActiveTool(tool);
-            if (tool !== 'select') setSelectedElementIds([]);
-          }}
-          canUndo={undoStack.length > 0}
-          canRedo={redoStack.length > 0}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          onClear={handleClearElements}
-          zoom={zoom}
-          onZoomIn={() => setZoom((z) => Math.min(3, z * 1.15))}
-          onZoomOut={() => setZoom((z) => Math.max(0.2, z * 0.85))}
-          onResetZoom={() => {
-            setZoom(1);
-            setPan({ x: 0, y: 0 });
-          }}
-          onPingClick={handlePingCenter}
-          onAddImageFile={(dataUrl, w, h) => handleAddImageToCanvas(dataUrl, w, h)}
-          onOpenAIPrompt={() => setIsAIPromptOpen(true)}
-          canEdit={canEdit}
-        />
+      <div
+        data-workspace-root="true"
+        className="relative flex-1 w-full h-full overflow-hidden"
+      >
+        {/* Top Docked Flex Bar (Toolbar + VoiceChatBar sit side-by-side / wrap cleanly with zero overlap, or float freely when dragged) */}
+        <div className="absolute top-3 left-3 right-3 z-20 pointer-events-none flex flex-wrap items-start justify-center gap-2.5">
+          <Toolbar
+            activeTool={activeTool}
+            onSelectTool={(tool) => {
+              setActiveTool(tool);
+              if (tool !== 'select') setSelectedElementIds([]);
+            }}
+            canUndo={undoStack.length > 0}
+            canRedo={redoStack.length > 0}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onClear={handleClearElements}
+            zoom={zoom}
+            onZoomIn={() => setZoom((z) => Math.min(3, z * 1.15))}
+            onZoomOut={() => setZoom((z) => Math.max(0.2, z * 0.85))}
+            onResetZoom={() => {
+              setZoom(1);
+              setPan({ x: 0, y: 0 });
+            }}
+            onPingClick={handlePingCenter}
+            onAddImageFile={(dataUrl, w, h) => handleAddImageToCanvas(dataUrl, w, h)}
+            onOpenAIPrompt={() => setIsAIPromptOpen(true)}
+            canEdit={canEdit}
+            isHidden={!showToolbar}
+            onToggleHidden={handleToggleToolbar}
+            layoutResetCounter={layoutResetCounter}
+          />
 
-        {/* Floating Voice Indicator & Channel Bar */}
-        <VoiceChatBar
-          users={users}
-          currentUser={currentUser}
-          isMuted={isMuted}
-          isDeafened={isDeafened}
-          localVolume={localVolume}
-          onToggleMute={handleToggleMute}
-          onToggleDeafen={handleToggleDeafen}
-          getUserVolume={handleGetUserVolume}
-          onSetUserVolume={handleSetUserVolume}
-        />
+          <VoiceChatBar
+            users={users}
+            currentUser={currentUser}
+            isMuted={isMuted}
+            isDeafened={isDeafened}
+            localVolume={localVolume}
+            onToggleMute={handleToggleMute}
+            onToggleDeafen={handleToggleDeafen}
+            getUserVolume={handleGetUserVolume}
+            onSetUserVolume={handleSetUserVolume}
+            isHidden={!showVoiceBar}
+            onToggleHidden={handleToggleVoiceBar}
+            layoutResetCounter={layoutResetCounter}
+          />
+        </div>
 
         {/* Contextual Style & Transform Bar (Draggable, Bottom Center by default) */}
         {canEdit && (
           <StyleBar
             selectedElement={selectedElement}
             selectedElements={selectedElements}
+            activeTool={activeTool}
             strokeColor={strokeColor}
             fillColor={fillColor}
             strokeWidth={strokeWidth}
             strokeStyle={strokeStyle}
             fontSize={fontSize}
+            fontFamily={fontFamily}
+            fontWeight={fontWeight}
+            fontStyle={fontStyle}
+            textAlign={textAlign}
             opacity={opacity}
             onChangeStrokeColor={(color) => {
               setStrokeColor(color);
@@ -1016,6 +1216,42 @@ export default function App() {
                 if (updates.length > 0) batchUpdateElements(updates);
               }
             }}
+            onChangeFontFamily={(ff) => {
+              setFontFamily(ff);
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { fontFamily: ff } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
+            }}
+            onChangeFontWeight={(fw) => {
+              setFontWeight(fw);
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { fontWeight: fw } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
+            }}
+            onChangeFontStyle={(fst) => {
+              setFontStyle(fst);
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { fontStyle: fst } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
+            }}
+            onChangeTextAlign={(ta) => {
+              setTextAlign(ta);
+              if (selectedElementIds.length > 0) {
+                const updates = elements
+                  .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+                  .map((el) => ({ id: el.id, changes: { textAlign: ta } }));
+                if (updates.length > 0) batchUpdateElements(updates);
+              }
+            }}
             onChangeOpacity={(op) => {
               setOpacity(op);
               if (selectedElementIds.length > 0) {
@@ -1038,7 +1274,12 @@ export default function App() {
             }}
             onBringForward={handleBringForward}
             onSendBackward={handleSendBackward}
+            onBringStepForward={handleBringStepForward}
+            onSendStepBackward={handleSendStepBackward}
             onToggleLock={handleToggleLock}
+            isHidden={!showStyleBar}
+            onToggleHidden={handleToggleStyleBar}
+            layoutResetCounter={layoutResetCounter}
           />
         )}
 
@@ -1053,6 +1294,18 @@ export default function App() {
           strokeWidth={strokeWidth}
           strokeStyle={strokeStyle}
           fontSize={fontSize}
+          fontFamily={fontFamily}
+          fontWeight={fontWeight}
+          fontStyle={fontStyle}
+          textAlign={textAlign}
+          onChangeFontSize={setFontSize}
+          onChangeFontFamily={setFontFamily}
+          onChangeFontWeight={setFontWeight}
+          onChangeFontStyle={setFontStyle}
+          onChangeTextAlign={setTextAlign}
+          onChangeStrokeColor={setStrokeColor}
+          onChangeFillColor={setFillColor}
+          onOpenAIPrompt={() => setIsAIPromptOpen(true)}
           opacity={opacity}
           pings={pings}
           reactions={reactions}
@@ -1070,11 +1323,23 @@ export default function App() {
           onSelectElement={handleSelectElement}
           onSelectElements={handleSelectElements}
           onSelectTool={setActiveTool}
+          onBringToFront={handleBringForward}
+          onSendToBack={handleSendBackward}
+          onBringStepForward={handleBringStepForward}
+          onSendStepBackward={handleSendStepBackward}
+          onDuplicate={handleDuplicateSelected}
+          onRotateBy={handleRotateBy}
+          onFlipHorizontal={handleFlipHorizontal}
+          onFlipVertical={handleFlipVertical}
+          onToggleLock={handleToggleLock}
           zoom={zoom}
           setZoom={setZoom}
           pan={pan}
           setPan={setPan}
           canEdit={canEdit}
+          showMinimap={showMinimap}
+          onToggleMinimap={handleToggleMinimap}
+          onResetWidgetLayout={handleResetWidgetLayout}
         />
 
         {/* Collaborative Code Editor Side Panel (Room-Scoped) */}
@@ -1084,7 +1349,10 @@ export default function App() {
             roomId={roomId}
             canEdit={canEdit}
             code={code}
+            codeCursors={codeCursors}
+            currentUserId={currentUser.id}
             onUpdateCode={updateCode}
+            onCursorMove={sendCodeCursor}
             onClose={() => setActivePanel('none')}
           />
         )}
@@ -1241,9 +1509,31 @@ export default function App() {
             setRoomId(newRoomId);
             setIsUserSetupOpen(false);
             setIsInitialSetup(false);
+            if (localStorage.getItem('collabboard_onboarding_v2_done') !== 'true') {
+              setIsOnboardingOpen(true);
+            }
           }}
         />
       )}
+
+      {/* Interactive Spotlight Onboarding Tour for First-Time Users */}
+      <OnboardingTour
+        isOpen={isOnboardingOpen}
+        onClose={() => {
+          localStorage.setItem('collabboard_onboarding_v2_done', 'true');
+          setIsOnboardingOpen(false);
+        }}
+        onSelectTool={(t) => {
+          setActiveTool(t);
+        }}
+        onOpenCodeEditor={() => {
+          setActivePanel('code');
+        }}
+        onOpenInviteModal={() => {
+          setRoomsModalTab('invite');
+          setIsRoomsModalOpen(true);
+        }}
+      />
     </div>
   );
 }

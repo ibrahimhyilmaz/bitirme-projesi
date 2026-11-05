@@ -1,9 +1,11 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
   CanvasElement,
+  GOOGLE_FONT_FAMILIES,
   LaserStrokePoint,
   Point,
   StrokeStyle,
+  TEXT_FONT_SIZES,
   ToolType,
   UserPing,
   UserPresence,
@@ -24,8 +26,35 @@ import {
   smoothPoints,
   sampleShapeToWorldPoints,
 } from '../utils/canvasRenderer';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Bold,
+  Italic,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Type,
+  BringToFront,
+  SendToBack,
+  ArrowUp,
+  ArrowDown,
+  Copy,
+  Trash2,
+  Lock,
+  Unlock,
+  RotateCcw,
+  RotateCw,
+  FlipHorizontal2,
+  FlipVertical2,
+  Edit3,
+  Compass,
+  Layers,
+  X,
+} from 'lucide-react';
 import { getPdfInfo, renderPdfPage } from '../utils/pdfRenderer';
+import { CanvasQuickAccess } from './CanvasQuickAccess';
 
 // Custom SVG Cursors for Pencil, Highlighter, Erasers, and Ping (matching button icons & sizing)
 const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/><path d='m15 5 4 4'/></g><g stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z' fill='%23ffffff'/><path d='m15 5 4 4'/></g></svg>") 2 18, crosshair`;
@@ -58,6 +87,18 @@ interface CanvasBoardProps {
   strokeWidth: number;
   strokeStyle: StrokeStyle;
   fontSize: number;
+  fontFamily?: string;
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textAlign?: 'left' | 'center' | 'right';
+  onChangeFontSize?: (size: number) => void;
+  onChangeFontFamily?: (family: string) => void;
+  onChangeFontWeight?: (weight: 'normal' | 'bold') => void;
+  onChangeFontStyle?: (style: 'normal' | 'italic') => void;
+  onChangeTextAlign?: (align: 'left' | 'center' | 'right') => void;
+  onChangeStrokeColor?: (color: string) => void;
+  onChangeFillColor?: (color: string) => void;
+  onOpenAIPrompt?: () => void;
   opacity: number;
   pings: UserPing[];
   reactions: UserReaction[];
@@ -74,11 +115,23 @@ interface CanvasBoardProps {
   selectedElementIds?: string[];
   onSelectElement: (id: string | null) => void;
   onSelectElements?: (ids: string[]) => void;
+  onBringToFront?: () => void;
+  onSendToBack?: () => void;
+  onBringStepForward?: () => void;
+  onSendStepBackward?: () => void;
+  onDuplicate?: () => void;
+  onRotateBy?: (deltaDegrees: number) => void;
+  onFlipHorizontal?: () => void;
+  onFlipVertical?: () => void;
+  onToggleLock?: () => void;
   zoom: number;
   setZoom: React.Dispatch<React.SetStateAction<number>>;
   pan: Point;
   setPan: React.Dispatch<React.SetStateAction<Point>>;
   canEdit?: boolean;
+  showMinimap?: boolean;
+  onToggleMinimap?: () => void;
+  onResetWidgetLayout?: () => void;
 }
 
 // Bounding box intersection test for marquee drag multi-selection
@@ -215,6 +268,18 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   strokeWidth,
   strokeStyle,
   fontSize,
+  fontFamily = 'Plus Jakarta Sans',
+  fontWeight = 'normal',
+  fontStyle = 'normal',
+  textAlign = 'left',
+  onChangeFontSize,
+  onChangeFontFamily,
+  onChangeFontWeight,
+  onChangeFontStyle,
+  onChangeTextAlign,
+  onChangeStrokeColor,
+  onChangeFillColor,
+  onOpenAIPrompt,
   opacity,
   pings,
   reactions,
@@ -231,11 +296,23 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   selectedElementIds = [],
   onSelectElement,
   onSelectElements,
+  onBringToFront,
+  onSendToBack,
+  onBringStepForward,
+  onSendStepBackward,
+  onDuplicate,
+  onRotateBy,
+  onFlipHorizontal,
+  onFlipVertical,
+  onToggleLock,
   zoom,
   setZoom,
   pan,
   setPan,
   canEdit = true,
+  showMinimap = true,
+  onToggleMinimap,
+  onResetWidgetLayout,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -262,6 +339,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
   // Marquee / Box drag multi-selection states
   const isMarqueeSelectingRef = useRef<boolean>(false);
+  const isAdditiveMarqueeRef = useRef<boolean>(false);
+  const initialMarqueeSelectionRef = useRef<string[]>([]);
   const marqueeStartRef = useRef<Point | null>(null);
   const [marqueeBox, setMarqueeBox] = useState<{
     startX: number;
@@ -294,8 +373,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const [editingText, setEditingText] = useState<string>('');
   const pendingNewTextRef = useRef<CanvasElement | null>(null);
 
-  // Grid style
+  // Grid style & Right-Click Context Menus
   const [gridStyle, setGridStyle] = useState<'dots' | 'grid' | 'none'>('dots');
+  const [radialMenuPos, setRadialMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
 
   // Throttled cursor broadcast
   const lastCursorEmitRef = useRef<number>(0);
@@ -730,6 +811,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       if (e.key === 'Escape') {
         updateSelectedIds([]);
         setEditingElementId(null);
+        setContextMenuPos(null);
+        setRadialMenuPos(null);
       }
 
       // Nudge selected elements with arrow keys
@@ -852,15 +935,21 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
 
       // Calculate initial element box size to fit typed text cleanly
-      const fontSize = draft.fontSize || 20;
+      const activeFontSize = draft.fontSize || fontSize || 20;
       const lines = trimmed.split('\n');
       const maxLineChars = Math.max(...lines.map((l) => l.length), 4);
-      const estW = Math.max(60, maxLineChars * fontSize * 0.58 + 16);
-      const estH = Math.max(fontSize * 1.4, lines.length * fontSize * 1.35 + 8);
+      const estW = Math.max(60, maxLineChars * activeFontSize * 0.58 + 16);
+      const estH = Math.max(activeFontSize * 1.4, lines.length * activeFontSize * 1.35 + 8);
 
       const created: CanvasElement = {
         ...draft,
         text: editingText,
+        fontSize: activeFontSize,
+        fontFamily: draft.fontFamily || fontFamily,
+        fontWeight: draft.fontWeight || fontWeight,
+        fontStyle: draft.fontStyle || fontStyle,
+        textAlign: draft.textAlign || textAlign,
+        color: draft.color || strokeColor,
         width: estW,
         height: estH,
         updatedAt: Date.now(),
@@ -930,6 +1019,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const canvasPt = screenToCanvas(screenPt, pan, zoom);
 
+    // Close any open right-click context menu on pointer down
+    if (contextMenuPos) {
+      setContextMenuPos(null);
+    }
+    if (radialMenuPos) {
+      setRadialMenuPos(null);
+    }
+
     // Pan with Middle Mouse Button, Space Key, or Pan Tool
     if (e.button === 1 || isSpacePressedRef.current || activeTool === 'pan') {
       isPanningRef.current = true;
@@ -961,19 +1058,38 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
+    const isMultiModifier =
+      e.shiftKey ||
+      e.ctrlKey ||
+      e.metaKey ||
+      e.getModifierState?.('Shift') ||
+      e.getModifierState?.('Control') ||
+      e.getModifierState?.('Meta');
+
     // If user is a viewer (read-only), allow selecting to inspect or panning, but block mutations
     if (!canEdit) {
       if (activeTool === 'select') {
         const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
-        onSelectElement(hitElement ? hitElement.id : null);
+        if (hitElement) {
+          if (isMultiModifier) {
+            const next = activeSelectedIds.includes(hitElement.id)
+              ? activeSelectedIds.filter((id) => id !== hitElement.id)
+              : [...activeSelectedIds, hitElement.id];
+            updateSelectedIds(next);
+          } else {
+            updateSelectedIds([hitElement.id]);
+          }
+        } else if (!isMultiModifier) {
+          updateSelectedIds([]);
+        }
       }
       return;
     }
 
-    // Handle Select Tool (including handles, multi-drag, and marquee box drag)
+    // Handle Select Tool (including handles, Ctrl/Shift multi-select, multi-drag, and marquee box drag)
     if (activeTool === 'select') {
-      // 1. Group Transform Handle Hit (Multiple elements selected):
-      if (activeSelectedIds.length > 1) {
+      // 1. Group Transform Handle Hit (Multiple elements selected, when not holding Ctrl/Shift to toggle):
+      if (!isMultiModifier && activeSelectedIds.length > 1) {
         const selectedList = elements.filter((el) => activeSelectedIds.includes(el.id));
         if (selectedList.length > 1) {
           const gBounds = getGroupBounds(selectedList, zoom);
@@ -997,8 +1113,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
       }
 
-      // 2. Single element transform handle hit:
-      if (activeSelectedIds.length === 1) {
+      // 2. Single element transform handle hit (when not holding Ctrl/Shift to toggle):
+      if (!isMultiModifier && activeSelectedIds.length === 1) {
         const selectedEl = elements.find((el) => el.id === activeSelectedIds[0]);
         if (selectedEl && !selectedEl.isLocked) {
           const hitHandle = hitTestTransformHandle(canvasPt, selectedEl, zoom);
@@ -1017,7 +1133,42 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
       }
 
-      // 2. Check if clicked inside an already-selected element (drag selected group)
+      // 3. When Ctrl or Left/Right Shift is held: clicking ANY element toggles it in/out of multi-selection!
+      if (isMultiModifier) {
+        const hitAny = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
+        if (hitAny) {
+          const alreadySelected = activeSelectedIds.includes(hitAny.id);
+          const nextIds = alreadySelected
+            ? activeSelectedIds.filter((id) => id !== hitAny.id)
+            : [...activeSelectedIds, hitAny.id];
+          updateSelectedIds(nextIds);
+
+          // If we added it to selection (or still have selected items), prepare drag snapshot so holding Ctrl/Shift + dragging moves all selected items
+          if (!alreadySelected && !hitAny.isLocked) {
+            if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+            isDraggingSelectedRef.current = true;
+            dragStartCanvasPointRef.current = canvasPt;
+            const snapMap = new Map<string, CanvasElement>();
+            elements
+              .filter((el) => nextIds.includes(el.id))
+              .forEach((el) => {
+                snapMap.set(el.id, {
+                  ...el,
+                  points: el.points ? el.points.map((p) => ({ ...p })) : undefined,
+                });
+              });
+            initialElementsSnapshotRef.current = snapMap;
+            initialElementSnapshotRef.current = {
+              ...hitAny,
+              points: hitAny.points ? hitAny.points.map((p) => ({ ...p })) : undefined,
+            };
+            initialBoundsRef.current = getElementBounds(hitAny);
+          }
+          return;
+        }
+      }
+
+      // 4. Check if clicked inside an already-selected element (drag selected group)
       const hitSelected = [...elements]
         .reverse()
         .find((el) => activeSelectedIds.includes(el.id) && isPointInsideElement(canvasPt, el));
@@ -1046,38 +1197,33 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         return;
       }
 
-      // 3. Otherwise check if clicked on any unselected element
+      // 5. Otherwise check if clicked on any unselected element
       const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
       if (hitElement) {
-        if (e.shiftKey) {
-          const next = activeSelectedIds.includes(hitElement.id)
-            ? activeSelectedIds.filter((id) => id !== hitElement.id)
-            : [...activeSelectedIds, hitElement.id];
-          updateSelectedIds(next);
-        } else {
-          updateSelectedIds([hitElement.id]);
-          if (!hitElement.isLocked) {
-            if (onSaveHistorySnapshot) onSaveHistorySnapshot();
-            isDraggingSelectedRef.current = true;
-            dragStartCanvasPointRef.current = canvasPt;
-            const snapMap = new Map<string, CanvasElement>();
-            snapMap.set(hitElement.id, {
-              ...hitElement,
-              points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
-            });
-            initialElementsSnapshotRef.current = snapMap;
-            initialElementSnapshotRef.current = {
-              ...hitElement,
-              points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
-            };
-            initialBoundsRef.current = getElementBounds(hitElement);
-          }
+        updateSelectedIds([hitElement.id]);
+        if (!hitElement.isLocked) {
+          if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+          isDraggingSelectedRef.current = true;
+          dragStartCanvasPointRef.current = canvasPt;
+          const snapMap = new Map<string, CanvasElement>();
+          snapMap.set(hitElement.id, {
+            ...hitElement,
+            points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
+          });
+          initialElementsSnapshotRef.current = snapMap;
+          initialElementSnapshotRef.current = {
+            ...hitElement,
+            points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
+          };
+          initialBoundsRef.current = getElementBounds(hitElement);
         }
         return;
       }
 
-      // 4. Clicked on empty canvas with Select Tool: Start Marquee Selection Box!
+      // 6. Clicked on empty canvas with Select Tool: Start Marquee Selection Box!
       isMarqueeSelectingRef.current = true;
+      isAdditiveMarqueeRef.current = Boolean(isMultiModifier);
+      initialMarqueeSelectionRef.current = isMultiModifier ? [...activeSelectedIds] : [];
       marqueeStartRef.current = canvasPt;
       setMarqueeBox({
         startX: canvasPt.x,
@@ -1085,7 +1231,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         currentX: canvasPt.x,
         currentY: canvasPt.y,
       });
-      if (!e.shiftKey) {
+      if (!isMultiModifier) {
         updateSelectedIds([]);
       }
       return;
@@ -1123,7 +1269,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         fillColor: fillColor === 'transparent' ? '#fef08a' : fillColor,
         color: strokeColor,
         text: '',
-        fontSize: 15,
+        fontSize: fontSize || 16,
+        fontFamily,
+        fontWeight,
+        fontStyle,
+        textAlign,
         rotation: 0,
         flipX: false,
         flipY: false,
@@ -1148,6 +1298,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         color: strokeColor,
         text: '',
         fontSize,
+        fontFamily,
+        fontWeight,
+        fontStyle,
+        textAlign,
         rotation: 0,
         flipX: false,
         flipY: false,
@@ -1240,14 +1394,30 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       onCursorMove(cursorPt, isPointerDownRef.current, activeTool);
     }
 
-    // Handle Marquee Box dragging
+    // Handle Marquee Box dragging (with live selection preview & Ctrl/Shift additive support)
     if (isMarqueeSelectingRef.current && marqueeStartRef.current) {
+      const startPt = marqueeStartRef.current;
       setMarqueeBox({
-        startX: marqueeStartRef.current.x,
-        startY: marqueeStartRef.current.y,
+        startX: startPt.x,
+        startY: startPt.y,
         currentX: canvasPt.x,
         currentY: canvasPt.y,
       });
+
+      const minX = Math.min(startPt.x, canvasPt.x);
+      const maxX = Math.max(startPt.x, canvasPt.x);
+      const minY = Math.min(startPt.y, canvasPt.y);
+      const maxY = Math.max(startPt.y, canvasPt.y);
+      if (maxX - minX > 4 || maxY - minY > 4) {
+        const box = { minX, minY, maxX, maxY };
+        const matchedIds = elements
+          .filter((el) => doesElementIntersectBox(el, box))
+          .map((el) => el.id);
+        const combined = isAdditiveMarqueeRef.current
+          ? Array.from(new Set([...initialMarqueeSelectionRef.current, ...matchedIds]))
+          : matchedIds;
+        updateSelectedIds(combined);
+      }
       return;
     }
 
@@ -1318,7 +1488,12 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               points: scaledPoints,
             },
           });
-        } else if (initEl.type === 'arrow' || initEl.type === 'line') {
+        } else if (
+          initEl.type === 'arrow' ||
+          initEl.type === 'double-arrow' ||
+          initEl.type === 'curved-arrow' ||
+          initEl.type === 'line'
+        ) {
           const pStart = mapPoint(initEl.x, initEl.y);
           const pEnd = mapPoint(initEl.x + (initEl.width ?? 0), initEl.y + (initEl.height ?? 0));
           batchUpdates.push({
@@ -1616,7 +1791,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     if (isMarqueeSelectingRef.current) {
       isMarqueeSelectingRef.current = false;
       const startPt = marqueeStartRef.current;
+      const wasAdditive = isAdditiveMarqueeRef.current;
+      const baseSelection = initialMarqueeSelectionRef.current;
       marqueeStartRef.current = null;
+      isAdditiveMarqueeRef.current = false;
+      initialMarqueeSelectionRef.current = [];
       setMarqueeBox(null);
 
       if (startPt) {
@@ -1639,7 +1818,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           const box = { minX, minY, maxX, maxY };
           const matched = elements.filter((el) => doesElementIntersectBox(el, box));
           const matchedIds = matched.map((el) => el.id);
-          updateSelectedIds(matchedIds);
+          const combined = wasAdditive
+            ? Array.from(new Set([...baseSelection, ...matchedIds]))
+            : matchedIds;
+          updateSelectedIds(combined);
         }
       }
       return;
@@ -1650,11 +1832,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       currentDrawingElementRef.current = null;
       setCurrentDrawingElement(null);
 
-      // Normalize negative width/height for geometric boxes (except arrow/line)
+      // Normalize negative width/height for geometric boxes (except directional arrows/line)
       if (
         finished.type !== 'pencil' &&
         finished.type !== 'highlighter' &&
         finished.type !== 'arrow' &&
+        finished.type !== 'double-arrow' &&
+        finished.type !== 'curved-arrow' &&
         finished.type !== 'line'
       ) {
         const w = finished.width || 0;
@@ -1698,10 +1882,25 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
       } else {
         // User single-clicked to place shape: provide default standard dimensions centered on click point
-        if (finished.type === 'arrow' || finished.type === 'line') {
-          finished.width = 130;
+        if (
+          finished.type === 'arrow' ||
+          finished.type === 'double-arrow' ||
+          finished.type === 'line'
+        ) {
+          finished.width = 140;
           finished.height = 0;
-        } else if (finished.type === 'circle' || finished.type === 'star') {
+        } else if (finished.type === 'curved-arrow') {
+          finished.width = 140;
+          finished.height = -60;
+        } else if (
+          finished.type === 'circle' ||
+          finished.type === 'star' ||
+          finished.type === 'pentagon' ||
+          finished.type === 'hexagon' ||
+          finished.type === 'octagon' ||
+          finished.type === 'heart' ||
+          finished.type === 'cross'
+        ) {
           finished.x -= 55;
           finished.y -= 55;
           finished.width = 110;
@@ -2041,6 +2240,40 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         mouseScreenPosRef.current = null;
       }}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        const container = containerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        const canvasPt = screenToCanvas(screenPt, pan, zoom);
+
+        const hitEl = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
+        if (hitEl) {
+          if (!activeSelectedIds.includes(hitEl.id)) {
+            if (e.shiftKey || e.ctrlKey || e.metaKey) {
+              updateSelectedIds([...activeSelectedIds, hitEl.id]);
+            } else {
+              updateSelectedIds([hitEl.id]);
+            }
+          }
+          if (onSelectTool && activeTool !== 'select') {
+            onSelectTool('select');
+          }
+          setRadialMenuPos(null);
+          setContextMenuPos({ x: e.clientX, y: e.clientY });
+          return;
+        }
+
+        if (activeSelectedIds.length > 0) {
+          setRadialMenuPos(null);
+          setContextMenuPos({ x: e.clientX, y: e.clientY });
+          return;
+        }
+
+        setContextMenuPos(null);
+        setRadialMenuPos({ x: e.clientX, y: e.clientY });
+      }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       style={{ cursor: getCursorStyle() }}
@@ -2050,76 +2283,259 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     >
       <canvas ref={canvasRef} className="block w-full h-full" />
 
-      {/* Inline Text / Sticky Editor */}
-      {editingInfo && (
-        <div
-          onPointerDown={(e) => e.stopPropagation()}
-          onPointerMove={(e) => e.stopPropagation()}
-          onPointerUp={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-          className="absolute z-40 bg-white/95 rounded-xl shadow-2xl border-2 border-blue-500 p-2.5 flex flex-col gap-2"
-          style={{
-            left: `${Math.max(12, Math.min(window.innerWidth - 260, editingInfo.screenX))}px`,
-            top: `${Math.max(12, Math.min(window.innerHeight - 180, editingInfo.screenY))}px`,
-            width: `${Math.max(240, editingInfo.screenW)}px`,
-            minHeight: `${Math.max(125, editingInfo.screenH)}px`,
-          }}
-        >
-          <textarea
-            autoFocus
-            value={editingText}
-            onChange={(e) => {
-              const val = e.target.value;
-              setEditingText(val);
+      {/* Inline Text / Sticky Editor with Floating Quick Font & Size Toolbar */}
+      {editingInfo && (() => {
+        const curEl = editingInfo.el;
+        const activeFontFamily = curEl.fontFamily || fontFamily || 'Plus Jakarta Sans';
+        const activeFontSize = curEl.fontSize || fontSize || 20;
+        const activeFontWeight = curEl.fontWeight || fontWeight || 'normal';
+        const activeFontStyle = curEl.fontStyle || fontStyle || 'normal';
+        const activeTextAlign = curEl.textAlign || textAlign || 'left';
+        const activeColor = curEl.color || strokeColor || '#0f172a';
+
+        const applyInlineStyleChange = (changes: Partial<CanvasElement>) => {
+          if (pendingNewTextRef.current && pendingNewTextRef.current.id === curEl.id) {
+            pendingNewTextRef.current = {
+              ...pendingNewTextRef.current,
+              ...changes,
+            };
+          } else {
+            onUpdateElement(curEl.id, changes);
+          }
+          if (changes.fontFamily && onChangeFontFamily) onChangeFontFamily(changes.fontFamily);
+          if (changes.fontSize && onChangeFontSize) onChangeFontSize(changes.fontSize);
+          if (changes.fontWeight && onChangeFontWeight) onChangeFontWeight(changes.fontWeight);
+          if (changes.fontStyle && onChangeFontStyle) onChangeFontStyle(changes.fontStyle);
+          if (changes.textAlign && onChangeTextAlign) onChangeTextAlign(changes.textAlign);
+          if (changes.color && onChangeStrokeColor) onChangeStrokeColor(changes.color);
+        };
+
+        const quickColors = ['#0f172a', '#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777'];
+
+        return (
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerMove={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            className="absolute z-40 flex flex-col gap-1.5"
+            style={{
+              left: `${Math.max(12, Math.min(window.innerWidth - 360, editingInfo.screenX))}px`,
+              top: `${Math.max(16, Math.min(window.innerHeight - 230, editingInfo.screenY))}px`,
+              width: `${Math.max(320, editingInfo.screenW)}px`,
             }}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || editingInfo.el.type === 'text' && !e.shiftKey)) {
-                e.preventDefault();
-                handleSaveInlineText();
-              }
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                handleCancelInlineText();
-              }
-            }}
-            placeholder={
-              editingInfo.el.type === 'sticky'
-                ? 'Yapışkan not içeriğini yazın...'
-                : 'Metninizi yazın... (Kaydetmek için Enter veya Kaydet butonu)'
-            }
-            className="w-full flex-1 p-2 text-sm bg-transparent border-none outline-none resize-none font-sans text-slate-800 select-text"
-          />
-          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-100">
-            <span>{editingInfo.el.type === 'text' ? 'Enter veya Ctrl+Enter' : 'Ctrl+Enter ile kaydet'}</span>
-            <div className="flex items-center gap-1.5">
+          >
+            {/* Floating Quick Typography & Font Bar Above Active Text Box */}
+            <div className="bg-slate-900/95 backdrop-blur-md text-white rounded-xl px-2.5 py-1.5 shadow-2xl border border-slate-700/80 flex items-center flex-wrap gap-1.5 text-xs">
+              <div className="flex items-center gap-1">
+                <Type className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                <select
+                  value={activeFontFamily}
+                  onChange={(e) => applyInlineStyleChange({ fontFamily: e.target.value })}
+                  style={{ fontFamily: `"${activeFontFamily}", sans-serif` }}
+                  className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[11px] font-medium text-white outline-none focus:border-blue-400 max-w-[140px]"
+                  title="Google Font Türü Seçin"
+                >
+                  {GOOGLE_FONT_FAMILIES.map((f) => (
+                    <option
+                      key={f.id}
+                      value={f.id}
+                      style={{ fontFamily: `"${f.id}", sans-serif` }}
+                    >
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Font Size Selector */}
+              <select
+                value={activeFontSize}
+                onChange={(e) => applyInlineStyleChange({ fontSize: Number(e.target.value) })}
+                className="bg-slate-800 border border-slate-700 rounded-lg px-1.5 py-1 text-[11px] font-mono font-bold text-blue-300 outline-none focus:border-blue-400"
+                title="Font Boyutu (px)"
+              >
+                {TEXT_FONT_SIZES.map((sz) => (
+                  <option key={sz} value={sz}>
+                    {sz}px
+                  </option>
+                ))}
+              </select>
+
+              <div className="w-px h-4 bg-slate-700 mx-0.5" />
+
+              {/* Bold & Italic */}
               <button
                 type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCancelInlineText();
-                }}
-                className="px-2.5 py-1 rounded-md text-slate-600 hover:bg-slate-100 font-medium"
+                onClick={() =>
+                  applyInlineStyleChange({
+                    fontWeight: activeFontWeight === 'bold' ? 'normal' : 'bold',
+                  })
+                }
+                className={`p-1 rounded-md transition-colors ${
+                  activeFontWeight === 'bold'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title="Kalın (Bold)"
               >
-                İptal
+                <Bold className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleSaveInlineText();
-                }}
-                className="px-3 py-1 rounded-md bg-blue-600 text-white font-semibold hover:bg-blue-700 shadow-xs"
+                onClick={() =>
+                  applyInlineStyleChange({
+                    fontStyle: activeFontStyle === 'italic' ? 'normal' : 'italic',
+                  })
+                }
+                className={`p-1 rounded-md transition-colors ${
+                  activeFontStyle === 'italic'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title="İtalik (Italic)"
               >
-                Kaydet
+                <Italic className="w-3.5 h-3.5" />
               </button>
+
+              <div className="w-px h-4 bg-slate-700 mx-0.5" />
+
+              {/* Text Alignment */}
+              <button
+                type="button"
+                onClick={() => applyInlineStyleChange({ textAlign: 'left' })}
+                className={`p-1 rounded-md transition-colors ${
+                  activeTextAlign === 'left'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title="Sola Hizala"
+              >
+                <AlignLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => applyInlineStyleChange({ textAlign: 'center' })}
+                className={`p-1 rounded-md transition-colors ${
+                  activeTextAlign === 'center'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title="Ortala"
+              >
+                <AlignCenter className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => applyInlineStyleChange({ textAlign: 'right' })}
+                className={`p-1 rounded-md transition-colors ${
+                  activeTextAlign === 'right'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title="Sağa Hizala"
+              >
+                <AlignRight className="w-3.5 h-3.5" />
+              </button>
+
+              <div className="w-px h-4 bg-slate-700 mx-0.5" />
+
+              {/* Quick Text Color Swatches */}
+              <div className="flex items-center gap-1">
+                {quickColors.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => applyInlineStyleChange({ color: c })}
+                    className={`w-4 h-4 rounded-full border transition-transform ${
+                      activeColor === c ? 'scale-125 border-white ring-2 ring-blue-400' : 'border-white/30'
+                    }`}
+                    style={{ backgroundColor: c }}
+                    title="Metin Rengi"
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Main Text Input Card */}
+            <div
+              className="bg-white/95 rounded-xl shadow-2xl border-2 border-blue-500 p-2.5 flex flex-col gap-2"
+              style={{
+                minHeight: `${Math.max(125, editingInfo.screenH)}px`,
+              }}
+            >
+              <textarea
+                autoFocus
+                value={editingText}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setEditingText(val);
+                }}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (
+                    e.key === 'Enter' &&
+                    (e.ctrlKey || e.metaKey || (editingInfo.el.type === 'text' && !e.shiftKey))
+                  ) {
+                    e.preventDefault();
+                    handleSaveInlineText();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    handleCancelInlineText();
+                  }
+                }}
+                style={{
+                  fontFamily: `"${activeFontFamily}", sans-serif`,
+                  fontSize: `${Math.min(44, Math.max(13, activeFontSize))}px`,
+                  fontWeight: activeFontWeight,
+                  fontStyle: activeFontStyle,
+                  textAlign: activeTextAlign,
+                  color: activeColor,
+                  lineHeight: 1.35,
+                }}
+                placeholder={
+                  editingInfo.el.type === 'sticky'
+                    ? 'Yapışkan not içeriğini yazın...'
+                    : 'Metninizi yazın... (Kaydetmek için Enter veya Kaydet butonu)'
+                }
+                className="w-full flex-1 p-2 bg-transparent border-none outline-none resize-none select-text"
+              />
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-100">
+                <span>
+                  {activeFontFamily} · {activeFontSize}px (
+                  {editingInfo.el.type === 'text' ? 'Enter ile kaydet' : 'Ctrl+Enter ile kaydet'})
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCancelInlineText();
+                    }}
+                    className="px-2.5 py-1 rounded-md text-slate-600 hover:bg-slate-100 font-medium"
+                  >
+                    İptal
+                  </button>
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSaveInlineText();
+                    }}
+                    className="px-3 py-1 rounded-md bg-blue-600 text-white font-semibold hover:bg-blue-700 shadow-xs"
+                  >
+                    Kaydet
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Interactive PDF Page Navigation Controls (Left & Right side buttons) */}
       {elements
@@ -2253,10 +2669,26 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 height: `${Math.max(120, screenH)}px`,
               }}
               onPointerDown={(e) => {
-                if (activeTool === 'select' && !isSelected) {
+                if (activeTool === 'select') {
                   e.stopPropagation();
+                  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                    const next = isSelected
+                      ? activeSelectedIds.filter((id) => id !== videoEl.id)
+                      : [...activeSelectedIds, videoEl.id];
+                    updateSelectedIds(next);
+                  } else if (!isSelected) {
+                    updateSelectedIds([videoEl.id]);
+                  }
+                }
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!isSelected) {
                   updateSelectedIds([videoEl.id]);
                 }
+                setRadialMenuPos(null);
+                setContextMenuPos({ x: e.clientX, y: e.clientY });
               }}
               className={`absolute z-20 rounded-xl overflow-hidden shadow-2xl flex flex-col bg-slate-950 border-2 transition-shadow ${
                 isSelected
@@ -2267,8 +2699,16 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               {/* Header Bar: Draggable handle to select & move video */}
               <div
                 onPointerDown={(e) => {
-                  if (activeTool === 'select' && !isSelected) {
-                    updateSelectedIds([videoEl.id]);
+                  if (activeTool === 'select') {
+                    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                      e.stopPropagation();
+                      const next = isSelected
+                        ? activeSelectedIds.filter((id) => id !== videoEl.id)
+                        : [...activeSelectedIds, videoEl.id];
+                      updateSelectedIds(next);
+                    } else if (!isSelected) {
+                      updateSelectedIds([videoEl.id]);
+                    }
                   }
                 }}
                 className="h-7 bg-slate-900/95 px-2.5 flex items-center justify-between text-[11px] text-slate-300 border-b border-slate-800 shrink-0 cursor-move select-none"
@@ -2299,37 +2739,416 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           );
         })}
 
-      {/* Grid Pattern Selector (Bottom Left) */}
-      <div
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-4 left-4 z-10 flex items-center gap-1 bg-white/95 backdrop-blur-xs p-1 rounded-lg border border-slate-200 text-xs text-slate-600 shadow-xs"
-      >
-        <button
-          onClick={() => setGridStyle('dots')}
-          className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap shrink-0 ${
-            gridStyle === 'dots' ? 'bg-slate-900 font-semibold text-white' : 'hover:bg-slate-100'
-          }`}
-        >
-          Noktalı
-        </button>
-        <button
-          onClick={() => setGridStyle('grid')}
-          className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap shrink-0 ${
-            gridStyle === 'grid' ? 'bg-slate-900 font-semibold text-white' : 'hover:bg-slate-100'
-          }`}
-        >
-          Izgara
-        </button>
-        <button
-          onClick={() => setGridStyle('none')}
-          className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap shrink-0 ${
-            gridStyle === 'none' ? 'bg-slate-900 font-semibold text-white' : 'hover:bg-slate-100'
-          }`}
-        >
-          Düz
-        </button>
-      </div>
+      {/* Selected Object Right-Click Context Menu (Seçili Nesne Sağ Tık Menüsü) */}
+      {contextMenuPos && activeSelectedIds.length > 0 && (() => {
+        const selectedList = elements.filter((el) => activeSelectedIds.includes(el.id));
+        if (selectedList.length === 0) return null;
+
+        const firstEl = selectedList[0];
+        const isMulti = selectedList.length > 1;
+        const isAnyLocked = selectedList.some((el) => el.isLocked);
+        const canEditText =
+          !isMulti &&
+          !firstEl.isLocked &&
+          (firstEl.type === 'text' || firstEl.type === 'sticky');
+
+        // Calculate layer position info for clear visual feedback
+        const indices = selectedList
+          .map((el) => elements.findIndex((item) => item.id === el.id))
+          .filter((idx) => idx !== -1);
+        const minIdx = indices.length > 0 ? Math.min(...indices) : 0;
+        const maxIdx = indices.length > 0 ? Math.max(...indices) : elements.length - 1;
+        const isAtVeryFront =
+          selectedList.length === elements.length ||
+          (maxIdx === elements.length - 1 && minIdx === elements.length - selectedList.length);
+        const isAtVeryBack =
+          selectedList.length === elements.length ||
+          (minIdx === 0 && maxIdx === selectedList.length - 1);
+
+        const TYPE_LABELS: Record<string, string> = {
+          pencil: 'Kalem Çizimi',
+          highlighter: 'Fosforlu Kalem',
+          rectangle: 'Dikdörtgen',
+          'rounded-rect': 'Yuvarlatılmış Kutu',
+          circle: 'Daire / Elips',
+          triangle: 'Üçgen',
+          'right-triangle': 'Dik Üçgen',
+          diamond: 'Eşkenar Dörtgen',
+          star: 'Yıldız',
+          pentagon: 'Beşgen',
+          hexagon: 'Altıgen',
+          octagon: 'Sekizgen',
+          parallelogram: 'Paralelkenar',
+          trapezoid: 'Yamuk',
+          cylinder: 'Veritabanı / Silindir',
+          heart: 'Kalp',
+          cross: 'Artı / Haç',
+          lightning: 'Şimşek',
+          banner: 'Bayrak / Şerit',
+          cloud: 'Bulut',
+          'callout-rect': 'Konuşma Balonu',
+          'callout-oval': 'Oval Balon',
+          arrow: 'Ok',
+          'double-arrow': 'Çift Yönlü Ok',
+          'curved-arrow': 'Kıvrımlı Ok',
+          'block-arrow-right': 'Sağ Blok Ok',
+          'block-arrow-left': 'Sol Blok Ok',
+          'block-arrow-up': 'Yukarı Blok Ok',
+          'block-arrow-down': 'Aşağı Blok Ok',
+          line: 'Çizgi',
+          sticky: 'Yapışkan Not',
+          text: 'Metin Kutusu',
+          image: 'Görsel',
+          pdf: 'PDF Belgesi',
+          video: 'Video',
+        };
+
+        const menuWidth = 268;
+        const menuHeight = 450;
+        const left = Math.max(12, Math.min(window.innerWidth - menuWidth - 12, contextMenuPos.x));
+        const top = Math.max(12, Math.min(window.innerHeight - menuHeight - 12, contextMenuPos.y));
+
+        const quickStrokeColors = ['#0f172a', '#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777'];
+        const quickFillColors = ['transparent', '#dbeafe', '#dcfce7', '#fef08a', '#fed7aa', '#fce7f3', '#ede9fe'];
+
+        return (
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+            style={{ left: `${left}px`, top: `${top}px`, width: `${menuWidth}px` }}
+            className="fixed z-50 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200/90 p-2 text-xs text-slate-700 select-none animate-in fade-in zoom-in-95 duration-150"
+          >
+            {/* Context Menu Header */}
+            <div className="flex items-center justify-between px-2.5 py-1.5 mb-1 bg-slate-50 rounded-xl border border-slate-200/60">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
+                <div className="truncate">
+                  <div className="font-bold text-slate-900 truncate">
+                    {isMulti
+                      ? `${selectedList.length} Nesne Seçili`
+                      : TYPE_LABELS[firstEl.type] || 'Seçili Nesne'}
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    Katman #{maxIdx + 1} / {elements.length}
+                    {isAnyLocked ? ' · Kilitli' : ''}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContextMenuPos(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
+                title="Menüyü Kapat"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Layer Ordering Section (Öne Getir / Arkaya Gönder) */}
+            <div className="px-1.5 py-1">
+              <div className="flex items-center gap-1.5 px-1.5 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <Layers className="w-3 h-3 text-blue-600" />
+                <span>Katman Sıralaması (Öne / Arkaya)</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  type="button"
+                  disabled={isAtVeryFront}
+                  onClick={() => {
+                    if (onBringToFront) onBringToFront();
+                    setContextMenuPos(null);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50/70 hover:bg-blue-600 hover:text-white text-blue-700 font-semibold disabled:opacity-40 disabled:pointer-events-none transition-colors text-left"
+                  title="Diğer tüm nesnelerin en üstüne çıkar (Ctrl+Shift+])"
+                >
+                  <BringToFront className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">En Öne Getir</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isAtVeryBack}
+                  onClick={() => {
+                    if (onSendToBack) onSendToBack();
+                    setContextMenuPos(null);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100/80 hover:bg-slate-800 hover:text-white text-slate-700 font-semibold disabled:opacity-40 disabled:pointer-events-none transition-colors text-left"
+                  title="Diğer tüm nesnelerin en arkasına gönder (Ctrl+Shift+[)"
+                >
+                  <SendToBack className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">En Arkaya At</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isAtVeryFront}
+                  onClick={() => {
+                    if (onBringStepForward) onBringStepForward();
+                    setContextMenuPos(null);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 text-slate-700 font-medium disabled:opacity-40 disabled:pointer-events-none transition-colors text-left"
+                  title="Bir üst katmana çıkar (Ctrl+])"
+                >
+                  <ArrowUp className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span className="truncate">Bir Öne Getir</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isAtVeryBack}
+                  onClick={() => {
+                    if (onSendStepBackward) onSendStepBackward();
+                    setContextMenuPos(null);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 text-slate-700 font-medium disabled:opacity-40 disabled:pointer-events-none transition-colors text-left"
+                  title="Bir alt katmana gönder (Ctrl+[)"
+                >
+                  <ArrowDown className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span className="truncate">Bir Arkaya At</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="h-px bg-slate-100 my-1" />
+
+            {/* Edit & Duplicate Actions */}
+            <div className="flex flex-col gap-0.5 px-1">
+              {canEditText && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingElementId(firstEl.id);
+                    setEditingText(firstEl.text || '');
+                    setContextMenuPos(null);
+                  }}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-blue-50 text-blue-700 font-semibold transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Metni Düzenle</span>
+                  </span>
+                  <span className="text-[10px] text-blue-400 font-mono">Çift Tık</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDuplicate) onDuplicate();
+                  setContextMenuPos(null);
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-100 text-slate-700 font-medium transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Copy className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{isMulti ? 'Seçilenleri Çoğalt' : 'Nesneyi Çoğalt'}</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">Ctrl+D</span>
+              </button>
+            </div>
+
+            {/* Rotate & Mirror Quick Controls */}
+            <div className="px-2 py-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                Döndür & Aynala
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                <button
+                  type="button"
+                  disabled={isAnyLocked}
+                  onClick={() => {
+                    if (onRotateBy) onRotateBy(-45);
+                  }}
+                  className="flex items-center justify-center gap-1 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200/80 text-slate-700 font-semibold disabled:opacity-40 transition-colors"
+                  title="Sola 45° Döndür"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>-45°</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isAnyLocked}
+                  onClick={() => {
+                    if (onRotateBy) onRotateBy(45);
+                  }}
+                  className="flex items-center justify-center gap-1 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200/80 text-slate-700 font-semibold disabled:opacity-40 transition-colors"
+                  title="Sağa 45° Döndür"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  <span>+45°</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isAnyLocked}
+                  onClick={() => {
+                    if (onFlipHorizontal) onFlipHorizontal();
+                  }}
+                  className="flex items-center justify-center gap-1 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200/80 text-slate-700 font-semibold disabled:opacity-40 transition-colors"
+                  title="Yatay Aynala (Shift+H)"
+                >
+                  <FlipHorizontal2 className="w-3.5 h-3.5" />
+                  <span>Yatay</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isAnyLocked}
+                  onClick={() => {
+                    if (onFlipVertical) onFlipVertical();
+                  }}
+                  className="flex items-center justify-center gap-1 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200/80 text-slate-700 font-semibold disabled:opacity-40 transition-colors"
+                  title="Dikey Aynala (Shift+V)"
+                >
+                  <FlipVertical2 className="w-3.5 h-3.5" />
+                  <span>Dikey</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Stroke & Fill Color Swatches */}
+            {!isAnyLocked && (
+              <div className="px-2 py-1">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Hızlı Renk & Dolgu
+                </div>
+                <div className="flex items-center justify-between gap-1 mb-1.5">
+                  <span className="text-[10px] text-slate-500">Çizgi:</span>
+                  <div className="flex items-center gap-1">
+                    {quickStrokeColors.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => {
+                          if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                          if (onChangeStrokeColor) onChangeStrokeColor(c);
+                          const updates = selectedList
+                            .filter((el) => !el.isLocked)
+                            .map((el) => ({ id: el.id, changes: { color: c } }));
+                          if (updates.length > 0) onBatchUpdateElements(updates);
+                        }}
+                        style={{ backgroundColor: c }}
+                        className={`w-4 h-4 rounded-full border transition-transform hover:scale-115 ${
+                          firstEl.color === c ? 'ring-2 ring-blue-500 border-white scale-110' : 'border-slate-300'
+                        }`}
+                        title="Çizgi / Metin Rengi"
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] text-slate-500">Dolgu:</span>
+                  <div className="flex items-center gap-1">
+                    {quickFillColors.map((fc) => (
+                      <button
+                        key={fc}
+                        type="button"
+                        onClick={() => {
+                          if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                          if (onChangeFillColor) onChangeFillColor(fc);
+                          const updates = selectedList
+                            .filter((el) => !el.isLocked)
+                            .map((el) => ({ id: el.id, changes: { fillColor: fc } }));
+                          if (updates.length > 0) onBatchUpdateElements(updates);
+                        }}
+                        style={{ backgroundColor: fc === 'transparent' ? '#ffffff' : fc }}
+                        className={`w-4 h-4 rounded-full border transition-transform hover:scale-115 flex items-center justify-center ${
+                          (firstEl.fillColor || 'transparent') === fc
+                            ? 'ring-2 ring-blue-500 border-blue-500 scale-110'
+                            : 'border-slate-300'
+                        }`}
+                        title={fc === 'transparent' ? 'Şeffaf Dolgu' : 'Arka Plan Dolgu Rengi'}
+                      >
+                        {fc === 'transparent' && (
+                          <span className="text-[9px] font-bold text-rose-500 leading-none">/</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="h-px bg-slate-100 my-1" />
+
+            {/* Lock, Deselect, Delete & Switch to Radial Tool Menu */}
+            <div className="flex flex-col gap-0.5 px-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (onToggleLock) onToggleLock();
+                  setContextMenuPos(null);
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-amber-50 text-slate-700 hover:text-amber-700 font-medium transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  {isAnyLocked ? (
+                    <Unlock className="w-3.5 h-3.5 text-amber-600" />
+                  ) : (
+                    <Lock className="w-3.5 h-3.5 text-slate-500" />
+                  )}
+                  <span>{isAnyLocked ? 'Kilidi Aç' : 'Nesneyi Kilitle'}</span>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteElements(activeSelectedIds);
+                  updateSelectedIds([]);
+                  setContextMenuPos(null);
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-rose-50 text-rose-600 font-semibold transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isMulti ? `Seçilenleri Sil (${selectedList.length})` : 'Nesneyi Sil'}</span>
+                </span>
+                <span className="text-[10px] text-rose-400 font-mono">Del</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const pos = contextMenuPos;
+                  setContextMenuPos(null);
+                  setRadialMenuPos(pos);
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 mt-0.5 rounded-lg bg-slate-100/80 hover:bg-slate-200/70 text-slate-600 font-medium transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Compass className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Hızlı Araç Menüsünü Aç</span>
+                </span>
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Interactive Bottom-Left Flex Dock (Minimap + Grid Selector + Layout Reset) & Right-Click Radial Menu */}
+      <CanvasQuickAccess
+        elements={elements}
+        camera={{ x: pan.x, y: pan.y, zoom }}
+        setCamera={(updater) => {
+          const current = { x: pan.x, y: pan.y, zoom };
+          const next = typeof updater === 'function' ? updater(current) : updater;
+          setPan({ x: next.x, y: next.y });
+          setZoom(next.zoom);
+        }}
+        activeTool={activeTool}
+        onSelectTool={(t) => {
+          if (onSelectTool) onSelectTool(t);
+        }}
+        onOpenAIPrompt={onOpenAIPrompt}
+        strokeColor={strokeColor}
+        strokeWidth={strokeWidth}
+        fontSize={fontSize}
+        fontFamily={fontFamily}
+        radialMenuPos={radialMenuPos}
+        onCloseRadialMenu={() => setRadialMenuPos(null)}
+        gridStyle={gridStyle}
+        onChangeGridStyle={setGridStyle}
+        showMinimap={showMinimap}
+        onToggleMinimap={onToggleMinimap}
+        onResetWidgetLayout={onResetWidgetLayout}
+      />
     </div>
   );
 };

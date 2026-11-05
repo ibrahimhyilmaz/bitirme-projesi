@@ -928,6 +928,25 @@ wss.on('connection', (ws: WebSocket) => {
           break;
         }
 
+        case 'code-cursor-move': {
+          if (!currentRoomId || !currentUserId) return;
+          broadcastToRoom(
+            currentRoomId,
+            {
+              type: 'code-cursor-moved',
+              userId: currentUserId,
+              userName: msg.userName || 'Kullanıcı',
+              userColor: msg.userColor || '#3b82f6',
+              line: msg.line,
+              column: msg.column,
+              selectionStart: msg.selectionStart,
+              selectionEnd: msg.selectionEnd,
+            },
+            currentUserId
+          );
+          break;
+        }
+
         case 'notes-change': {
           if (!currentRoomId || !currentUserId) return;
           const room = rooms.get(currentRoomId);

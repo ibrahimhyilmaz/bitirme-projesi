@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowRight, X } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 
 interface UserSetupModalProps {
   initialName: string;
@@ -61,9 +62,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
               <X className="w-4 h-4" />
             </button>
           )}
-          <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-xl shadow-xs mb-3">
-            CB
-          </div>
+          <BrandLogo size="lg" className="mb-3" />
           <h2 className="text-lg font-bold">
             {isInitialSetup ? "CollabBoard'a Hoş Geldiniz" : 'Profil ve Oda Ayarları'}
           </h2>

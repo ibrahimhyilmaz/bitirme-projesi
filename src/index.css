@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -29,7 +31,79 @@
   background: rgba(100, 116, 139, 0.6);
 }
 
-/* Canvas dot grid pattern */
+/* Light theme canvas patterns */
+.canvas-dots-light {
+  background-color: #f8fafc;
+  background-image: radial-gradient(#cbd5e1 1.25px, transparent 1.25px);
+  background-size: 24px 24px;
+}
+
+.canvas-grid-light {
+  background-color: #f8fafc;
+  background-image: linear-gradient(to right, rgba(203, 213, 225, 0.45) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(203, 213, 225, 0.45) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.canvas-plain-light {
+  background-color: #f8fafc;
+}
+
+/* Dark theme canvas patterns */
+.canvas-dots-dark {
+  background-color: #0f172a;
+  background-image: radial-gradient(#334155 1.3px, transparent 1.3px);
+  background-size: 24px 24px;
+}
+
+.canvas-grid-dark {
+  background-color: #0f172a;
+  background-image: linear-gradient(to right, rgba(51, 65, 85, 0.5) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(51, 65, 85, 0.5) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.canvas-plain-dark {
+  background-color: #0f172a;
+}
+
+/* Midnight theme canvas patterns */
+.canvas-dots-midnight {
+  background-color: #090d16;
+  background-image: radial-gradient(#1e293b 1.35px, transparent 1.35px);
+  background-size: 24px 24px;
+}
+
+.canvas-grid-midnight {
+  background-color: #090d16;
+  background-image: linear-gradient(to right, rgba(30, 41, 59, 0.55) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(30, 41, 59, 0.55) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.canvas-plain-midnight {
+  background-color: #090d16;
+}
+
+/* Sepia / Warm Architect Paper theme canvas patterns */
+.canvas-dots-sepia {
+  background-color: #fdf6e3;
+  background-image: radial-gradient(#d6c7b2 1.3px, transparent 1.3px);
+  background-size: 24px 24px;
+}
+
+.canvas-grid-sepia {
+  background-color: #fdf6e3;
+  background-image: linear-gradient(to right, rgba(214, 199, 178, 0.45) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(214, 199, 178, 0.45) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.canvas-plain-sepia {
+  background-color: #fdf6e3;
+}
+
+/* Legacy fallback classes */
 .canvas-dots {
   background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px);
   background-size: 24px 24px;

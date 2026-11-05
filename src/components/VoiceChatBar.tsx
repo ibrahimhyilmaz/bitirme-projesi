@@ -11,6 +11,7 @@ import {
   GripVertical,
   Eye,
   EyeOff,
+  RotateCcw,
 } from 'lucide-react';
 import { UserPresence } from '../types';
 
@@ -29,6 +30,9 @@ interface VoiceChatBarProps {
   onToggleDeafen: () => void;
   getUserVolume: (userId: string) => number;
   onSetUserVolume: (userId: string, volume: number) => void;
+  isHidden?: boolean;
+  onToggleHidden?: () => void;
+  layoutResetCounter?: number;
 }
 
 export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
@@ -41,10 +45,13 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   onToggleDeafen,
   getUserVolume,
   onSetUserVolume,
+  isHidden,
+  onToggleHidden,
+  layoutResetCounter = 0,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
-  // Draggable position (null = default top-4 right-4 position)
+  // Draggable position (null = default docked position in top flex bar)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
     try {
       const saved = localStorage.getItem('collab_voicebar_pos');
@@ -67,14 +74,36 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const barRef = useRef<HTMLDivElement>(null);
 
-  // Minimized / hidden state (persisted)
-  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+  // Minimized / hidden state (persisted, synced with controlled isHidden when provided)
+  const [internalHidden, setInternalHidden] = useState<boolean>(() => {
     try {
       return localStorage.getItem('collab_hide_voicebar') === 'true';
     } catch {
       return false;
     }
   });
+
+  const effectiveHidden = isHidden !== undefined ? isHidden : internalHidden;
+
+  const handleToggleMinimize = () => {
+    if (onToggleHidden) {
+      onToggleHidden();
+    } else {
+      setInternalHidden((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('collab_hide_voicebar', String(next));
+        } catch {}
+        return next;
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (layoutResetCounter > 0) {
+      setPosition(null);
+    }
+  }, [layoutResetCounter]);
 
   useEffect(() => {
     try {
@@ -87,14 +116,6 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
       // Ignore storage error
     }
   }, [position]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('collab_hide_voicebar', String(isMinimized));
-    } catch {
-      // Ignore storage error
-    }
-  }, [isMinimized]);
 
   // Viewport resize clamping
   useEffect(() => {
@@ -120,7 +141,8 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
     const bar = barRef.current;
     if (!bar) return;
 
-    const parentRect = bar.offsetParent?.getBoundingClientRect() || {
+    const workspaceEl = bar.closest('[data-workspace-root]') as HTMLElement | null;
+    const parentRect = workspaceEl?.getBoundingClientRect() || bar.offsetParent?.getBoundingClientRect() || {
       left: 0,
       top: 0,
       width: window.innerWidth,
@@ -141,7 +163,8 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const currentBar = barRef.current;
-      const pRect = currentBar?.offsetParent?.getBoundingClientRect() || {
+      const wsEl = currentBar?.closest('[data-workspace-root]') as HTMLElement | null;
+      const pRect = wsEl?.getBoundingClientRect() || currentBar?.offsetParent?.getBoundingClientRect() || {
         left: 0,
         top: 0,
         width: window.innerWidth,
@@ -172,13 +195,15 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   const activeSpeakersCount = users.filter((u) => u.isSpeaking).length;
 
   // Minimized collapsed floating pill
-  if (isMinimized) {
+  if (effectiveHidden) {
     return (
       <div
         ref={barRef}
+        onPointerDown={(e) => e.stopPropagation()}
         style={
           position
             ? {
+                position: 'absolute',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
                 right: 'auto',
@@ -186,9 +211,9 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
               }
             : undefined
         }
-        className={`absolute ${
-          !position ? 'top-4 right-4' : ''
-        } z-20 flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+        className={`${
+          position ? 'absolute z-20' : 'relative z-20'
+        } pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
           isDragging
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
@@ -199,23 +224,32 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
           onPointerDown={handleGripPointerDown}
           onDoubleClick={() => setPosition(null)}
           className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
-          title="Sesli Kanalı Taşı (Sıfırlamak için çift tıkla)"
+          title="Sesli Kanalı Taşı (Kenetlemek için çift tıkla)"
         >
           <GripVertical className="w-4 h-4" />
         </div>
 
-        {/* Live Audio Status */}
-        <div className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
+        {/* Live Audio Status + Restore */}
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={handleToggleMinimize}
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 rounded-lg text-xs font-semibold text-slate-700 transition-colors"
+          title="Sesli Kanal Panelini Göster"
+        >
           <Radio
             className={`w-3.5 h-3.5 ${
-              activeSpeakersCount > 0 ? 'text-emerald-600 animate-pulse' : 'text-slate-400'
+              activeSpeakersCount > 0 ? 'text-emerald-600 animate-pulse' : 'text-blue-600'
             }`}
           />
-          <span>{activeSpeakersCount > 0 ? `${activeSpeakersCount} konuşuyor` : `${users.length} kişi`}</span>
-        </div>
+          <span>Ses ({users.length})</span>
+          <Eye className="w-3.5 h-3.5 text-blue-600 ml-0.5" />
+        </button>
 
         {/* Quick Mute Toggle */}
         <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={onToggleMute}
           className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
             isMuted
@@ -226,15 +260,6 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
         >
           {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
         </button>
-
-        {/* Restore / Show Button */}
-        <button
-          onClick={() => setIsMinimized(false)}
-          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-          title="Sesli Kanal Panelini Genişlet / Göster"
-        >
-          <Eye className="w-4 h-4" />
-        </button>
       </div>
     );
   }
@@ -242,9 +267,11 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   return (
     <div
       ref={barRef}
+      onPointerDown={(e) => e.stopPropagation()}
       style={
         position
           ? {
+              position: 'absolute',
               left: `${position.x}px`,
               top: `${position.y}px`,
               right: 'auto',
@@ -252,7 +279,9 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
             }
           : undefined
       }
-      className={`absolute ${!position ? 'top-4 right-4' : ''} z-20 flex flex-col items-end select-none`}
+      className={`${
+        position ? 'absolute z-20' : 'relative z-20'
+      } pointer-events-auto flex flex-col items-end select-none`}
     >
       {/* Voice Channel Bar */}
       <div
@@ -267,10 +296,22 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
           onPointerDown={handleGripPointerDown}
           onDoubleClick={() => setPosition(null)}
           className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
-          title="Sesli Kanalı Taşı (Sıfırlamak için çift tıkla)"
+          title="Sesli Kanalı Sürükle & Serbest Taşı (Kenetlemek için çift tıkla)"
         >
           <GripVertical className="w-4 h-4" />
         </div>
+
+        {position && (
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => setPosition(null)}
+            className="p-1 rounded-lg text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+            title="Üst Flex Bara Kenetle (Sabit Düzen)"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+        )}
 
         {/* Speaking Status / Live Indicator */}
         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs">
@@ -303,6 +344,8 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
 
         {/* Mute Button */}
         <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={onToggleMute}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap shrink-0 ${
             isMuted
@@ -317,6 +360,8 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
 
         {/* Deafen Button */}
         <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={onToggleDeafen}
           className={`p-1.5 rounded-lg transition-colors ${
             isDeafened ? 'bg-slate-200 text-slate-800' : 'text-slate-600 hover:bg-slate-100'
@@ -328,6 +373,8 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
 
         {/* Expand / Collapse Participant List */}
         <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={() => setIsExpanded(!isExpanded)}
           className="p-1 rounded-lg text-slate-500 hover:bg-slate-100"
           title="Katılımcı Ses Ayarları"
@@ -337,7 +384,9 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
 
         {/* Hide / Minimize Button */}
         <button
-          onClick={() => setIsMinimized(true)}
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={handleToggleMinimize}
           className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
           title="Sesli Kanalı Gizle"
         >

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Share2,
   Check,
@@ -18,9 +18,21 @@ import {
   DoorOpen,
   Wand2,
   QrCode,
+  Settings,
+  Sun,
+  Moon,
+  Coffee,
+  Eye,
+  EyeOff,
+  Layout,
+  Wrench,
+  Palette,
+  Radio,
+  Compass,
 } from 'lucide-react';
-import { RoomSettings, UserPresence, UserRole } from '../types';
+import { RoomSettings, ThemeMode, UserPresence, UserRole } from '../types';
 import { getShareableRoomUrl } from './RoomsModal';
+import { BrandLogo } from './BrandLogo';
 
 interface TopNavProps {
   roomName: string;
@@ -42,11 +54,24 @@ interface TopNavProps {
   onOpenRoomsModal: (tab?: 'rooms' | 'permissions' | 'invite') => void;
   onOpenExport: () => void;
   onOpenUserSetup: () => void;
+  onStartOnboardingTour?: () => void;
   isMuted: boolean;
   isDeafened: boolean;
   onToggleMute: () => void;
   onToggleDeafen: () => void;
   unreadChatCount: number;
+  theme?: ThemeMode;
+  onCycleTheme?: () => void;
+  onOpenSettings?: (tab?: 'appearance' | 'layout' | 'canvas' | 'shortcuts') => void;
+  showToolbar?: boolean;
+  showStyleBar?: boolean;
+  showVoiceBar?: boolean;
+  showMinimap?: boolean;
+  onToggleToolbar?: () => void;
+  onToggleStyleBar?: () => void;
+  onToggleVoiceBar?: () => void;
+  onToggleMinimap?: () => void;
+  onResetWidgetLayout?: () => void;
 }
 
 const ROLE_TEXT: Record<UserRole, string> = {
@@ -56,12 +81,18 @@ const ROLE_TEXT: Record<UserRole, string> = {
   viewer: 'İzleyici',
 };
 
+const THEME_LABELS: Record<ThemeMode, string> = {
+  light: 'Açık Tema',
+  dark: 'Koyu Tema',
+  midnight: 'Gece Mavisi',
+  sepia: 'Sıcak Kağıt',
+};
+
 export const TopNav: React.FC<TopNavProps> = ({
   roomName,
   roomId,
   roomSettings,
   currentUserRole,
-  isConnected,
   users,
   currentUser,
   activePanel,
@@ -71,13 +102,45 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenRoomsModal,
   onOpenExport,
   onOpenUserSetup,
+  onStartOnboardingTour,
   isMuted,
   isDeafened,
   onToggleMute,
   onToggleDeafen,
   unreadChatCount,
+  theme = 'light',
+  onCycleTheme,
+  onOpenSettings,
+  showToolbar = true,
+  showStyleBar = true,
+  showVoiceBar = true,
+  showMinimap = true,
+  onToggleToolbar,
+  onToggleStyleBar,
+  onToggleVoiceBar,
+  onToggleMinimap,
+  onResetWidgetLayout,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [showBoxesMenu, setShowBoxesMenu] = useState(false);
+  const boxesMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const isDark = theme === 'dark' || theme === 'midnight';
+  const hiddenCount =
+    (showToolbar ? 0 : 1) +
+    (showStyleBar ? 0 : 1) +
+    (showVoiceBar ? 0 : 1) +
+    (showMinimap ? 0 : 1);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (boxesMenuRef.current && !boxesMenuRef.current.contains(e.target as Node)) {
+        setShowBoxesMenu(false);
+      }
+    };
+    window.addEventListener('mousedown', handleClickOutside);
+    return () => window.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleCopyLink = async () => {
     const shareUrl = getShareableRoomUrl(roomId, { roomName });
@@ -101,58 +164,90 @@ export const TopNav: React.FC<TopNavProps> = ({
     }
   };
 
+  const renderThemeIcon = () => {
+    if (theme === 'dark') return <Moon className="w-4 h-4 text-sky-400" />;
+    if (theme === 'midnight') return <Sparkles className="w-4 h-4 text-indigo-400" />;
+    if (theme === 'sepia') return <Coffee className="w-4 h-4 text-amber-600" />;
+    return <Sun className="w-4 h-4 text-amber-500" />;
+  };
+
   return (
-    <header className="h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between gap-4 shrink-0 z-30 select-none">
+    <header
+      className={`h-14 border-b px-4 flex items-center justify-between gap-3 shrink-0 z-30 select-none transition-colors ${
+        theme === 'dark'
+          ? 'bg-slate-900 border-slate-800 text-slate-100'
+          : theme === 'midnight'
+          ? 'bg-[#0b1120] border-indigo-950/80 text-slate-100'
+          : theme === 'sepia'
+          ? 'bg-[#f5efe0] border-[#e2d5b8] text-stone-900'
+          : 'bg-white border-slate-200 text-slate-900'
+      }`}
+    >
       {/* Zone 1: Brand & Room Identity */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2.5 shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-base shadow-xs">
-            CB
-          </div>
-          <span className="text-base font-bold text-slate-900 tracking-tight whitespace-nowrap shrink-0 hidden lg:inline">
+          <BrandLogo size="md" />
+          <span
+            className={`text-base font-bold tracking-tight whitespace-nowrap shrink-0 hidden xl:inline ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}
+          >
             CollabBoard
           </span>
         </div>
 
-        <div className="h-4 w-px bg-slate-200 hidden sm:block" />
+        <div className={`h-4 w-px hidden sm:block ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
 
         {/* Room Info, Lock Status, Capacity & Invite */}
-        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+        <div className="flex items-center gap-1.5 text-xs">
           <button
             onClick={() => onOpenRoomsModal('rooms')}
-            className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 hover:text-blue-600 transition-colors"
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors ${
+              isDark
+                ? 'hover:bg-slate-800 text-slate-200'
+                : 'hover:bg-slate-100 text-slate-700 hover:text-blue-600'
+            }`}
             title="Odaları Görüntüle, Oda Değiştir veya Kişi Sınırı Ayarla"
           >
             {roomSettings.isLocked ? (
-              <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
             ) : (
-              <DoorOpen className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <DoorOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
             )}
-            <span className="font-semibold text-slate-800 truncate max-w-[130px]">{roomName}</span>
-            <span className="font-mono text-[11px] text-slate-500">
+            <span className="font-semibold truncate max-w-[120px]">{roomName}</span>
+            <span className={`font-mono text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
               ({users.length}/{roomSettings.maxUsers})
             </span>
           </button>
 
           <button
             onClick={() => onOpenRoomsModal('permissions')}
-            className="hidden md:flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors"
+            className={`hidden md:flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+              isDark
+                ? 'text-slate-300 hover:text-blue-400 hover:bg-slate-800'
+                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-100'
+            }`}
             title="Oda Yetkileri, Kitleme ve Rol Yönetimi"
           >
-            <Shield className="w-3.5 h-3.5 text-blue-600" />
+            <Shield className="w-3.5 h-3.5 text-blue-500" />
             <span>{ROLE_TEXT[currentUserRole]}</span>
           </button>
 
           <button
+            data-tour="invite-btn"
             onClick={() => {
               handleCopyLink();
               onOpenRoomsModal('invite');
             }}
             title="QR Kod İle Cihaz Davet Et ve Oda Bağlantısını Paylaş"
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50/70 hover:bg-blue-100/80 border border-blue-200/70 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 border ${
+              isDark
+                ? 'text-blue-300 bg-blue-950/60 hover:bg-blue-900/70 border-blue-800/70'
+                : 'text-blue-600 bg-blue-50/70 hover:bg-blue-100/80 border-blue-200/70'
+            }`}
           >
             {copied ? (
-              <Check className="w-3.5 h-3.5 text-emerald-600" />
+              <Check className="w-3.5 h-3.5 text-emerald-500" />
             ) : (
               <>
                 <QrCode className="w-3.5 h-3.5" />
@@ -165,19 +260,27 @@ export const TopNav: React.FC<TopNavProps> = ({
       </div>
 
       {/* Zone 2: Workspace View Toggles */}
-      <nav className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+      <nav
+        data-tour="workspace-nav"
+        className={`flex items-center gap-1 p-1 rounded-lg ${
+          isDark ? 'bg-slate-800/90' : theme === 'sepia' ? 'bg-[#ebe2ce]' : 'bg-slate-100'
+        }`}
+      >
         <button
+          data-tour="ai-draw-btn"
           onClick={onOpenAIPrompt}
           disabled={currentUserRole === 'viewer'}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap shrink-0 ${
             currentUserRole === 'viewer'
               ? 'text-slate-400 cursor-not-allowed'
+              : isDark
+              ? 'text-violet-300 hover:bg-slate-700'
               : 'text-violet-700 hover:bg-white/90 hover:shadow-xs'
           }`}
           title="Yapay Zeka İle Tahtada Anında Şekil veya Diyagram Oluştur"
         >
-          <Wand2 className="w-3.5 h-3.5 text-violet-600" />
-          <span className="hidden md:inline">AI Çizim</span>
+          <Wand2 className="w-3.5 h-3.5 text-violet-500" />
+          <span className="hidden lg:inline">AI Çizim</span>
         </button>
 
         <button
@@ -186,6 +289,8 @@ export const TopNav: React.FC<TopNavProps> = ({
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             currentUserRole === 'viewer'
               ? 'text-slate-400 cursor-not-allowed'
+              : isDark
+              ? 'text-slate-200 hover:bg-slate-700'
               : 'text-slate-700 hover:text-slate-900 hover:bg-white/80'
           }`}
           title="Hazır Şablonlar"
@@ -195,13 +300,18 @@ export const TopNav: React.FC<TopNavProps> = ({
         </button>
 
         <button
+          data-tour="code-editor-btn"
           onClick={() => onTogglePanel('code')}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             activePanel === 'code'
-              ? 'bg-white text-blue-600 shadow-xs'
+              ? isDark
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white text-blue-600 shadow-xs'
+              : isDark
+              ? 'text-slate-200 hover:bg-slate-700'
               : 'text-slate-700 hover:text-slate-900 hover:bg-white/80'
           }`}
-          title="Odaya Özel Ortak Kod Editörü"
+          title="Odaya Özel Ortak Kod Editörü (Çoklu Kullanıcı & Canlı İmleç)"
         >
           <Code2 className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Kod Editörü</span>
@@ -209,9 +319,13 @@ export const TopNav: React.FC<TopNavProps> = ({
 
         <button
           onClick={() => onTogglePanel('notes')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             activePanel === 'notes'
-              ? 'bg-white text-blue-600 shadow-xs'
+              ? isDark
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white text-blue-600 shadow-xs'
+              : isDark
+              ? 'text-slate-200 hover:bg-slate-700'
               : 'text-slate-700 hover:text-slate-900 hover:bg-white/80'
           }`}
           title="Ortak Notlar"
@@ -222,9 +336,13 @@ export const TopNav: React.FC<TopNavProps> = ({
 
         <button
           onClick={() => onTogglePanel('files')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             activePanel === 'files'
-              ? 'bg-white text-blue-600 shadow-xs'
+              ? isDark
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white text-blue-600 shadow-xs'
+              : isDark
+              ? 'text-slate-200 hover:bg-slate-700'
               : 'text-slate-700 hover:text-slate-900 hover:bg-white/80'
           }`}
           title="Dosya Paylaşımı"
@@ -235,9 +353,13 @@ export const TopNav: React.FC<TopNavProps> = ({
 
         <button
           onClick={() => onTogglePanel('chat')}
-          className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
+          className={`relative flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             activePanel === 'chat'
-              ? 'bg-white text-blue-600 shadow-xs'
+              ? isDark
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white text-blue-600 shadow-xs'
+              : isDark
+              ? 'text-slate-200 hover:bg-slate-700'
               : 'text-slate-700 hover:text-slate-900 hover:bg-white/80'
           }`}
           title="Sohbet"
@@ -252,17 +374,259 @@ export const TopNav: React.FC<TopNavProps> = ({
         </button>
       </nav>
 
-      {/* Zone 3: Audio Quick Controls, Participants & Primary Export CTA */}
-      <div className="flex items-center gap-3 shrink-0">
+      {/* Zone 3: Floating Boxes Visibility, Tour, Theme, Settings, Audio & Export */}
+      <div className="flex items-center gap-2 shrink-0">
+        {/* Interactive Onboarding Tour Trigger */}
+        {onStartOnboardingTour && (
+          <button
+            onClick={onStartOnboardingTour}
+            title="Etkileşimli Tanıtım Turunu & Kullanım Rehberini Başlat"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              isDark
+                ? 'bg-indigo-950/60 text-indigo-300 border-indigo-800/70 hover:bg-indigo-900/70'
+                : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100/80'
+            }`}
+          >
+            <Compass className="w-3.5 h-3.5 text-indigo-500" />
+            <span className="hidden xl:inline">Tanıtım Turu</span>
+          </button>
+        )}
+
+        {/* Quick Floating Boxes Hide/Show & Flex Dock Layout Popover */}
+        <div className="relative" ref={boxesMenuRef}>
+          <button
+            type="button"
+            onClick={() => setShowBoxesMenu((v) => !v)}
+            title="Çalışma Alanı Kutucuklarını Gizle / Göster ve Kenetli Flex Düzenine Sıfırla"
+            className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              hiddenCount > 0
+                ? 'bg-amber-500/15 text-amber-600 border-amber-400/50'
+                : isDark
+                ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/70'
+            }`}
+          >
+            <Layout className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Kutucuklar</span>
+            {hiddenCount > 0 && (
+              <span className="px-1.5 py-0.2 text-[10px] font-bold bg-amber-500 text-white rounded-full">
+                {4 - hiddenCount}/4
+              </span>
+            )}
+          </button>
+
+          {showBoxesMenu && (
+            <div
+              className={`absolute right-0 top-full mt-2 w-72 rounded-xl shadow-2xl border p-3 z-50 ${
+                isDark
+                  ? 'bg-slate-900 border-slate-700 text-slate-100'
+                  : 'bg-white border-slate-200 text-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/60 dark:border-slate-700">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Kutucuklar (Gizle / Göster)
+                </span>
+                <span className="text-[10px] font-semibold text-blue-600">
+                  {4 - hiddenCount}/4 Açık
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => onToggleToolbar && onToggleToolbar()}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    showToolbar
+                      ? isDark
+                        ? 'bg-blue-950/60 text-blue-300'
+                        : 'bg-blue-50 text-blue-700'
+                      : isDark
+                      ? 'hover:bg-slate-800 text-slate-400'
+                      : 'hover:bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Wrench className="w-3.5 h-3.5" />
+                    <span>1. Ana Araç Çubuğu</span>
+                  </span>
+                  <span className="flex items-center gap-1 text-[10px] font-bold">
+                    {showToolbar ? (
+                      <>
+                        <span>Açık</span>
+                        <Eye className="w-3.5 h-3.5" />
+                      </>
+                    ) : (
+                      <>
+                        <span>Gizli</span>
+                        <EyeOff className="w-3.5 h-3.5" />
+                      </>
+                    )}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onToggleStyleBar && onToggleStyleBar()}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    showStyleBar
+                      ? isDark
+                        ? 'bg-blue-950/60 text-blue-300'
+                        : 'bg-blue-50 text-blue-700'
+                      : isDark
+                      ? 'hover:bg-slate-800 text-slate-400'
+                      : 'hover:bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Palette className="w-3.5 h-3.5" />
+                    <span>2. Renk & Stil Çubuğu</span>
+                  </span>
+                  <span className="flex items-center gap-1 text-[10px] font-bold">
+                    {showStyleBar ? (
+                      <>
+                        <span>Açık</span>
+                        <Eye className="w-3.5 h-3.5" />
+                      </>
+                    ) : (
+                      <>
+                        <span>Gizli</span>
+                        <EyeOff className="w-3.5 h-3.5" />
+                      </>
+                    )}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onToggleVoiceBar && onToggleVoiceBar()}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    showVoiceBar
+                      ? isDark
+                        ? 'bg-blue-950/60 text-blue-300'
+                        : 'bg-blue-50 text-blue-700'
+                      : isDark
+                      ? 'hover:bg-slate-800 text-slate-400'
+                      : 'hover:bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Radio className="w-3.5 h-3.5" />
+                    <span>3. Sesli Kanal Kutusu</span>
+                  </span>
+                  <span className="flex items-center gap-1 text-[10px] font-bold">
+                    {showVoiceBar ? (
+                      <>
+                        <span>Açık</span>
+                        <Eye className="w-3.5 h-3.5" />
+                      </>
+                    ) : (
+                      <>
+                        <span>Gizli</span>
+                        <EyeOff className="w-3.5 h-3.5" />
+                      </>
+                    )}
+                  </span>
+                </button>
+
+                {onToggleMinimap && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleMinimap()}
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      showMinimap
+                        ? isDark
+                          ? 'bg-blue-950/60 text-blue-300'
+                          : 'bg-blue-50 text-blue-700'
+                        : isDark
+                        ? 'hover:bg-slate-800 text-slate-400'
+                        : 'hover:bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Compass className="w-3.5 h-3.5" />
+                      <span>4. Mini Harita & Odak</span>
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] font-bold">
+                      {showMinimap ? (
+                        <>
+                          <span>Açık</span>
+                          <Eye className="w-3.5 h-3.5" />
+                        </>
+                      ) : (
+                        <>
+                          <span>Gizli</span>
+                          <EyeOff className="w-3.5 h-3.5" />
+                        </>
+                      )}
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              {onResetWidgetLayout && (
+                <div className="mt-2.5 pt-2.5 border-t border-slate-200/60 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onResetWidgetLayout();
+                      setShowBoxesMenu(false);
+                    }}
+                    className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+                  >
+                    <Layout className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Üst/Alt Flex Düzenine Kenetle & Göster</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Theme Switcher Button */}
+        {onCycleTheme && (
+          <button
+            onClick={onCycleTheme}
+            title={`Tema Değiştir (Şu an: ${THEME_LABELS[theme]})`}
+            className={`p-1.5 rounded-lg border transition-colors ${
+              isDark
+                ? 'bg-slate-800 border-slate-700 hover:bg-slate-700'
+                : 'bg-slate-100 border-slate-200 hover:bg-slate-200/70'
+            }`}
+          >
+            {renderThemeIcon()}
+          </button>
+        )}
+
+        {/* Settings Button */}
+        {onOpenSettings && (
+          <button
+            onClick={() => onOpenSettings('appearance')}
+            title="Uygulama Ayarları, Tema ve Çoklu Seçim Seçenekleri"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              isDark
+                ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/70'
+            }`}
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Ayarlar</span>
+          </button>
+        )}
+
         {/* Voice Chat Quick Buttons */}
-        <div className="flex items-center gap-1 border-r border-slate-200 pr-3">
+        <div
+          className={`flex items-center gap-1 border-r pr-2 ${
+            isDark ? 'border-slate-700' : 'border-slate-200'
+          }`}
+        >
           <button
             onClick={onToggleMute}
             title={isMuted ? 'Mikrofonu Aç (M)' : 'Mikrofonu Sustur (M)'}
             className={`p-1.5 rounded-lg text-xs font-medium transition-colors ${
               isMuted
-                ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
-                : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                ? 'bg-rose-500/15 text-rose-500 hover:bg-rose-500/25'
+                : 'bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25'
             }`}
           >
             {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -273,7 +637,11 @@ export const TopNav: React.FC<TopNavProps> = ({
             title={isDeafened ? 'Sesi Aç (D)' : 'Sesi Kapat / Sağırlaştır (D)'}
             className={`p-1.5 rounded-lg text-xs font-medium transition-colors ${
               isDeafened
-                ? 'bg-slate-200 text-slate-700'
+                ? isDark
+                  ? 'bg-slate-700 text-slate-200'
+                  : 'bg-slate-200 text-slate-700'
+                : isDark
+                ? 'text-slate-300 hover:bg-slate-800'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -311,7 +679,11 @@ export const TopNav: React.FC<TopNavProps> = ({
 
           <button
             onClick={onOpenUserSetup}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+            className={`p-1.5 rounded-lg transition-colors ${
+              isDark
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+            }`}
             title="Kullanıcı & Oda Ayarları"
           >
             <UserCog className="w-4 h-4" />
@@ -321,7 +693,11 @@ export const TopNav: React.FC<TopNavProps> = ({
         {/* Export Button */}
         <button
           onClick={onOpenExport}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 shadow-xs"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 shadow-xs ${
+            isDark
+              ? 'bg-blue-600 text-white hover:bg-blue-500'
+              : 'bg-slate-900 text-white hover:bg-slate-800'
+          }`}
         >
           <Download className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Dışa Aktar</span>

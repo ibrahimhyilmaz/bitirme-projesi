@@ -35,7 +35,218 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
-import { ToolType } from '../types';
+import { ALL_SHAPE_TYPES, ToolType } from '../types';
+
+interface ShapeCatalogItem {
+  id: ToolType;
+  label: string;
+  title: string;
+}
+
+const SHAPE_CATEGORIES: { title: string; items: ShapeCatalogItem[] }[] = [
+  {
+    title: 'Temel Geometrik Şekiller',
+    items: [
+      { id: 'rectangle', label: 'Dikdörtgen', title: 'Dikdörtgen / Kare (R)' },
+      { id: 'rounded-rect', label: 'Yuvarlak', title: 'Yuvarlatılmış Dikdörtgen' },
+      { id: 'circle', label: 'Daire', title: 'Daire / Elips (O)' },
+      { id: 'triangle', label: 'Üçgen', title: 'İkizkenar Üçgen' },
+      { id: 'right-triangle', label: 'Dik Üçgen', title: 'Dik Üçgen' },
+      { id: 'diamond', label: 'Eşkenar', title: 'Eşkenar Dörtgen / Karar' },
+      { id: 'pentagon', label: 'Beşgen', title: 'Düzgün Beşgen' },
+      { id: 'hexagon', label: 'Altıgen', title: 'Altıgen (Hazırlık / Modül)' },
+      { id: 'octagon', label: 'Sekizgen', title: 'Sekizgen (Dur / Uyarı)' },
+    ],
+  },
+  {
+    title: 'Akış Şeması & Diyagram',
+    items: [
+      { id: 'cylinder', label: 'Veritabanı', title: 'Silindir / Veritabanı (SQL / Disk)' },
+      { id: 'parallelogram', label: 'Paralelkenar', title: 'Paralelkenar (Girdi / Çıktı)' },
+      { id: 'trapezoid', label: 'Yamuk', title: 'Yamuk (Manuel İşlem)' },
+      { id: 'document', label: 'Belge', title: 'Dalgalı Belge / Rapor Kutusu' },
+      { id: 'cloud', label: 'Bulut', title: 'Bulut Sunucu / Ağ' },
+    ],
+  },
+  {
+    title: 'Blok Oklar & Bağlayıcılar',
+    items: [
+      { id: 'arrow', label: 'Düz Ok', title: 'Tek Yönlü Bağlantı Oku (A)' },
+      { id: 'double-arrow', label: 'Çift Ok', title: 'Çift Yönlü Bağlantı Oku' },
+      { id: 'curved-arrow', label: 'Kıvrımlı Ok', title: 'Eğrisel / S-Kıvrımlı Bağlantı Oku' },
+      { id: 'block-arrow-right', label: 'Sağ Blok', title: 'Kalın Sağa Blok Ok' },
+      { id: 'block-arrow-left', label: 'Sol Blok', title: 'Kalın Sola Blok Ok' },
+      { id: 'block-arrow-up', label: 'Yukarı Blok', title: 'Kalın Yukarı Blok Ok' },
+      { id: 'block-arrow-down', label: 'Aşağı Blok', title: 'Kalın Aşağı Blok Ok' },
+    ],
+  },
+  {
+    title: 'Konuşma Balonu & Semboller',
+    items: [
+      { id: 'callout-rect', label: 'Kutu Balon', title: 'Köşeli Konuşma / Açıklama Balonu' },
+      { id: 'callout-oval', label: 'Oval Balon', title: 'Yuvarlak Konuşma Balonu' },
+      { id: 'star', label: 'Yıldız', title: '5 Köşeli Yıldız' },
+      { id: 'heart', label: 'Kalp', title: 'Kalp Sembolü' },
+      { id: 'lightning', label: 'Şimşek', title: 'Şimşek / Enerji Sembolü' },
+      { id: 'cross', label: 'Artı / Haç', title: 'Kalın Artı Sembolü' },
+      { id: 'flag', label: 'Bayrak', title: 'Dalgalı Bayrak / Hedef' },
+    ],
+  },
+];
+
+export function renderShapeSvgIcon(tool: ToolType, className = 'w-4 h-4'): React.ReactNode {
+  switch (tool) {
+    case 'rectangle':
+      return <Square className={className} />;
+    case 'rounded-rect':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="5" ry="5" />
+        </svg>
+      );
+    case 'circle':
+      return <Circle className={className} />;
+    case 'diamond':
+      return <Diamond className={className} />;
+    case 'triangle':
+      return <Triangle className={className} />;
+    case 'right-triangle':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="4,4 20,20 4,20" />
+        </svg>
+      );
+    case 'pentagon':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="12,3 21,9.5 17.5,20 6.5,20 3,9.5" />
+        </svg>
+      );
+    case 'hexagon':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="7,4 17,4 21,12 17,20 7,20 3,12" />
+        </svg>
+      );
+    case 'octagon':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="8,3 16,3 21,8 21,16 16,21 8,21 3,16 3,8" />
+        </svg>
+      );
+    case 'cylinder':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <ellipse cx="12" cy="6" rx="8" ry="3" />
+          <path d="M4 6v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6" />
+        </svg>
+      );
+    case 'parallelogram':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="7,5 21,5 17,19 3,19" />
+        </svg>
+      );
+    case 'trapezoid':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="7,5 17,5 21,19 3,19" />
+        </svg>
+      );
+    case 'document':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <path d="M4 4h16v13c-3 2.5-5 2.5-8 0s-5-2.5-8 0V4z" />
+        </svg>
+      );
+    case 'cloud':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <path d="M17.5 19H7a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 18 9.5a3.5 3.5 0 0 1-.5 9.5z" />
+        </svg>
+      );
+    case 'arrow':
+      return <ArrowRight className={className} />;
+    case 'double-arrow':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4" />
+        </svg>
+      );
+    case 'curved-arrow':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 18c9 0 9-12 18-12" />
+          <path d="M17 2l4 4-4 4" />
+        </svg>
+      );
+    case 'block-arrow-right':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="3,8 13,8 13,4 21,12 13,20 13,16 3,16" />
+        </svg>
+      );
+    case 'block-arrow-left':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="21,8 11,8 11,4 3,12 11,20 11,16 21,16" />
+        </svg>
+      );
+    case 'block-arrow-up':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="8,21 8,11 4,11 12,3 20,11 16,11 16,21" />
+        </svg>
+      );
+    case 'block-arrow-down':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="8,3 8,13 4,13 12,21 20,13 16,13 16,3" />
+        </svg>
+      );
+    case 'callout-rect':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <path d="M4 4h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+        </svg>
+      );
+    case 'callout-oval':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.5-8.5h.5a8.48 8.48 0 0 1 8 8v.5z" />
+        </svg>
+      );
+    case 'star':
+      return <Star className={className} />;
+    case 'heart':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+        </svg>
+      );
+    case 'lightning':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="13,2 3,14 12,14 11,22 21,10 12,10" />
+        </svg>
+      );
+    case 'cross':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+          <polygon points="9,3 15,3 15,9 21,9 21,15 15,15 15,21 9,21 9,15 3,15 3,9 9,9" />
+        </svg>
+      );
+    case 'flag':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+          <line x1="4" y1="22" x2="4" y2="15" />
+        </svg>
+      );
+    default:
+      return <Square className={className} />;
+  }
+}
 
 interface ToolbarProps {
   activeTool: ToolType;
@@ -53,6 +264,9 @@ interface ToolbarProps {
   onAddImageFile?: (dataUrl: string, width: number, height: number) => void;
   onOpenAIPrompt?: () => void;
   canEdit?: boolean;
+  isHidden?: boolean;
+  onToggleHidden?: () => void;
+  layoutResetCounter?: number;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -71,6 +285,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onAddImageFile,
   onOpenAIPrompt,
   canEdit = true,
+  isHidden,
+  onToggleHidden,
+  layoutResetCounter = 0,
 }) => {
   const [shapesMenuOpen, setShapesMenuOpen] = useState(false);
   const [eraserMenuOpen, setEraserMenuOpen] = useState(false);
@@ -103,7 +320,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     }
   }, [activeTool]);
 
-  // Draggable state (null = default top-center docked position)
+  // Draggable state (null = default top docked Flex position)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
     try {
       const saved = localStorage.getItem('collab_toolbar_pos');
@@ -129,8 +346,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [isDraggingBar, setIsDraggingBar] = useState(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Minimized / hidden state (persisted)
-  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+  // Minimized / hidden state (persisted, synced with controlled isHidden when provided)
+  const [internalHidden, setInternalHidden] = useState<boolean>(() => {
     try {
       return localStorage.getItem('collab_hide_toolbar') === 'true';
     } catch {
@@ -138,13 +355,28 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     }
   });
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('collab_hide_toolbar', String(isMinimized));
-    } catch {
-      // Ignore storage error
+  const effectiveHidden = isHidden !== undefined ? isHidden : internalHidden;
+
+  const handleToggleMinimize = () => {
+    if (onToggleHidden) {
+      onToggleHidden();
+    } else {
+      setInternalHidden((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('collab_hide_toolbar', String(next));
+        } catch {}
+        return next;
+      });
     }
-  }, [isMinimized]);
+  };
+
+  useEffect(() => {
+    if (layoutResetCounter > 0) {
+      setPosition(null);
+      setIsVertical(false);
+    }
+  }, [layoutResetCounter]);
 
   // Persist toolbar layout preferences
   useEffect(() => {
@@ -199,7 +431,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const bar = toolbarRef.current;
     if (!bar) return;
 
-    const parentRect = bar.offsetParent?.getBoundingClientRect() || {
+    const workspaceEl = bar.closest('[data-workspace-root]') as HTMLElement | null;
+    const parentRect = workspaceEl?.getBoundingClientRect() || bar.offsetParent?.getBoundingClientRect() || {
       left: 0,
       top: 0,
       width: window.innerWidth,
@@ -221,7 +454,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const currentBar = toolbarRef.current;
-      const pRect = currentBar?.offsetParent?.getBoundingClientRect() || {
+      const wsEl = currentBar?.closest('[data-workspace-root]') as HTMLElement | null;
+      const pRect = wsEl?.getBoundingClientRect() || currentBar?.offsetParent?.getBoundingClientRect() || {
         left: 0,
         top: 0,
         width: window.innerWidth,
@@ -282,34 +516,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     e.target.value = '';
   };
 
-  const isShapeActive = [
-    'rectangle',
-    'rounded-rect',
-    'circle',
-    'diamond',
-    'triangle',
-    'star',
-  ].includes(activeTool);
+  const isShapeActive = (ALL_SHAPE_TYPES as readonly string[]).includes(activeTool);
 
   const getShapeIcon = () => {
-    switch (activeTool) {
-      case 'rounded-rect':
-        return (
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="5" ry="5"/>
-          </svg>
-        );
-      case 'circle':
-        return <Circle className="w-4 h-4" />;
-      case 'diamond':
-        return <Diamond className="w-4 h-4" />;
-      case 'triangle':
-        return <Triangle className="w-4 h-4" />;
-      case 'star':
-        return <Star className="w-4 h-4" />;
-      default:
-        return <Square className="w-4 h-4" />;
+    if (isShapeActive) {
+      return renderShapeSvgIcon(activeTool, 'w-4 h-4');
     }
+    return <Square className="w-4 h-4" />;
   };
 
   const dividerClass = isVertical
@@ -322,43 +535,47 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const openPopoverLeftward =
     position && typeof window !== 'undefined' && position.x > window.innerWidth * 0.65;
 
-  if (isMinimized) {
+  if (effectiveHidden) {
     return (
       <div
         ref={toolbarRef}
+        onPointerDown={(e) => e.stopPropagation()}
         style={
           position
             ? {
+                position: 'absolute',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
                 transform: 'none',
               }
             : undefined
         }
-        className={`absolute z-20 flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+        className={`${
+          position ? 'absolute z-20' : 'relative z-20'
+        } pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
           isDraggingBar
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
-        } rounded-xl select-none ${!position ? 'top-4 left-1/2 -translate-x-1/2' : ''}`}
+        } rounded-xl select-none`}
       >
         <div
           onPointerDown={handleGripPointerDown}
           onDoubleClick={handleResetPosition}
           className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
-          title="Araç Çubuğunu Taşı (Sıfırlamak için çift tıkla)"
+          title="Araç Çubuğunu Taşı (Kenetlemek için çift tıkla)"
         >
           {isVertical ? <GripHorizontal className="w-4 h-4" /> : <GripVertical className="w-4 h-4" />}
         </div>
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
-          <Pencil className="w-3.5 h-3.5 text-blue-600" />
-          <span>Araçlar</span>
-        </div>
         <button
-          onClick={() => setIsMinimized(false)}
-          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={handleToggleMinimize}
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 rounded-lg text-xs font-semibold text-slate-700 transition-colors"
           title="Araç Çubuğunu Göster"
         >
-          <Eye className="w-4 h-4" />
+          <Pencil className="w-3.5 h-3.5 text-blue-600" />
+          <span>Araçlar (Gizli)</span>
+          <Eye className="w-3.5 h-3.5 text-blue-600 ml-0.5" />
         </button>
       </div>
     );
@@ -367,22 +584,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <div
       ref={toolbarRef}
+      data-tour="toolbar"
+      onPointerDown={(e) => e.stopPropagation()}
       style={
         position
           ? {
+              position: 'absolute',
               left: `${position.x}px`,
               top: `${position.y}px`,
               transform: 'none',
             }
           : undefined
       }
-      className={`absolute z-20 flex ${
+      className={`${position ? 'absolute z-20' : 'relative z-20'} pointer-events-auto flex ${
         isVertical ? 'flex-col' : 'flex-row flex-wrap max-w-[96vw]'
       } items-center gap-1 p-1.5 bg-white/95 backdrop-blur-md border ${
         isDraggingBar
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'
-      } rounded-xl select-none ${!position ? 'top-4 left-1/2 -translate-x-1/2' : ''}`}
+      } rounded-xl select-none`}
     >
       {/* Drag Handle & Orientation Controls */}
       <div
@@ -394,7 +614,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onPointerDown={handleGripPointerDown}
           onDoubleClick={handleResetPosition}
           className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors flex items-center"
-          title="Araç Çubuğunu Sürükle & Taşı (Sıfırlamak için çift tıkla)"
+          title="Araç Çubuğunu Sürükle & Serbest Taşı (Kenetlemek için çift tıkla)"
         >
           {isVertical ? (
             <GripHorizontal className="w-4 h-4" />
@@ -404,6 +624,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
 
         <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={() => setIsVertical((v) => !v)}
           className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
           title={isVertical ? 'Yatay Görünüme Geç' : 'Dikey Görünüme Geç'}
@@ -413,16 +635,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         {position && (
           <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={handleResetPosition}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-            title="Merkeze Sabitle"
+            className="p-1.5 rounded-lg text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+            title="Üst Flex Bara Kenetle (Sabit Düzen)"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
         )}
 
         <button
-          onClick={() => setIsMinimized(true)}
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={handleToggleMinimize}
           className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
           title="Araç Çubuğunu Gizle"
         >
@@ -637,16 +863,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           <div className={dividerClass} />
 
-          {/* Shapes Dropdown */}
+          {/* Microsoft Office-Style Categorized Shapes Gallery Dropdown */}
           <div className="relative" ref={shapesMenuRef}>
             <button
+              type="button"
               onClick={() => setShapesMenuOpen(!shapesMenuOpen)}
               className={`flex items-center gap-1 p-2 rounded-lg transition-all ${
                 isShapeActive
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
               }`}
-              title="Geometrik Şekiller (R / O)"
+              title="Şekiller, Akış Diyagramları, Blok Oklar & Konuşma Balonları (27 Şekil)"
             >
               {getShapeIcon()}
               <ChevronDown className="w-3 h-3 opacity-70" />
@@ -662,102 +889,48 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     : openPopoverUpward
                     ? 'bottom-full mb-2 left-0'
                     : 'top-full mt-2 left-0'
-                } bg-white border border-slate-200 rounded-xl shadow-xl p-2 grid grid-cols-3 gap-1 z-50 w-60`}
+                } bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 flex flex-col gap-3 z-50 w-80 max-h-[72vh] overflow-y-auto`}
               >
-                <button
-                  onClick={() => {
-                    onSelectTool('rectangle');
-                    setShapesMenuOpen(false);
-                  }}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg text-xs font-medium whitespace-nowrap ${
-                    activeTool === 'rectangle'
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                  title="Kare / Keskin Köşeli Dikdörtgen (R)"
-                >
-                  <Square className="w-4 h-4" />
-                  <span>Kare</span>
-                </button>
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                  <span className="text-xs font-bold text-slate-800">
+                    Şekil & Diyagram Kütüphanesi
+                  </span>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">
+                    27 Vektörel Şekil
+                  </span>
+                </div>
 
-                <button
-                  onClick={() => {
-                    onSelectTool('rounded-rect');
-                    setShapesMenuOpen(false);
-                  }}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg text-xs font-medium whitespace-nowrap ${
-                    activeTool === 'rounded-rect'
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                  title="Yuvarlak Köşeli Kare (Köşeleri Keskin Olmayan Kare)"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="5" ry="5"/>
-                  </svg>
-                  <span>Yuvarlak Köşeli</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    onSelectTool('circle');
-                    setShapesMenuOpen(false);
-                  }}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg text-xs font-medium whitespace-nowrap ${
-                    activeTool === 'circle'
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                  title="Daire / Çember (O)"
-                >
-                  <Circle className="w-4 h-4" />
-                  <span>Daire</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    onSelectTool('diamond');
-                    setShapesMenuOpen(false);
-                  }}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg text-xs font-medium whitespace-nowrap ${
-                    activeTool === 'diamond'
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <Diamond className="w-4 h-4" />
-                  <span>Eşkenar</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    onSelectTool('triangle');
-                    setShapesMenuOpen(false);
-                  }}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg text-xs font-medium whitespace-nowrap ${
-                    activeTool === 'triangle'
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <Triangle className="w-4 h-4" />
-                  <span>Üçgen</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    onSelectTool('star');
-                    setShapesMenuOpen(false);
-                  }}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg text-xs font-medium whitespace-nowrap ${
-                    activeTool === 'star'
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <Star className="w-4 h-4" />
-                  <span>Yıldız</span>
-                </button>
+                {SHAPE_CATEGORIES.map((cat) => (
+                  <div key={cat.title} className="space-y-1.5">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                      {cat.title}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      {cat.items.map((item) => {
+                        const isSelected = activeTool === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              onSelectTool(item.id);
+                              setShapesMenuOpen(false);
+                            }}
+                            className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-[11px] font-medium transition-colors ${
+                              isSelected
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'text-slate-700 hover:bg-slate-100'
+                            }`}
+                            title={item.title}
+                          >
+                            {renderShapeSvgIcon(item.id, 'w-4 h-4')}
+                            <span className="truncate max-w-full leading-tight">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

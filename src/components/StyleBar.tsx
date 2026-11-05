@@ -15,23 +15,52 @@ import {
   SlidersHorizontal,
   Eye,
   EyeOff,
+  Bold,
+  Italic,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  ChevronDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
-import { CanvasElement, StrokeStyle } from '../types';
+import {
+  ALL_SHAPE_TYPES,
+  CanvasElement,
+  GOOGLE_FONT_FAMILIES,
+  StrokeStyle,
+  TEXT_FONT_SIZES,
+  ToolType,
+} from '../types';
+
+const FILLABLE_SHAPE_TYPES = new Set<string>([
+  ...ALL_SHAPE_TYPES.filter((t) => t !== 'double-arrow' && t !== 'curved-arrow'),
+  'sticky',
+]);
 
 interface StyleBarProps {
   selectedElement: CanvasElement | null;
   selectedElements?: CanvasElement[];
+  activeTool?: ToolType;
   strokeColor: string;
   fillColor: string;
   strokeWidth: number;
   strokeStyle: StrokeStyle;
   fontSize: number;
+  fontFamily?: string;
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textAlign?: 'left' | 'center' | 'right';
   opacity: number;
   onChangeStrokeColor: (color: string) => void;
   onChangeFillColor: (color: string) => void;
   onChangeStrokeWidth: (width: number) => void;
   onChangeStrokeStyle: (style: StrokeStyle) => void;
   onChangeFontSize: (size: number) => void;
+  onChangeFontFamily?: (family: string) => void;
+  onChangeFontWeight?: (weight: 'normal' | 'bold') => void;
+  onChangeFontStyle?: (style: 'normal' | 'italic') => void;
+  onChangeTextAlign?: (align: 'left' | 'center' | 'right') => void;
   onChangeOpacity: (opacity: number) => void;
   onRotateBy: (deltaDegrees: number) => void;
   onSetRotation: (degrees: number) => void;
@@ -41,7 +70,12 @@ interface StyleBarProps {
   onDelete: () => void;
   onBringForward: () => void;
   onSendBackward: () => void;
+  onBringStepForward?: () => void;
+  onSendStepBackward?: () => void;
   onToggleLock: () => void;
+  isHidden?: boolean;
+  onToggleHidden?: () => void;
+  layoutResetCounter?: number;
 }
 
 const STROKE_COLORS = [
@@ -78,17 +112,26 @@ const SHAPE_FILL_COLORS = [
 export const StyleBar: React.FC<StyleBarProps> = ({
   selectedElement,
   selectedElements,
+  activeTool,
   strokeColor,
   fillColor,
   strokeWidth,
   strokeStyle,
   fontSize,
+  fontFamily = 'Plus Jakarta Sans',
+  fontWeight = 'normal',
+  fontStyle = 'normal',
+  textAlign = 'left',
   opacity,
   onChangeStrokeColor,
   onChangeFillColor,
   onChangeStrokeWidth,
   onChangeStrokeStyle,
   onChangeFontSize,
+  onChangeFontFamily,
+  onChangeFontWeight,
+  onChangeFontStyle,
+  onChangeTextAlign,
   onChangeOpacity,
   onRotateBy,
   onSetRotation,
@@ -98,12 +141,21 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   onDelete,
   onBringForward,
   onSendBackward,
+  onBringStepForward,
+  onSendStepBackward,
   onToggleLock,
+  isHidden,
+  onToggleHidden,
+  layoutResetCounter = 0,
 }) => {
   const [rotationMenuOpen, setRotationMenuOpen] = useState(false);
   const [advancedStyleOpen, setAdvancedStyleOpen] = useState(false);
+  const [fontMenuOpen, setFontMenuOpen] = useState(false);
+  const [sizeMenuOpen, setSizeMenuOpen] = useState(false);
   const rotationMenuRef = useRef<HTMLDivElement>(null);
   const advancedMenuRef = useRef<HTMLDivElement>(null);
+  const fontMenuRef = useRef<HTMLDivElement>(null);
+  const sizeMenuRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
   // Draggable position for StyleBar (persisted)
@@ -128,14 +180,36 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Minimized / hidden state (persisted)
-  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+  // Minimized / hidden state (persisted, synced with controlled isHidden when provided)
+  const [internalHidden, setInternalHidden] = useState<boolean>(() => {
     try {
       return localStorage.getItem('collab_hide_stylebar') === 'true';
     } catch {
       return false;
     }
   });
+
+  const effectiveHidden = isHidden !== undefined ? isHidden : internalHidden;
+
+  const handleToggleMinimize = () => {
+    if (onToggleHidden) {
+      onToggleHidden();
+    } else {
+      setInternalHidden((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('collab_hide_stylebar', String(next));
+        } catch {}
+        return next;
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (layoutResetCounter > 0) {
+      setPosition(null);
+    }
+  }, [layoutResetCounter]);
 
   useEffect(() => {
     try {
@@ -148,14 +222,6 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       // Ignore storage error
     }
   }, [position]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('collab_hide_stylebar', String(isMinimized));
-    } catch {
-      // Ignore storage error
-    }
-  }, [isMinimized]);
 
   // Keep StyleBar inside viewport on resize
   useEffect(() => {
@@ -183,6 +249,12 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       if (advancedMenuRef.current && !advancedMenuRef.current.contains(e.target as Node)) {
         setAdvancedStyleOpen(false);
       }
+      if (fontMenuRef.current && !fontMenuRef.current.contains(e.target as Node)) {
+        setFontMenuOpen(false);
+      }
+      if (sizeMenuRef.current && !sizeMenuRef.current.contains(e.target as Node)) {
+        setSizeMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
@@ -194,7 +266,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     const bar = barRef.current;
     if (!bar) return;
 
-    const parentRect = bar.offsetParent?.getBoundingClientRect() || {
+    const workspaceEl = bar.closest('[data-workspace-root]') as HTMLElement | null;
+    const parentRect = workspaceEl?.getBoundingClientRect() || bar.offsetParent?.getBoundingClientRect() || {
       left: 0,
       top: 0,
       width: window.innerWidth,
@@ -215,7 +288,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
 
     const handleMove = (moveEvent: PointerEvent) => {
       const currentBar = barRef.current;
-      const pRect = currentBar?.offsetParent?.getBoundingClientRect() || {
+      const wsEl = currentBar?.closest('[data-workspace-root]') as HTMLElement | null;
+      const pRect = wsEl?.getBoundingClientRect() || currentBar?.offsetParent?.getBoundingClientRect() || {
         left: 0,
         top: 0,
         width: window.innerWidth,
@@ -246,27 +320,23 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   const effectiveCount = selectedElements && selectedElements.length > 0 ? selectedElements.length : (selectedElement ? 1 : 0);
   const isMulti = effectiveCount > 1;
 
-  const isSticky = selectedElement?.type === 'sticky';
-  const isText = selectedElement?.type === 'text';
+  const isSticky = selectedElement?.type === 'sticky' || activeTool === 'sticky';
+  const isText = selectedElement?.type === 'text' || activeTool === 'text';
   const isImage = selectedElement?.type === 'image';
   const hasFill =
     !selectedElement ||
-    [
-      'rectangle',
-      'rounded-rect',
-      'circle',
-      'diamond',
-      'triangle',
-      'star',
-      'sticky',
-    ].includes(selectedElement.type) ||
-    (selectedElements && selectedElements.some((e) => ['rectangle', 'rounded-rect', 'circle', 'diamond', 'triangle', 'star', 'sticky'].includes(e.type)));
+    FILLABLE_SHAPE_TYPES.has(selectedElement.type) ||
+    (selectedElements && selectedElements.some((e) => FILLABLE_SHAPE_TYPES.has(e.type)));
 
   const activeStrokeColor = selectedElement?.color || strokeColor;
   const activeFillColor = selectedElement?.fillColor || fillColor;
   const activeStrokeWidth = selectedElement?.strokeWidth || strokeWidth;
   const activeStrokeStyle = selectedElement?.strokeStyle || strokeStyle;
   const activeFontSize = selectedElement?.fontSize || fontSize;
+  const activeFontFamily = selectedElement?.fontFamily || fontFamily;
+  const activeFontWeight = selectedElement?.fontWeight || fontWeight;
+  const activeFontStyle = selectedElement?.fontStyle || fontStyle;
+  const activeTextAlign = selectedElement?.textAlign || textAlign;
   const activeOpacity = selectedElement?.opacity ?? opacity;
   const currentRotation = (((Math.round(selectedElement?.rotation || 0) % 360) + 360) % 360);
   const isAnyLocked = selectedElements && selectedElements.length > 0
@@ -279,10 +349,12 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     ? selectedElements.every((e) => e.flipY)
     : !!selectedElement?.flipY;
 
-  if (isMinimized) {
+  if (effectiveHidden) {
     return (
       <div
         ref={barRef}
+        data-tour="style-bar"
+        onPointerDown={(e) => e.stopPropagation()}
         style={
           position
             ? {
@@ -297,31 +369,31 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           isDragging
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
-        } rounded-xl select-none ${!position ? 'bottom-5 left-1/2 -translate-x-1/2' : ''}`}
+        } rounded-xl select-none ${!position ? 'bottom-4 left-1/2 -translate-x-1/2' : ''}`}
       >
         <div
           onPointerDown={handleGripPointerDown}
           onDoubleClick={() => setPosition(null)}
           className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
-          title="Stil Çubuğunu Taşı (Sıfırlamak için çift tıkla)"
+          title="Stil Çubuğunu Taşı (Kenetlemek için çift tıkla)"
         >
           <GripVertical className="w-4 h-4" />
         </div>
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={handleToggleMinimize}
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 rounded-lg text-xs font-semibold text-slate-700 transition-colors"
+          title="Stil Çubuğunu Göster"
+        >
           <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
-          <span>Stil</span>
+          <span>Stil (Gizli)</span>
           {effectiveCount > 0 && (
             <span className="ml-0.5 px-1.5 py-0.2 bg-blue-100 text-blue-700 rounded-full text-[10px] font-bold">
               {effectiveCount}
             </span>
           )}
-        </div>
-        <button
-          onClick={() => setIsMinimized(false)}
-          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-          title="Stil Çubuğunu Göster"
-        >
-          <Eye className="w-4 h-4" />
+          <Eye className="w-3.5 h-3.5 text-blue-600 ml-0.5" />
         </button>
       </div>
     );
@@ -330,6 +402,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   return (
     <div
       ref={barRef}
+      data-tour="style-bar"
+      onPointerDown={(e) => e.stopPropagation()}
       style={
         position
           ? {
@@ -345,7 +419,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'
       } rounded-xl select-none max-w-[95vw] ${
-        !position ? 'bottom-5 left-1/2 -translate-x-1/2' : ''
+        !position ? 'bottom-4 left-1/2 -translate-x-1/2' : ''
       }`}
     >
       {/* Drag Handle */}
@@ -353,14 +427,28 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         onPointerDown={handleGripPointerDown}
         onDoubleClick={() => setPosition(null)}
         className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
-        title="Stil Çubuğunu Taşı (Sıfırlamak için çift tıkla)"
+        title="Stil Çubuğunu Sürükle & Serbest Taşı (Kenetlemek için çift tıkla)"
       >
         <GripVertical className="w-4 h-4" />
       </div>
 
+      {position && (
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => setPosition(null)}
+          className="p-1 rounded-lg text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+          title="Alt Merkeze Kenetle (Sabit Düzen)"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+      )}
+
       {/* Hide / Minimize Button */}
       <button
-        onClick={() => setIsMinimized(true)}
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={handleToggleMinimize}
         className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
         title="Stil Çubuğunu Gizle"
       >
@@ -497,23 +585,171 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         </div>
       )}
 
-      {/* Font Size (for text and sticky) */}
+      {/* Rich Typography Controls (Google Fonts + Expanded Font Sizes + Bold/Italic/Align) */}
       {(isText || isSticky) && (
-        <div className="flex items-center gap-1 border-r border-slate-200 pr-2">
-          <Type className="w-3.5 h-3.5 text-slate-400 ml-1" />
-          {[14, 18, 24, 32].map((fs) => (
+        <div className="flex items-center gap-1.5 border-r border-slate-200 pr-2">
+          {/* Google Font Family Dropdown */}
+          <div className="relative" ref={fontMenuRef}>
             <button
-              key={fs}
-              onClick={() => onChangeFontSize(fs)}
-              className={`px-1.5 py-0.5 rounded text-xs font-mono tabular-nums ${
-                activeFontSize === fs
-                  ? 'bg-blue-50 text-blue-600 font-bold'
+              type="button"
+              onClick={() => setFontMenuOpen((v) => !v)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200/80 text-xs font-medium text-slate-800 border border-slate-200/80 transition-colors"
+              style={{ fontFamily: `"${activeFontFamily}", sans-serif` }}
+              title="Yazı Tipi Ailesi (Google Fonts)"
+            >
+              <Type className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="truncate max-w-[110px]">{activeFontFamily}</span>
+              <ChevronDown className="w-3 h-3 text-slate-500 shrink-0" />
+            </button>
+
+            {fontMenuOpen && (
+              <div className="absolute bottom-full mb-2 left-0 bg-white border border-slate-200 rounded-xl shadow-2xl p-1.5 w-60 z-50 max-h-72 overflow-y-auto space-y-0.5">
+                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 mb-1">
+                  Google Fonts Yazı Tipleri
+                </div>
+                {GOOGLE_FONT_FAMILIES.map((f) => {
+                  const isSelected = activeFontFamily === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => {
+                        if (onChangeFontFamily) onChangeFontFamily(f.id);
+                        setFontMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors ${
+                        isSelected
+                          ? 'bg-blue-50 text-blue-700 font-semibold'
+                          : 'hover:bg-slate-100 text-slate-800'
+                      }`}
+                    >
+                      <span
+                        className="text-sm truncate"
+                        style={{ fontFamily: f.cssFamily }}
+                      >
+                        {f.label}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-sans ml-2 shrink-0">
+                        {f.category}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Font Size Dropdown & Quick Stepper */}
+          <div className="relative flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200/80" ref={sizeMenuRef}>
+            <button
+              type="button"
+              onClick={() => onChangeFontSize(Math.max(10, activeFontSize - 2))}
+              className="px-1.5 py-0.5 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition-colors"
+              title="Yazı Boyutunu Küçült"
+            >
+              -
+            </button>
+            <button
+              type="button"
+              onClick={() => setSizeMenuOpen((v) => !v)}
+              className="px-2 py-0.5 text-xs font-mono tabular-nums font-bold text-blue-600 hover:bg-white rounded-md flex items-center gap-0.5"
+              title="Yazı Boyutu Seç (12px - 96px)"
+            >
+              <span>{activeFontSize}px</span>
+              <ChevronDown className="w-3 h-3 text-slate-400" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeFontSize(Math.min(120, activeFontSize + 2))}
+              className="px-1.5 py-0.5 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition-colors"
+              title="Yazı Boyutunu Büyüt"
+            >
+              +
+            </button>
+
+            {sizeMenuOpen && (
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-xl shadow-2xl p-1.5 w-32 z-50 grid grid-cols-2 gap-1">
+                {TEXT_FONT_SIZES.map((fs) => (
+                  <button
+                    key={fs}
+                    type="button"
+                    onClick={() => {
+                      onChangeFontSize(fs);
+                      setSizeMenuOpen(false);
+                    }}
+                    className={`px-2 py-1 rounded-lg text-xs font-mono tabular-nums text-center transition-colors ${
+                      activeFontSize === fs
+                        ? 'bg-blue-600 text-white font-bold'
+                        : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {fs}px
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Bold & Italic Toggles */}
+          {onChangeFontWeight && (
+            <button
+              type="button"
+              onClick={() => onChangeFontWeight(activeFontWeight === 'bold' ? 'normal' : 'bold')}
+              className={`p-1.5 rounded-lg transition-colors ${
+                activeFontWeight === 'bold'
+                  ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
+              title="Kalın (Bold)"
             >
-              {fs}
+              <Bold className="w-3.5 h-3.5" />
             </button>
-          ))}
+          )}
+
+          {onChangeFontStyle && (
+            <button
+              type="button"
+              onClick={() => onChangeFontStyle(activeFontStyle === 'italic' ? 'normal' : 'italic')}
+              className={`p-1.5 rounded-lg transition-colors ${
+                activeFontStyle === 'italic'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+              title="İtalik (Italic)"
+            >
+              <Italic className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Text Alignment */}
+          {onChangeTextAlign && (
+            <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+              {(
+                [
+                  { id: 'left', icon: AlignLeft, label: 'Sola Hizala' },
+                  { id: 'center', icon: AlignCenter, label: 'Ortala' },
+                  { id: 'right', icon: AlignRight, label: 'Sağa Hizala' },
+                ] as const
+              ).map((al) => {
+                const Icon = al.icon;
+                return (
+                  <button
+                    key={al.id}
+                    type="button"
+                    onClick={() => onChangeTextAlign(al.id)}
+                    className={`p-1 rounded-md transition-colors ${
+                      activeTextAlign === al.id
+                        ? 'bg-white text-blue-600 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title={al.label}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -640,23 +876,43 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             <Copy className="w-4 h-4" />
           </button>
 
-          {/* Bring to Front */}
-          <button
-            onClick={onBringForward}
-            className="p-1.5 rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-            title="En Öne Getir"
-          >
-            <BringToFront className="w-4 h-4" />
-          </button>
-
-          {/* Send to Back */}
-          <button
-            onClick={onSendBackward}
-            className="p-1.5 rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-            title="En Arkaya Gönder"
-          >
-            <SendToBack className="w-4 h-4" />
-          </button>
+          {/* Layer Ordering: En Öne Getir, Bir Öne Getir, Bir Arkaya Gönder, En Arkaya Gönder */}
+          <div className="flex items-center gap-0.5 bg-slate-100/80 border border-slate-200/80 rounded-lg p-0.5">
+            <button
+              onClick={onBringForward}
+              className="flex items-center gap-1 px-1.5 py-1 rounded-md text-slate-700 hover:bg-white hover:text-blue-600 hover:shadow-2xs transition-all text-[11px] font-semibold"
+              title="En Öne Getir (Diğer tüm nesnelerin önüne çıkar | Ctrl+Shift+])"
+            >
+              <BringToFront className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Öne Getir</span>
+            </button>
+            {onBringStepForward && (
+              <button
+                onClick={onBringStepForward}
+                className="p-1 rounded-md text-slate-600 hover:bg-white hover:text-blue-600 hover:shadow-2xs transition-all"
+                title="Bir Katman Öne Getir (Ctrl+])"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onSendStepBackward && (
+              <button
+                onClick={onSendStepBackward}
+                className="p-1 rounded-md text-slate-600 hover:bg-white hover:text-blue-600 hover:shadow-2xs transition-all"
+                title="Bir Katman Arkaya Gönder (Ctrl+[)"
+              >
+                <ArrowDown className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              onClick={onSendBackward}
+              className="flex items-center gap-1 px-1.5 py-1 rounded-md text-slate-700 hover:bg-white hover:text-blue-600 hover:shadow-2xs transition-all text-[11px] font-semibold"
+              title="En Arkaya Gönder (Diğer tüm nesnelerin arkasına at | Ctrl+Shift+[)"
+            >
+              <SendToBack className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Arkaya At</span>
+            </button>
+          </div>
 
           {/* Lock / Unlock */}
           <button

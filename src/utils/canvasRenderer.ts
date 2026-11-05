@@ -450,30 +450,468 @@ export function drawElement(
       const startY = element.y;
       const endX = element.x + w;
       const endY = element.y + h;
+      const dist = Math.hypot(endX - startX, endY - startY);
+      const angle = Math.atan2(endY - startY, endX - startX);
+      const headLength = Math.min(Math.max(14, strokeWidth * 3.8), Math.max(8, dist * 0.65));
+
+      // Stop shaft inside the base of the arrowhead so the rounded cap never protrudes past the tip
+      const shaftEndX = endX - headLength * 0.72 * Math.cos(angle);
+      const shaftEndY = endY - headLength * 0.72 * Math.sin(angle);
 
       ctx.beginPath();
       ctx.moveTo(startX, startY);
-      ctx.lineTo(endX, endY);
+      ctx.lineTo(shaftEndX, shaftEndY);
       ctx.stroke();
 
-      // Arrow head
+      // Crisp sharp arrowhead
       ctx.setLineDash([]);
-      const angle = Math.atan2(endY - startY, endX - startX);
-      const headLength = Math.max(12, strokeWidth * 3.5);
-
       ctx.beginPath();
       ctx.moveTo(endX, endY);
       ctx.lineTo(
-        endX - headLength * Math.cos(angle - Math.PI / 7),
-        endY - headLength * Math.sin(angle - Math.PI / 7)
+        endX - headLength * Math.cos(angle - Math.PI / 6.5),
+        endY - headLength * Math.sin(angle - Math.PI / 6.5)
       );
       ctx.lineTo(
-        endX - headLength * Math.cos(angle + Math.PI / 7),
-        endY - headLength * Math.sin(angle + Math.PI / 7)
+        endX - headLength * Math.cos(angle + Math.PI / 6.5),
+        endY - headLength * Math.sin(angle + Math.PI / 6.5)
       );
       ctx.closePath();
       ctx.fillStyle = color;
       ctx.fill();
+      break;
+    }
+
+    case 'double-arrow': {
+      const w = element.width || 0;
+      const h = element.height || 0;
+      const startX = element.x;
+      const startY = element.y;
+      const endX = element.x + w;
+      const endY = element.y + h;
+      const dist = Math.hypot(endX - startX, endY - startY);
+      const angle = Math.atan2(endY - startY, endX - startX);
+      const headLength = Math.min(Math.max(14, strokeWidth * 3.8), Math.max(8, dist * 0.42));
+
+      const shaftStartX = startX + headLength * 0.72 * Math.cos(angle);
+      const shaftStartY = startY + headLength * 0.72 * Math.sin(angle);
+      const shaftEndX = endX - headLength * 0.72 * Math.cos(angle);
+      const shaftEndY = endY - headLength * 0.72 * Math.sin(angle);
+
+      ctx.beginPath();
+      ctx.moveTo(shaftStartX, shaftStartY);
+      ctx.lineTo(shaftEndX, shaftEndY);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      // End head
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(
+        endX - headLength * Math.cos(angle - Math.PI / 6.5),
+        endY - headLength * Math.sin(angle - Math.PI / 6.5)
+      );
+      ctx.lineTo(
+        endX - headLength * Math.cos(angle + Math.PI / 6.5),
+        endY - headLength * Math.sin(angle + Math.PI / 6.5)
+      );
+      ctx.closePath();
+      ctx.fill();
+
+      // Start head
+      const revAngle = angle + Math.PI;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(
+        startX - headLength * Math.cos(revAngle - Math.PI / 6.5),
+        startY - headLength * Math.sin(revAngle - Math.PI / 6.5)
+      );
+      ctx.lineTo(
+        startX - headLength * Math.cos(revAngle + Math.PI / 6.5),
+        startY - headLength * Math.sin(revAngle + Math.PI / 6.5)
+      );
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+
+    case 'curved-arrow': {
+      const w = element.width || 0;
+      const h = element.height || 0;
+      const startX = element.x;
+      const startY = element.y;
+      const endX = element.x + w;
+      const endY = element.y + h;
+      const ctrlX = startX + w * 0.5 - h * 0.25;
+      const ctrlY = startY + h * 0.5 + w * 0.25;
+      const tangentAngle = Math.atan2(endY - ctrlY, endX - ctrlX);
+      const headLength = Math.max(14, strokeWidth * 3.8);
+
+      const shaftEndX = endX - headLength * 0.72 * Math.cos(tangentAngle);
+      const shaftEndY = endY - headLength * 0.72 * Math.sin(tangentAngle);
+
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.quadraticCurveTo(ctrlX, ctrlY, shaftEndX, shaftEndY);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(
+        endX - headLength * Math.cos(tangentAngle - Math.PI / 6.5),
+        endY - headLength * Math.sin(tangentAngle - Math.PI / 6.5)
+      );
+      ctx.lineTo(
+        endX - headLength * Math.cos(tangentAngle + Math.PI / 6.5),
+        endY - headLength * Math.sin(tangentAngle + Math.PI / 6.5)
+      );
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      break;
+    }
+
+    case 'right-triangle': {
+      const w = element.width || 0;
+      const h = element.height || 0;
+      ctx.beginPath();
+      ctx.moveTo(element.x, element.y);
+      ctx.lineTo(element.x + w, element.y + h);
+      ctx.lineTo(element.x, element.y + h);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'pentagon':
+    case 'hexagon':
+    case 'octagon': {
+      const w = element.width || 0;
+      const h = element.height || 0;
+      const sides = element.type === 'pentagon' ? 5 : element.type === 'hexagon' ? 6 : 8;
+      const elCx = element.x + w / 2;
+      const elCy = element.y + h / 2;
+      const rx = Math.abs(w) / 2;
+      const ry = Math.abs(h) / 2;
+      const startAngle = element.type === 'octagon' ? Math.PI / 8 : -Math.PI / 2;
+
+      ctx.beginPath();
+      for (let i = 0; i < sides; i++) {
+        const a = startAngle + (i * 2 * Math.PI) / sides;
+        const px = elCx + rx * Math.cos(a);
+        const py = elCy + ry * Math.sin(a);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'parallelogram': {
+      const w = element.width || 0;
+      const h = element.height || 0;
+      const skew = w * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(element.x + skew, element.y);
+      ctx.lineTo(element.x + w, element.y);
+      ctx.lineTo(element.x + w - skew, element.y + h);
+      ctx.lineTo(element.x, element.y + h);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'trapezoid': {
+      const w = element.width || 0;
+      const h = element.height || 0;
+      const inset = w * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(element.x + inset, element.y);
+      ctx.lineTo(element.x + w - inset, element.y);
+      ctx.lineTo(element.x + w, element.y + h);
+      ctx.lineTo(element.x, element.y + h);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'cylinder': {
+      const x = Math.min(element.x, element.x + (element.width || 0));
+      const y = Math.min(element.y, element.y + (element.height || 0));
+      const w = Math.abs(element.width || 0);
+      const h = Math.abs(element.height || 0);
+      const rx = Math.max(1, w / 2);
+      const ry = Math.max(1, Math.min(h * 0.18, 28));
+      const elCx = x + rx;
+
+      // Body + bottom cap
+      ctx.beginPath();
+      ctx.ellipse(elCx, y + ry, rx, ry, 0, Math.PI, Math.PI * 2, false);
+      ctx.lineTo(x + w, y + h - ry);
+      ctx.ellipse(elCx, y + h - ry, rx, ry, 0, 0, Math.PI, false);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+
+      // Top lid ellipse
+      ctx.beginPath();
+      ctx.ellipse(elCx, y + ry, rx, ry, 0, 0, Math.PI * 2);
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'document': {
+      const x = element.x;
+      const y = element.y;
+      const w = element.width || 0;
+      const h = element.height || 0;
+      const waveH = h * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w, y);
+      ctx.lineTo(x + w, y + h - waveH);
+      ctx.bezierCurveTo(
+        x + w * 0.7,
+        y + h + waveH,
+        x + w * 0.3,
+        y + h - waveH * 2.5,
+        x,
+        y + h - waveH * 0.5
+      );
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'cloud': {
+      const x = Math.min(element.x, element.x + (element.width || 0));
+      const y = Math.min(element.y, element.y + (element.height || 0));
+      const w = Math.abs(element.width || 0);
+      const h = Math.abs(element.height || 0);
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.25, y + h * 0.8);
+      ctx.bezierCurveTo(x + w * 0.02, y + h * 0.8, x + w * 0.02, y + h * 0.45, x + w * 0.2, y + h * 0.42);
+      ctx.bezierCurveTo(x + w * 0.18, y + h * 0.12, x + w * 0.48, y + h * 0.06, x + w * 0.56, y + h * 0.26);
+      ctx.bezierCurveTo(x + w * 0.72, y + h * 0.08, x + w * 0.94, y + h * 0.24, x + w * 0.88, y + h * 0.48);
+      ctx.bezierCurveTo(x + w * 1.02, y + h * 0.55, x + w * 0.96, y + h * 0.82, x + w * 0.76, y + h * 0.8);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'callout-rect': {
+      const x = Math.min(element.x, element.x + (element.width || 0));
+      const y = Math.min(element.y, element.y + (element.height || 0));
+      const w = Math.abs(element.width || 0);
+      const h = Math.abs(element.height || 0);
+      const bodyH = h * 0.76;
+      const r = Math.min(12, w * 0.1, bodyH * 0.2);
+
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + bodyH - r);
+      ctx.quadraticCurveTo(x + w, y + bodyH, x + w - r, y + bodyH);
+      ctx.lineTo(x + w * 0.44, y + bodyH);
+      ctx.lineTo(x + w * 0.22, y + h);
+      ctx.lineTo(x + w * 0.28, y + bodyH);
+      ctx.lineTo(x + r, y + bodyH);
+      ctx.quadraticCurveTo(x, y + bodyH, x, y + bodyH - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'callout-oval': {
+      const x = Math.min(element.x, element.x + (element.width || 0));
+      const y = Math.min(element.y, element.y + (element.height || 0));
+      const w = Math.abs(element.width || 0);
+      const h = Math.abs(element.height || 0);
+      const rx = Math.max(1, w / 2);
+      const ry = Math.max(1, h * 0.39);
+      const elCx = x + rx;
+      const elCy = y + ry;
+
+      ctx.beginPath();
+      ctx.ellipse(elCx, elCy, rx, ry, 0, Math.PI * 0.72, Math.PI * 0.56, false);
+      ctx.lineTo(x + w * 0.24, y + h);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'block-arrow-right':
+    case 'block-arrow-left':
+    case 'block-arrow-up':
+    case 'block-arrow-down': {
+      const x = Math.min(element.x, element.x + (element.width || 0));
+      const y = Math.min(element.y, element.y + (element.height || 0));
+      const w = Math.abs(element.width || 0);
+      const h = Math.abs(element.height || 0);
+      ctx.beginPath();
+
+      if (element.type === 'block-arrow-right') {
+        const headW = Math.min(w * 0.42, h * 0.85);
+        const shaftY1 = y + h * 0.26;
+        const shaftY2 = y + h * 0.74;
+        ctx.moveTo(x, shaftY1);
+        ctx.lineTo(x + w - headW, shaftY1);
+        ctx.lineTo(x + w - headW, y);
+        ctx.lineTo(x + w, y + h / 2);
+        ctx.lineTo(x + w - headW, y + h);
+        ctx.lineTo(x + w - headW, shaftY2);
+        ctx.lineTo(x, shaftY2);
+      } else if (element.type === 'block-arrow-left') {
+        const headW = Math.min(w * 0.42, h * 0.85);
+        const shaftY1 = y + h * 0.26;
+        const shaftY2 = y + h * 0.74;
+        ctx.moveTo(x + w, shaftY1);
+        ctx.lineTo(x + headW, shaftY1);
+        ctx.lineTo(x + headW, y);
+        ctx.lineTo(x, y + h / 2);
+        ctx.lineTo(x + headW, y + h);
+        ctx.lineTo(x + headW, shaftY2);
+        ctx.lineTo(x + w, shaftY2);
+      } else if (element.type === 'block-arrow-up') {
+        const headH = Math.min(h * 0.42, w * 0.85);
+        const shaftX1 = x + w * 0.26;
+        const shaftX2 = x + w * 0.74;
+        ctx.moveTo(shaftX1, y + h);
+        ctx.lineTo(shaftX1, y + headH);
+        ctx.lineTo(x, y + headH);
+        ctx.lineTo(x + w / 2, y);
+        ctx.lineTo(x + w, y + headH);
+        ctx.lineTo(shaftX2, y + headH);
+        ctx.lineTo(shaftX2, y + h);
+      } else {
+        const headH = Math.min(h * 0.42, w * 0.85);
+        const shaftX1 = x + w * 0.26;
+        const shaftX2 = x + w * 0.74;
+        ctx.moveTo(shaftX1, y);
+        ctx.lineTo(shaftX1, y + h - headH);
+        ctx.lineTo(x, y + h - headH);
+        ctx.lineTo(x + w / 2, y + h);
+        ctx.lineTo(x + w, y + h - headH);
+        ctx.lineTo(shaftX2, y + h - headH);
+        ctx.lineTo(shaftX2, y);
+      }
+
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'heart': {
+      const x = Math.min(element.x, element.x + (element.width || 0));
+      const y = Math.min(element.y, element.y + (element.height || 0));
+      const w = Math.abs(element.width || 0);
+      const h = Math.abs(element.height || 0);
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2, y + h * 0.26);
+      ctx.bezierCurveTo(x + w / 2, y + h * 0.12, x + w * 0.1, y, x, y + h * 0.32);
+      ctx.bezierCurveTo(x - w * 0.04, y + h * 0.62, x + w * 0.35, y + h * 0.82, x + w / 2, y + h);
+      ctx.bezierCurveTo(x + w * 0.65, y + h * 0.82, x + w * 1.04, y + h * 0.62, x + w, y + h * 0.32);
+      ctx.bezierCurveTo(x + w * 0.9, y, x + w / 2, y + h * 0.12, x + w / 2, y + h * 0.26);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'lightning': {
+      const x = Math.min(element.x, element.x + (element.width || 0));
+      const y = Math.min(element.y, element.y + (element.height || 0));
+      const w = Math.abs(element.width || 0);
+      const h = Math.abs(element.height || 0);
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.58, y);
+      ctx.lineTo(x + w * 0.14, y + h * 0.54);
+      ctx.lineTo(x + w * 0.48, y + h * 0.54);
+      ctx.lineTo(x + w * 0.34, y + h);
+      ctx.lineTo(x + w * 0.86, y + h * 0.42);
+      ctx.lineTo(x + w * 0.52, y + h * 0.42);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'cross': {
+      const x = Math.min(element.x, element.x + (element.width || 0));
+      const y = Math.min(element.y, element.y + (element.height || 0));
+      const w = Math.abs(element.width || 0);
+      const h = Math.abs(element.height || 0);
+      const armX = w * 0.33;
+      const armY = h * 0.33;
+      ctx.beginPath();
+      ctx.moveTo(x + armX, y);
+      ctx.lineTo(x + w - armX, y);
+      ctx.lineTo(x + w - armX, y + armY);
+      ctx.lineTo(x + w, y + armY);
+      ctx.lineTo(x + w, y + h - armY);
+      ctx.lineTo(x + w - armX, y + h - armY);
+      ctx.lineTo(x + w - armX, y + h);
+      ctx.lineTo(x + armX, y + h);
+      ctx.lineTo(x + armX, y + h - armY);
+      ctx.lineTo(x, y + h - armY);
+      ctx.lineTo(x, y + armY);
+      ctx.lineTo(x + armX, y + armY);
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+      break;
+    }
+
+    case 'flag': {
+      const x = Math.min(element.x, element.x + (element.width || 0));
+      const y = Math.min(element.y, element.y + (element.height || 0));
+      const w = Math.abs(element.width || 0);
+      const h = Math.abs(element.height || 0);
+      const bannerH = h * 0.62;
+      // Flag pole
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y + h);
+      ctx.stroke();
+      // Waving flag cloth
+      ctx.beginPath();
+      ctx.moveTo(x, y + h * 0.04);
+      ctx.bezierCurveTo(
+        x + w * 0.35,
+        y - h * 0.08,
+        x + w * 0.65,
+        y + h * 0.16,
+        x + w,
+        y + h * 0.04
+      );
+      ctx.lineTo(x + w * 0.86, y + bannerH * 0.52);
+      ctx.lineTo(x + w, y + bannerH);
+      ctx.bezierCurveTo(
+        x + w * 0.65,
+        y + bannerH + h * 0.12,
+        x + w * 0.35,
+        y + bannerH - h * 0.12,
+        x,
+        y + bannerH
+      );
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
       break;
     }
 
@@ -518,17 +956,30 @@ export function drawElement(
 
       // Text inside sticky note
       if (element.text) {
+        const stickyFontSize = element.fontSize || 16;
+        const fontStyle = element.fontStyle === 'italic' ? 'italic ' : '';
+        const fontWeight = element.fontWeight === 'bold' ? '700' : '500';
+        const family = element.fontFamily || 'Plus Jakarta Sans';
         ctx.fillStyle = element.color || '#1e293b';
-        ctx.font = `500 ${element.fontSize || 15}px 'Plus Jakarta Sans', sans-serif`;
+        ctx.font = `${fontStyle}${fontWeight} ${stickyFontSize}px "${family}", sans-serif`;
         ctx.textBaseline = 'top';
+        const align = element.textAlign || 'left';
+        ctx.textAlign = align;
+        const anchorX =
+          align === 'center'
+            ? element.x + w / 2
+            : align === 'right'
+            ? element.x + w - 16
+            : element.x + 16;
         wrapText(
           ctx,
           element.text,
-          element.x + 16,
+          anchorX,
           element.y + 34,
           w - 32,
-          (element.fontSize || 15) * 1.4
+          stickyFontSize * 1.38
         );
+        ctx.textAlign = 'left';
       }
       break;
     }
@@ -536,14 +987,27 @@ export function drawElement(
     case 'text': {
       if (element.text) {
         const fontSize = element.fontSize || 20;
+        const fontStyle = element.fontStyle === 'italic' ? 'italic ' : '';
+        const fontWeight = element.fontWeight === 'bold' ? '700' : '600';
+        const family = element.fontFamily || 'Plus Jakarta Sans';
         ctx.fillStyle = element.color || '#0f172a';
-        ctx.font = `600 ${fontSize}px 'Plus Jakarta Sans', sans-serif`;
+        ctx.font = `${fontStyle}${fontWeight} ${fontSize}px "${family}", sans-serif`;
         ctx.textBaseline = 'top';
+        const align = element.textAlign || 'left';
+        ctx.textAlign = align;
         const lines = element.text.split('\n');
         const lineHeight = fontSize * 1.35;
+        const boxW = bounds.width;
+        const anchorX =
+          align === 'center'
+            ? element.x + boxW / 2
+            : align === 'right'
+            ? element.x + boxW
+            : element.x;
         lines.forEach((line, idx) => {
-          ctx.fillText(line, element.x, element.y + idx * lineHeight);
+          ctx.fillText(line, anchorX, element.y + idx * lineHeight);
         });
+        ctx.textAlign = 'left';
       }
       break;
     }
@@ -886,10 +1350,10 @@ export function isPointInsideElement(p: Point, el: CanvasElement): boolean {
     return false;
   }
 
-  if (el.type === 'line' || el.type === 'arrow') {
+  if (el.type === 'line' || el.type === 'arrow' || el.type === 'double-arrow') {
     const start = { x: el.x, y: el.y };
     const end = { x: el.x + (el.width || 0), y: el.y + (el.height || 0) };
-    return distToSegment(localP, start, end) <= tolerance + 6;
+    return distToSegment(localP, start, end) <= tolerance + 8;
   }
 
   return true;
@@ -1299,8 +1763,37 @@ export function sampleShapeToWorldPoints(el: CanvasElement): { points: Point[]; 
       break;
     }
 
-    default:
+    case 'double-arrow':
+    case 'curved-arrow': {
+      isClosed = false;
+      const p1 = { x: el.x, y: el.y };
+      const p2 = { x: el.x + w, y: el.y + h };
+      sampleLine(p1, p2, 3);
+      rawPts.push(p2);
+      break;
+    }
+
+    default: {
+      // Sample bounding perimeter for extended geometric / flowchart / callout shapes
+      if (Math.abs(w) > 2 && Math.abs(h) > 2) {
+        isClosed = true;
+        const minX = Math.min(el.x, el.x + w);
+        const maxX = Math.max(el.x, el.x + w);
+        const minY = Math.min(el.y, el.y + h);
+        const maxY = Math.max(el.y, el.y + h);
+        const c0 = { x: minX, y: minY };
+        const c1 = { x: maxX, y: minY };
+        const c2 = { x: maxX, y: maxY };
+        const c3 = { x: minX, y: maxY };
+        sampleLine(c0, c1, 4);
+        sampleLine(c1, c2, 4);
+        sampleLine(c2, c3, 4);
+        sampleLine(c3, c0, 4);
+        rawPts.push(c0);
+        break;
+      }
       return null;
+    }
   }
 
   if (rawPts.length === 0) return null;

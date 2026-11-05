@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Play,
   Copy,
@@ -15,7 +15,9 @@ import {
   Loader2,
   Keyboard,
   Layout,
+  Users,
 } from 'lucide-react';
+import { CodeCursorPresence } from '../types';
 
 interface CodeEditorPanelProps {
   roomName: string;
@@ -26,7 +28,15 @@ interface CodeEditorPanelProps {
     language: string;
     lastUpdatedBy: string;
   };
+  codeCursors?: CodeCursorPresence[];
+  currentUserId?: string;
   onUpdateCode: (content: string, language?: string) => void;
+  onCursorMove?: (cursor: {
+    line: number;
+    column: number;
+    selectionStart: number;
+    selectionEnd: number;
+  }) => void;
   onClose: () => void;
 }
 
@@ -185,7 +195,10 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   roomId,
   canEdit = true,
   code,
+  codeCursors = [],
+  currentUserId,
   onUpdateCode,
+  onCursorMove,
   onClose,
 }) => {
   const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
@@ -195,7 +208,70 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [showTemplatesMenu, setShowTemplatesMenu] = useState<boolean>(false);
+  const [localCursor, setLocalCursor] = useState<{ line: number; column: number }>({
+    line: 1,
+    column: 1,
+  });
+  const [scrollOffset, setScrollOffset] = useState<{ top: number; left: number }>({
+    top: 0,
+    left: 0,
+  });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lineGutterRef = useRef<HTMLDivElement>(null);
+  const templatesMenuRef = useRef<HTMLDivElement>(null);
+  const savedSelectionRef = useRef<{ start: number; end: number } | null>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (templatesMenuRef.current && !templatesMenuRef.current.contains(e.target as Node)) {
+        setShowTemplatesMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  // Compute 1-based line and column from character index
+  const computeLineCol = (text: string, index: number) => {
+    const safeIdx = Math.max(0, Math.min(index, text.length));
+    const slice = text.slice(0, safeIdx);
+    const lines = slice.split('\n');
+    return {
+      line: lines.length,
+      column: lines[lines.length - 1].length + 1,
+    };
+  };
+
+  const broadcastCurrentSelection = (el: HTMLTextAreaElement, textOverride?: string) => {
+    const text = textOverride !== undefined ? textOverride : el.value;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? start;
+    savedSelectionRef.current = { start, end };
+    const { line, column } = computeLineCol(text, start);
+    setLocalCursor({ line, column });
+    if (onCursorMove) {
+      onCursorMove({
+        line,
+        column,
+        selectionStart: start,
+        selectionEnd: end,
+      });
+    }
+  };
+
+  // Preserve local cursor position when remote code updates arrive
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el || document.activeElement !== el || !savedSelectionRef.current) return;
+    const { start, end } = savedSelectionRef.current;
+    const maxLen = code.content.length;
+    requestAnimationFrame(() => {
+      try {
+        el.setSelectionRange(Math.min(start, maxLen), Math.min(end, maxLen));
+      } catch {}
+    });
+  }, [code.content]);
 
   // Client-side fallback compiler (used if hosted on static GitHub Pages without Node backend)
   const executeClientFallback = async (
@@ -409,15 +485,17 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   };
 
   // Generate line numbers
-  const linesCount = code.content.split('\n').length;
+  const codeLines = code.content.split('\n');
+  const linesCount = codeLines.length;
   const lineNumbers = Array.from({ length: Math.max(linesCount, 1) }, (_, i) => i + 1);
+  const remoteCursors = codeCursors.filter((c) => c.userId !== currentUserId);
 
   return (
     <div
       className={`fixed z-30 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${
         isFullscreen
           ? 'inset-6'
-          : 'top-16 right-4 bottom-6 w-[620px] max-w-[calc(100vw-32px)]'
+          : 'top-16 right-4 bottom-6 w-[660px] max-w-[calc(100vw-32px)]'
       }`}
     >
       {/* Editor Header */}
@@ -437,7 +515,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
           )}
           {code.lastUpdatedBy && (
             <span className="text-slate-500 text-[11px] hidden sm:inline truncate">
-              · <strong className="text-slate-400">{code.lastUpdatedBy}</strong>
+              · Son yazan: <strong className="text-slate-300">{code.lastUpdatedBy}</strong>
             </span>
           )}
         </div>
@@ -495,30 +573,167 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
         </div>
       </div>
 
+      {/* Live Multi-User Collaborator Cursor Bar */}
+      <div className="bg-slate-900/90 border-b border-slate-800/80 px-4 py-1.5 flex items-center justify-between gap-2 text-[11px] select-none shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="flex items-center gap-1 text-slate-400 font-medium">
+            <Users className="w-3.5 h-3.5 text-blue-400" />
+            <span>Ortak Düzenleme:</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800 text-slate-200 font-mono text-[10px] border border-slate-700">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Siz · Satır {localCursor.line}, Sütun {localCursor.column}
+          </span>
+          {remoteCursors.length > 0 ? (
+            remoteCursors.map((rc) => (
+              <button
+                key={rc.userId}
+                type="button"
+                onClick={() => {
+                  const el = textareaRef.current;
+                  if (!el) return;
+                  el.focus();
+                  const targetPos = Math.min(rc.selectionStart, code.content.length);
+                  el.setSelectionRange(targetPos, targetPos);
+                }}
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[10px] font-semibold text-white shadow-xs transition-transform hover:scale-105"
+                style={{
+                  backgroundColor: `${rc.userColor}28`,
+                  border: `1px solid ${rc.userColor}`,
+                  color: '#f8fafc',
+                }}
+                title={`${rc.userName} kullanıcısının imlecine git (Satır ${rc.line}, Sütun ${rc.column})`}
+              >
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: rc.userColor }}
+                />
+                <span>{rc.userName}</span>
+                <span className="opacity-80">
+                  · Satır {rc.line}:{rc.column}
+                </span>
+              </button>
+            ))
+          ) : (
+            <span className="text-slate-500 text-[10px]">
+              Odadaki diğer kullanıcılar kod yazdığında canlı imleçleri burada görünür
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Main Split Body: Code Editor + Optional Live HTML Preview */}
-      <div className="flex-1 flex overflow-hidden bg-slate-900">
-        {/* Line Numbers */}
-        <div className="w-12 py-3 bg-slate-950/40 text-slate-600 font-mono text-xs select-none text-right pr-3 shrink-0 overflow-hidden">
-          {lineNumbers.map((num) => (
-            <div key={num} className="leading-6">
-              {num}
-            </div>
-          ))}
+      <div className="flex-1 flex overflow-hidden bg-slate-900 relative">
+        {/* Line Numbers Gutter */}
+        <div
+          ref={lineGutterRef}
+          className="w-14 py-3 bg-slate-950/60 text-slate-600 font-mono text-xs select-none text-right pr-3 shrink-0 overflow-hidden border-r border-slate-800/60"
+        >
+          {lineNumbers.map((num) => {
+            const peerOnLine = remoteCursors.find((c) => c.line === num);
+            const isLocalLine = localCursor.line === num;
+            return (
+              <div
+                key={num}
+                className={`leading-6 relative flex items-center justify-end gap-1 ${
+                  isLocalLine ? 'text-slate-200 font-bold' : ''
+                }`}
+                style={
+                  peerOnLine
+                    ? {
+                        color: peerOnLine.userColor,
+                        fontWeight: 700,
+                      }
+                    : undefined
+                }
+              >
+                {peerOnLine && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: peerOnLine.userColor }}
+                    title={`${peerOnLine.userName} (Satır ${num})`}
+                  />
+                )}
+                <span>{num}</span>
+              </div>
+            );
+          })}
         </div>
 
-        {/* Code Text Area */}
-        <textarea
-          ref={textareaRef}
-          value={code.content}
-          readOnly={!canEdit}
-          onKeyDown={handleTextareaKeyDown}
-          onChange={(e) => {
-            if (canEdit) onUpdateCode(e.target.value, code.language);
-          }}
-          spellCheck={false}
-          className="flex-1 p-3 bg-transparent text-emerald-400 font-mono text-xs leading-6 outline-none resize-none overflow-y-auto selection:bg-blue-600/40 select-text"
-          placeholder="// Bu odaya özel ortak kod alanına kodunuzu yazın ve Derle & Çalıştır (Ctrl+Enter) butonuna tıklayın..."
-        />
+        {/* Code Text Area + Live Remote Cursors Overlay */}
+        <div className="flex-1 relative overflow-hidden flex">
+          {/* Remote Active Line Highlights & Cursor Carets Overlay */}
+          <div
+            className="absolute inset-0 pointer-events-none overflow-hidden z-10"
+            aria-hidden="true"
+          >
+            {remoteCursors.map((rc) => {
+              const lineIdx = Math.max(0, rc.line - 1);
+              const colIdx = Math.max(0, rc.column - 1);
+              const topPx = 12 + lineIdx * 24 - scrollOffset.top;
+              const leftPx = 12 + colIdx * 7.22 - scrollOffset.left;
+
+              return (
+                <React.Fragment key={rc.userId}>
+                  {/* Remote User Active Line Highlight */}
+                  <div
+                    className="absolute left-0 right-0 h-6 transition-all duration-75"
+                    style={{
+                      top: `${topPx}px`,
+                      backgroundColor: `${rc.userColor}18`,
+                      borderLeft: `3px solid ${rc.userColor}`,
+                    }}
+                  />
+                  {/* Remote User Blinking Caret & Floating Name Badge */}
+                  <div
+                    className="absolute transition-all duration-75"
+                    style={{
+                      top: `${topPx}px`,
+                      left: `${Math.max(8, leftPx)}px`,
+                    }}
+                  >
+                    <div
+                      className="w-0.5 h-6 animate-pulse shadow-sm"
+                      style={{ backgroundColor: rc.userColor }}
+                    />
+                    <div
+                      className="absolute -top-4 left-0 px-1.5 py-0.2 rounded text-[9px] font-bold text-white whitespace-nowrap shadow-md"
+                      style={{ backgroundColor: rc.userColor }}
+                    >
+                      {rc.userName} ({rc.line}:{rc.column})
+                    </div>
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          <textarea
+            ref={textareaRef}
+            value={code.content}
+            readOnly={!canEdit}
+            onKeyDown={handleTextareaKeyDown}
+            onKeyUp={(e) => broadcastCurrentSelection(e.currentTarget)}
+            onClick={(e) => broadcastCurrentSelection(e.currentTarget)}
+            onSelect={(e) => broadcastCurrentSelection(e.currentTarget)}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              setScrollOffset({ top: target.scrollTop, left: target.scrollLeft });
+              if (lineGutterRef.current) {
+                lineGutterRef.current.scrollTop = target.scrollTop;
+              }
+            }}
+            onChange={(e) => {
+              const nextVal = e.target.value;
+              broadcastCurrentSelection(e.currentTarget, nextVal);
+              if (canEdit) onUpdateCode(nextVal, code.language);
+            }}
+            spellCheck={false}
+            wrap="off"
+            className="flex-1 p-3 bg-transparent text-emerald-400 font-mono text-xs leading-6 outline-none resize-none overflow-auto selection:bg-blue-600/40 select-text relative z-20"
+            placeholder="// Bu odaya özel ortak kod alanına kodunuzu yazın ve Derle & Çalıştır (Ctrl+Enter) butonuna tıklayın..."
+          />
+        </div>
 
         {/* Live HTML/CSS Preview Pane */}
         {code.language === 'html' && showHtmlPreview && (
@@ -653,27 +868,49 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             <span>Girdi (stdin)</span>
           </button>
 
-          {/* Multi-Language Templates Dropdown */}
+          {/* Multi-Language Templates Dropdown (Click + Seamless Hover Bridge) */}
           {canEdit && (
-            <div className="relative group">
-              <button className="flex items-center gap-1 px-2.5 py-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors">
+            <div
+              ref={templatesMenuRef}
+              className="relative"
+              onMouseEnter={() => setShowTemplatesMenu(true)}
+              onMouseLeave={() => setShowTemplatesMenu(false)}
+            >
+              <button
+                type="button"
+                onClick={() => setShowTemplatesMenu((v) => !v)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-colors ${
+                  showTemplatesMenu
+                    ? 'bg-slate-800 text-amber-300 border border-amber-500/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+              >
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                 <span>Örnek Kodlar</span>
               </button>
-              <div className="absolute bottom-full mb-2 left-0 hidden group-hover:flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 w-64 z-50">
-                {CODE_TEMPLATES.map((tmpl, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      onUpdateCode(tmpl.code, tmpl.language);
-                      if (tmpl.language === 'html') setShowHtmlPreview(true);
-                    }}
-                    className="px-2.5 py-1.5 text-left text-xs text-slate-300 hover:bg-slate-800 rounded-lg transition-colors"
-                  >
-                    {tmpl.name}
-                  </button>
-                ))}
-              </div>
+              {showTemplatesMenu && (
+                <div className="absolute bottom-full pb-2 left-0 z-50">
+                  <div className="flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 w-64">
+                    <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 mb-1">
+                      Hazır Kod Şablonları
+                    </div>
+                    {CODE_TEMPLATES.map((tmpl, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          onUpdateCode(tmpl.code, tmpl.language);
+                          if (tmpl.language === 'html') setShowHtmlPreview(true);
+                          setShowTemplatesMenu(false);
+                        }}
+                        className="px-2.5 py-1.5 text-left text-xs text-slate-200 hover:bg-blue-600/25 hover:text-white rounded-lg transition-colors"
+                      >
+                        {tmpl.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -3,6 +3,7 @@ import mqtt, { MqttClient } from 'mqtt';
 import {
   CanvasElement,
   ChatMessage,
+  CodeCursorPresence,
   LaserStrokePoint,
   Point,
   RoomSettings,
@@ -124,6 +125,7 @@ export function useWebSocket({
   const [pings, setPings] = useState<UserPing[]>([]);
   const [reactions, setReactions] = useState<UserReaction[]>([]);
   const [remoteLaserPoints, setRemoteLaserPoints] = useState<LaserStrokePoint[]>([]);
+  const [codeCursors, setCodeCursors] = useState<CodeCursorPresence[]>([]);
 
   // Refs to latest state so mesh welcome responder always sends fresh room state
   const elementsRef = useRef<CanvasElement[]>(elements);
@@ -451,6 +453,7 @@ export function useWebSocket({
             if (!msg.userId || msg.userId === userRef.current.id) break;
             peerLastSeenRef.current.delete(msg.userId);
             setUsers((prev) => prev.filter((u) => u.id !== msg.userId));
+            setCodeCursors((prev) => prev.filter((c) => c.userId !== msg.userId));
             break;
           }
 
@@ -618,6 +621,7 @@ export function useWebSocket({
 
           case 'user-left': {
             setUsers((prev) => prev.filter((u) => u.id !== msg.userId));
+            setCodeCursors((prev) => prev.filter((c) => c.userId !== msg.userId));
             break;
           }
 
@@ -748,6 +752,27 @@ export function useWebSocket({
                 lastUpdatedBy: msg.userName || 'Kullanıcı',
               }));
             }
+            break;
+          }
+
+          case 'code-cursor-moved':
+          case 'code-cursor-move': {
+            const uid = msg.userId || msg._senderId;
+            if (!uid || uid === userRef.current.id) break;
+            const cursorEntry: CodeCursorPresence = {
+              userId: uid,
+              userName: msg.userName || 'Kullanıcı',
+              userColor: msg.userColor || '#3b82f6',
+              line: typeof msg.line === 'number' ? msg.line : 1,
+              column: typeof msg.column === 'number' ? msg.column : 1,
+              selectionStart: typeof msg.selectionStart === 'number' ? msg.selectionStart : 0,
+              selectionEnd: typeof msg.selectionEnd === 'number' ? msg.selectionEnd : 0,
+              updatedAt: Date.now(),
+            };
+            setCodeCursors((prev) => {
+              const others = prev.filter((c) => c.userId !== uid);
+              return [...others, cursorEntry];
+            });
             break;
           }
 
@@ -1225,6 +1250,7 @@ export function useWebSocket({
       setPings((prev) => prev.filter((p) => now - p.timestamp < 3600));
       setReactions((prev) => prev.filter((r) => now - r.timestamp < 2600));
       setRemoteLaserPoints((prev) => prev.filter((lp) => now - lp.time < 1300));
+      setCodeCursors((prev) => prev.filter((cc) => now - cc.updatedAt < 45000));
     }, 500);
     return () => clearInterval(timer);
   }, []);
@@ -1452,6 +1478,19 @@ export function useWebSocket({
     [sendMessage, code.language, canEdit]
   );
 
+  const sendCodeCursor = useCallback(
+    (cursor: { line: number; column: number; selectionStart: number; selectionEnd: number }) => {
+      sendMessage({
+        type: 'code-cursor-move',
+        userId: userRef.current.id,
+        userName: userRef.current.name,
+        userColor: userRef.current.color,
+        ...cursor,
+      });
+    },
+    [sendMessage]
+  );
+
   const updateNotes = useCallback(
     (newContent: string) => {
       if (!canEdit) return;
@@ -1670,6 +1709,7 @@ export function useWebSocket({
     pings,
     reactions,
     remoteLaserPoints,
+    codeCursors,
     requestRoomsList,
     updateRoomSettings,
     updateUserRole,
@@ -1684,6 +1724,7 @@ export function useWebSocket({
     clearElements,
     loadTemplate,
     updateCode,
+    sendCodeCursor,
     updateNotes,
     sendChatMessage,
     uploadFile,

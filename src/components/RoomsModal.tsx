@@ -15,7 +15,6 @@ import {
   X,
   ArrowRight,
   RefreshCw,
-  Globe,
   Cloud,
   LogIn,
   LogOut,
@@ -24,7 +23,6 @@ import {
   Maximize2,
   Smartphone,
   ImagePlus,
-  Link2,
   Sparkles,
 } from 'lucide-react';
 import {
@@ -129,31 +127,11 @@ export function decodeRoomSnapshot(encoded: string): {
 
 export function getShareableRoomUrl(roomId: string, options?: ShareUrlOptions): string {
   try {
-    const isDevHost = window.location.hostname.startsWith('ais-dev-');
-    const defaultMode: ShareLinkTargetMode = isDevHost ? 'shared' : 'current';
-    const savedMode =
-      options?.targetMode ||
-      (localStorage.getItem('collab_share_target_mode') as ShareLinkTargetMode) ||
-      defaultMode;
-
-    let url: URL;
-
-    if (savedMode === 'custom' && options?.customBaseUrl?.trim()) {
-      const base = options.customBaseUrl.trim();
-      const normalized =
-        base.startsWith('http://') || base.startsWith('https://') ? base : `https://${base}`;
-      url = new URL(normalized);
-    } else if (savedMode === 'shared' || isDevHost) {
-      // In AI Studio, ensure ais-pre- hostname is used so non-developer participants can join freely without auth errors
-      url = new URL(window.location.origin + window.location.pathname);
-      if (url.hostname.startsWith('ais-dev-')) {
-        url.hostname = url.hostname.replace(/^ais-dev-/, 'ais-pre-');
-      }
-    } else {
-      url = new URL(window.location.origin + window.location.pathname);
+    const url = new URL(window.location.origin + window.location.pathname);
+    if (url.hostname.startsWith('ais-dev-')) {
+      url.hostname = url.hostname.replace(/^ais-dev-/, 'ais-pre-');
     }
 
-    // Clean any hash that might have been copied from previous route
     url.hash = '';
 
     const cleanRoomId = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'ana-oda';
@@ -248,31 +226,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // Multi-device Share Link & QR Code state
-  const [customBaseUrl, setCustomBaseUrl] = useState<string>(() => {
-    try {
-      return localStorage.getItem('collab_public_base_url') || '';
-    } catch {
-      return '';
-    }
-  });
-  const [targetMode, setTargetMode] = useState<ShareLinkTargetMode>(() => {
-    try {
-      const isDevHost = window.location.hostname.startsWith('ais-dev-');
-      const savedMode = localStorage.getItem('collab_share_target_mode') as ShareLinkTargetMode;
-      if (savedMode === 'shared' || savedMode === 'custom' || savedMode === 'current') {
-        return savedMode;
-      }
-      return isDevHost ? 'shared' : 'current';
-    } catch {
-      return window.location.hostname.startsWith('ais-dev-') ? 'shared' : 'current';
-    }
-  });
   const [includeSnapshot, setIncludeSnapshot] = useState<boolean>(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [qrFullscreenDataUrl, setQrFullscreenDataUrl] = useState<string>('');
   const [isQrFullscreen, setIsQrFullscreen] = useState<boolean>(false);
-  const [savedCustomUrlNotice, setSavedCustomUrlNotice] = useState<boolean>(false);
 
   useEffect(() => {
     onRefreshRooms();
@@ -281,26 +238,6 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   useEffect(() => {
     setEditingRoomName(currentRoomName);
   }, [currentRoomName]);
-
-  const handleSaveTargetMode = (mode: ShareLinkTargetMode) => {
-    setTargetMode(mode);
-    try {
-      localStorage.setItem('collab_share_target_mode', mode);
-    } catch {}
-  };
-
-  const handleSaveCustomBaseUrl = (val: string) => {
-    setCustomBaseUrl(val);
-    try {
-      localStorage.setItem('collab_public_base_url', val.trim());
-      if (val.trim()) {
-        localStorage.setItem('collab_share_target_mode', 'custom');
-        setTargetMode('custom');
-      }
-      setSavedCustomUrlNotice(true);
-      setTimeout(() => setSavedCustomUrlNotice(false), 2000);
-    } catch {}
-  };
 
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
@@ -316,23 +253,19 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   const shareUrl = useMemo(() => {
     return getShareableRoomUrl(currentRoomId, {
       roomName: currentRoomName,
-      targetMode,
-      customBaseUrl,
       includeSnapshot,
       elements,
       code,
     });
-  }, [currentRoomId, currentRoomName, targetMode, customBaseUrl, includeSnapshot, elements, code]);
+  }, [currentRoomId, currentRoomName, includeSnapshot, elements, code]);
 
   // Compact URL specifically optimized for instant QR Code camera scanning
   const qrTargetUrl = useMemo(() => {
     return getShareableRoomUrl(currentRoomId, {
       roomName: currentRoomName,
-      targetMode,
-      customBaseUrl,
       includeSnapshot: false,
     });
-  }, [currentRoomId, currentRoomName, targetMode, customBaseUrl]);
+  }, [currentRoomId, currentRoomName]);
 
   // Generate crisp QR Code whenever qrTargetUrl changes
   useEffect(() => {
@@ -961,105 +894,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
             </div>
 
-            {/* Section 2: Multi-Device Link Target Selector (Fixes Cross-Device 403 / 404 issues) */}
+            {/* Section 2: Direct Room Invite Link & Room Code Copy */}
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-                  <Link2 className="w-4 h-4 text-blue-600" />
-                  <span>Başka Cihazlar İçin Hedef Bağlantı Türü Seçimi (403 / 404 Çözümü)</span>
-                </div>
-                <span className="text-[10px] font-mono text-slate-500">
-                  QR Kod & Link Otomatik Güncellenir
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleSaveTargetMode('shared')}
-                  className={`p-2.5 rounded-xl border text-left transition-all ${
-                    targetMode === 'shared'
-                      ? 'border-blue-600 bg-blue-50/70 text-blue-950 shadow-2xs'
-                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="text-xs font-bold flex items-center justify-between">
-                    <span>1. Paylaşılan Link</span>
-                    {targetMode === 'shared' && <Check className="w-3.5 h-3.5 text-blue-600" />}
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                    403 hatasını önleyen genel uygulama adresi (<code className="font-mono">ais-pre</code>).
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSaveTargetMode('custom')}
-                  className={`p-2.5 rounded-xl border text-left transition-all ${
-                    targetMode === 'custom'
-                      ? 'border-blue-600 bg-blue-50/70 text-blue-950 shadow-2xs'
-                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="text-xs font-bold flex items-center justify-between">
-                    <span>2. GitHub Pages / Özel</span>
-                    {targetMode === 'custom' && <Check className="w-3.5 h-3.5 text-blue-600" />}
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                    Kendi GitHub Pages veya Firebase Hosting adresiniz.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSaveTargetMode('current')}
-                  className={`p-2.5 rounded-xl border text-left transition-all ${
-                    targetMode === 'current'
-                      ? 'border-blue-600 bg-blue-50/70 text-blue-950 shadow-2xs'
-                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="text-xs font-bold flex items-center justify-between">
-                    <span>3. Mevcut Tarayıcı</span>
-                    {targetMode === 'current' && <Check className="w-3.5 h-3.5 text-blue-600" />}
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                    Şu an açık olan adres çubuğu (<code className="font-mono">{window.location.hostname.slice(0, 18)}</code>).
-                  </p>
-                </button>
-              </div>
-
-              {/* Custom Domain Input when 'custom' is selected */}
-              {targetMode === 'custom' && (
-                <div className="p-3 rounded-xl bg-white border border-blue-200 space-y-2">
-                  <label className="block text-[11px] font-bold text-slate-800">
-                    Yayınladığınız GitHub Pages / Firebase / Özel Site Adresiniz:
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="url"
-                      value={customBaseUrl}
-                      onChange={(e) => handleSaveCustomBaseUrl(e.target.value)}
-                      placeholder="Örn: https://kullaniciadiniz.github.io/collabboard/"
-                      className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-mono text-slate-800 focus:outline-hidden focus:border-blue-600"
-                    />
-                    {savedCustomUrlNotice && (
-                      <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1 shrink-0">
-                        <Check className="w-3.5 h-3.5" />
-                        Kaydedildi
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500">
-                    Buraya GitHub Pages veya Firebase Hosting adresinizi yazdığınızda hem{' '}
-                    <strong>Davet Linki</strong> hem de <strong>QR Kod</strong> tüm telefon ve
-                    bilgisayarlarda doğrudan bu adresi açar.
-                  </p>
-                </div>
-              )}
-
               {/* Option to embed live room snapshot directly into the invite link */}
-              <div className="pt-1 flex items-center justify-between gap-3 border-t border-slate-200/80">
+              <div className="flex items-center justify-between gap-3 pb-2 border-b border-slate-200/80">
                 <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700">
                   <input
                     type="checkbox"
@@ -1201,31 +1039,6 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                   )}
                 </div>
               </div>
-            </div>
-
-            {/* Section 4: Why Links Fail on Other Devices & How to Host Guide */}
-            <div className="p-4 rounded-xl bg-slate-900 text-slate-100 border border-slate-800 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <Globe className="w-4 h-4 text-blue-400 shrink-0" />
-                <span>Başka Cihazdan Girerken Neden 403 / 404 Alınır ve Nasıl Çözülür?</span>
-              </div>
-              <ul className="text-xs text-slate-300 space-y-1.5 list-disc pl-4 leading-relaxed">
-                <li>
-                  <strong>1. Çözüm (AI Studio Üzerinden):</strong> Sağ üstteki{' '}
-                  <strong className="text-white">Share (Paylaş)</strong> butonuna tıklayıp{' '}
-                  <strong className="text-emerald-400">Public (Herkese Açık)</strong> seçeneğini
-                  açtığınızda yukarıdaki <em>1. Paylaşılan Link (ais-pre)</em> ve <em>QR Kod</em> tüm
-                  cihazlarda anında açılır.
-                </li>
-                <li>
-                  <strong>2. Çözüm (AI Studio Olmadan GitHub Pages / Firebase Hosting):</strong> Projeyi
-                  GitHub deponuza yüklediğinizde otomatik olarak{' '}
-                  <code className="text-blue-300 font-mono">https://kullanici.github.io/depo-adi/</code>{' '}
-                  adresinde yayınlanır. Bu adresi yukarıdaki{' '}
-                  <strong className="text-white">2. GitHub Pages / Özel</strong> kutusuna
-                  yapıştırdığınızda üretilen QR Kod ve davet linkleri tamamen bağımsız çalışır.
-                </li>
-              </ul>
             </div>
           </div>
         )}

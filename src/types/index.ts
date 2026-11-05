@@ -1,3 +1,62 @@
+export type ShapeElementType =
+  | 'rectangle'
+  | 'rounded-rect'
+  | 'circle'
+  | 'diamond'
+  | 'triangle'
+  | 'right-triangle'
+  | 'pentagon'
+  | 'hexagon'
+  | 'octagon'
+  | 'star'
+  | 'cylinder'
+  | 'parallelogram'
+  | 'trapezoid'
+  | 'document'
+  | 'cloud'
+  | 'callout-rect'
+  | 'callout-oval'
+  | 'block-arrow-right'
+  | 'block-arrow-left'
+  | 'block-arrow-up'
+  | 'block-arrow-down'
+  | 'double-arrow'
+  | 'curved-arrow'
+  | 'heart'
+  | 'lightning'
+  | 'cross'
+  | 'flag';
+
+export const ALL_SHAPE_TYPES: ShapeElementType[] = [
+  'rectangle',
+  'rounded-rect',
+  'circle',
+  'diamond',
+  'triangle',
+  'right-triangle',
+  'pentagon',
+  'hexagon',
+  'octagon',
+  'star',
+  'cylinder',
+  'parallelogram',
+  'trapezoid',
+  'document',
+  'cloud',
+  'callout-rect',
+  'callout-oval',
+  'block-arrow-right',
+  'block-arrow-left',
+  'block-arrow-up',
+  'block-arrow-down',
+  'double-arrow',
+  'curved-arrow',
+  'heart',
+  'lightning',
+  'cross',
+  'flag',
+];
+
 export type ToolType =
   | 'select'
   | 'pencil'
@@ -5,12 +64,7 @@ export type ToolType =
   | 'eraser'
   | 'point-eraser'
   | 'ping'
-  | 'rectangle'
-  | 'rounded-rect'
-  | 'circle'
-  | 'diamond'
-  | 'triangle'
-  | 'star'
+  | ShapeElementType
   | 'arrow'
   | 'line'
   | 'sticky'
@@ -27,6 +81,20 @@ export interface Point {
 export type StrokeStyle = 'solid' | 'dashed' | 'dotted';
 
 export type UserRole = 'owner' | 'admin' | 'editor' | 'viewer';
+
+export type ThemeMode = 'light' | 'dark' | 'midnight' | 'sepia';
+
+export interface AppSettings {
+  theme: ThemeMode;
+  gridStyle: 'dots' | 'grid' | 'none';
+  selectionMode: 'intersect' | 'contain';
+  showToolbar: boolean;
+  showStyleBar: boolean;
+  showVoiceBar: boolean;
+  soundEffectsEnabled: boolean;
+  showRemoteCursors: boolean;
+  autoSmoothFreehand: boolean;
+}
 
 export interface RoomSettings {
   isLocked: boolean;
@@ -58,12 +126,7 @@ export interface CanvasElement {
   type:
     | 'pencil'
     | 'highlighter'
-    | 'rectangle'
-    | 'rounded-rect'
-    | 'circle'
-    | 'diamond'
-    | 'triangle'
-    | 'star'
+    | ShapeElementType
     | 'arrow'
     | 'line'
     | 'text'
@@ -83,6 +146,9 @@ export interface CanvasElement {
   opacity?: number;
   text?: string;
   fontSize?: number;
+  fontFamily?: string;
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
   textAlign?: 'left' | 'center' | 'right';
   imageUrl?: string;
   pdfUrl?: string;
@@ -99,6 +165,79 @@ export interface CanvasElement {
   flipY?: boolean;
   isLocked?: boolean;
   createdBy: string;
+  updatedAt: number;
+}
+
+export interface FontFamilyOption {
+  id: string;
+  label: string;
+  category: string;
+  cssFamily: string;
+}
+
+export const GOOGLE_FONT_FAMILIES: FontFamilyOption[] = [
+  {
+    id: 'Plus Jakarta Sans',
+    label: 'Plus Jakarta Sans',
+    category: 'Modern Sans',
+    cssFamily: "'Plus Jakarta Sans', sans-serif",
+  },
+  {
+    id: 'Playfair Display',
+    label: 'Playfair Display',
+    category: 'Klasik Serif',
+    cssFamily: "'Playfair Display', serif",
+  },
+  {
+    id: 'Caveat',
+    label: 'Caveat',
+    category: 'El Yazısı',
+    cssFamily: "'Caveat', cursive",
+  },
+  {
+    id: 'Dancing Script',
+    label: 'Dancing Script',
+    category: 'Kaligrafik',
+    cssFamily: "'Dancing Script', cursive",
+  },
+  {
+    id: 'Space Grotesk',
+    label: 'Space Grotesk',
+    category: 'Teknik / Geometrik',
+    cssFamily: "'Space Grotesk', sans-serif",
+  },
+  {
+    id: 'Oswald',
+    label: 'Oswald',
+    category: 'Poster / Başlık',
+    cssFamily: "'Oswald', sans-serif",
+  },
+  {
+    id: 'Merriweather',
+    label: 'Merriweather',
+    category: 'Kitap / Editoryal',
+    cssFamily: "'Merriweather', serif",
+  },
+  {
+    id: 'JetBrains Mono',
+    label: 'JetBrains Mono',
+    category: 'Kod / Monospace',
+    cssFamily: "'JetBrains Mono', monospace",
+  },
+];
+
+export const TEXT_FONT_SIZES: number[] = [
+  12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72, 96,
+];
+
+export interface CodeCursorPresence {
+  userId: string;
+  userName: string;
+  userColor: string;
+  line: number;
+  column: number;
+  selectionStart: number;
+  selectionEnd: number;
   updatedAt: number;
 }
 
