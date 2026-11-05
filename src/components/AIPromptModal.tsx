@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Sparkles,
   Wand2,
@@ -8,9 +8,15 @@ import {
   Shapes,
   Image as ImageIcon,
   Sliders,
-  Timer,
   Brain,
   Info,
+  KeyRound,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  Gauge,
+  RotateCcw,
+  ShieldCheck,
 } from 'lucide-react';
 import { CanvasElement } from '../types';
 
@@ -23,8 +29,29 @@ interface AIPromptModalProps {
 }
 
 export type GenerationMode = 'vector' | 'image';
-
+export type QuotaSourceMode = 'app_default' | 'user_aistudio';
 export type ThinkingStageId = 'quick' | 'standard' | 'detailed' | 'masterpiece';
+
+export interface QuotaBucketStatus {
+  used: number;
+  limit: number;
+  remaining: number;
+  resetAt: number;
+  available: boolean;
+}
+
+export interface ClientQuotaResponse {
+  appDefault: QuotaBucketStatus;
+  userAiStudio: QuotaBucketStatus & { hasDedicatedUserKey: boolean };
+}
+
+export interface StructuredAIError {
+  message: string;
+  code: string;
+  retryable: boolean;
+  suggestion: string;
+  attemptsMade: number;
+}
 
 export interface ThinkingStage {
   id: ThinkingStageId;
@@ -184,238 +211,20 @@ const QUICK_PROMPTS: QuickPrompt[] = [
   },
 ];
 
-function buildStaticHostStickerFallback(
-  prompt: string,
-  centerX: number,
-  centerY: number,
-  author: string
-): CanvasElement {
-  const safeLabel = prompt.slice(0, 32).replace(/[<>&"']/g, '');
-  const svg = `<svg viewBox="0 0 360 360" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#3b82f6"/>
-        <stop offset="100%" stop-color="#7c3aed"/>
-      </linearGradient>
-    </defs>
-    <rect x="30" y="30" width="300" height="300" rx="48" fill="url(#g)" stroke="#1e293b" stroke-width="6"/>
-    <circle cx="180" cy="155" r="64" fill="#ffffff" opacity="0.22"/>
-    <polygon points="180,95 198,136 242,140 208,170 218,214 180,190 142,214 152,170 118,140 162,136" fill="#facc15" stroke="#ca8a04" stroke-width="4"/>
-    <text x="180" y="275" text-anchor="middle" font-family="Plus Jakarta Sans, sans-serif" font-weight="700" font-size="20" fill="#ffffff">${safeLabel}</text>
-  </svg>`;
-  const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  return {
-    id: `ai-img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    type: 'image',
-    x: centerX - 150,
-    y: centerY - 150,
-    width: 300,
-    height: 300,
-    imageUrl: dataUrl,
-    createdBy: author,
-    updatedAt: Date.now(),
-  };
-}
+const CLIENT_ID_STORAGE_KEY = 'collabboard_ai_client_id';
+const QUOTA_SOURCE_STORAGE_KEY = 'collabboard_ai_quota_source';
+const QUOTA_CONFIRMED_STORAGE_KEY = 'collabboard_ai_quota_confirmed';
 
-function buildStaticHostVectorFallback(
-  prompt: string,
-  centerX: number,
-  centerY: number,
-  author: string
-): CanvasElement[] {
-  const lower = prompt.toLowerCase();
-  const now = Date.now();
-  const mkId = (i: number) => `ai-vec-${now}-${i}`;
-
-  if (lower.includes('elma') || lower.includes('apple')) {
-    return [
-      {
-        id: mkId(1),
-        type: 'circle',
-        x: centerX - 95,
-        y: centerY - 60,
-        width: 130,
-        height: 150,
-        color: '#991b1b',
-        fillColor: '#ef4444',
-        strokeWidth: 3,
-        createdBy: author,
-        updatedAt: now,
-      },
-      {
-        id: mkId(2),
-        type: 'circle',
-        x: centerX - 35,
-        y: centerY - 60,
-        width: 130,
-        height: 150,
-        color: '#991b1b',
-        fillColor: '#dc2626',
-        strokeWidth: 3,
-        createdBy: author,
-        updatedAt: now,
-      },
-      {
-        id: mkId(3),
-        type: 'line',
-        x: centerX,
-        y: centerY - 95,
-        points: [
-          { x: centerX, y: centerY - 50 },
-          { x: centerX + 12, y: centerY - 100 },
-        ],
-        color: '#78350f',
-        strokeWidth: 7,
-        createdBy: author,
-        updatedAt: now,
-      },
-      {
-        id: mkId(4),
-        type: 'circle',
-        x: centerX + 8,
-        y: centerY - 95,
-        width: 55,
-        height: 28,
-        rotation: -25,
-        color: '#14532d',
-        fillColor: '#22c55e',
-        strokeWidth: 2,
-        createdBy: author,
-        updatedAt: now,
-      },
-    ];
+function getOrCreateClientId(): string {
+  try {
+    const existing = localStorage.getItem(CLIENT_ID_STORAGE_KEY);
+    if (existing) return existing;
+    const created = `cb-client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem(CLIENT_ID_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return 'cb-client-session';
   }
-
-  if (lower.includes('araba') || lower.includes('otomobil') || lower.includes('car')) {
-    return [
-      {
-        id: mkId(1),
-        type: 'rounded-rect',
-        x: centerX - 95,
-        y: centerY - 65,
-        width: 190,
-        height: 55,
-        color: '#1e3a8a',
-        fillColor: '#60a5fa',
-        strokeWidth: 3,
-        createdBy: author,
-        updatedAt: now,
-      },
-      {
-        id: mkId(2),
-        type: 'rounded-rect',
-        x: centerX - 150,
-        y: centerY - 25,
-        width: 300,
-        height: 70,
-        color: '#1e3a8a',
-        fillColor: '#2563eb',
-        strokeWidth: 3,
-        createdBy: author,
-        updatedAt: now,
-      },
-      {
-        id: mkId(3),
-        type: 'circle',
-        x: centerX - 105,
-        y: centerY + 20,
-        width: 56,
-        height: 56,
-        color: '#0f172a',
-        fillColor: '#334155',
-        strokeWidth: 5,
-        createdBy: author,
-        updatedAt: now,
-      },
-      {
-        id: mkId(4),
-        type: 'circle',
-        x: centerX + 50,
-        y: centerY + 20,
-        width: 56,
-        height: 56,
-        color: '#0f172a',
-        fillColor: '#334155',
-        strokeWidth: 5,
-        createdBy: author,
-        updatedAt: now,
-      },
-    ];
-  }
-
-  // Default architectural / concept diagram
-  return [
-    {
-      id: mkId(1),
-      type: 'rounded-rect',
-      x: centerX - 240,
-      y: centerY - 45,
-      width: 150,
-      height: 85,
-      color: '#1d4ed8',
-      fillColor: '#dbeafe',
-      strokeWidth: 2,
-      text: prompt.slice(0, 28),
-      createdBy: author,
-      updatedAt: now,
-    },
-    {
-      id: mkId(2),
-      type: 'arrow',
-      x: centerX - 90,
-      y: centerY,
-      points: [
-        { x: centerX - 85, y: centerY },
-        { x: centerX - 15, y: centerY },
-      ],
-      color: '#2563eb',
-      strokeWidth: 3,
-      createdBy: author,
-      updatedAt: now,
-    },
-    {
-      id: mkId(3),
-      type: 'rounded-rect',
-      x: centerX - 10,
-      y: centerY - 45,
-      width: 165,
-      height: 85,
-      color: '#047857',
-      fillColor: '#d1fae5',
-      strokeWidth: 2,
-      text: 'İşlem & Analiz',
-      createdBy: author,
-      updatedAt: now,
-    },
-    {
-      id: mkId(4),
-      type: 'arrow',
-      x: centerX + 155,
-      y: centerY,
-      points: [
-        { x: centerX + 160, y: centerY },
-        { x: centerX + 225, y: centerY },
-      ],
-      color: '#059669',
-      strokeWidth: 3,
-      createdBy: author,
-      updatedAt: now,
-    },
-    {
-      id: mkId(5),
-      type: 'rounded-rect',
-      x: centerX + 230,
-      y: centerY - 45,
-      width: 150,
-      height: 85,
-      color: '#6d28d9',
-      fillColor: '#ede9fe',
-      strokeWidth: 2,
-      text: 'Canlı Çıktı',
-      createdBy: author,
-      updatedAt: now,
-    },
-  ];
 }
 
 export const AIPromptModal: React.FC<AIPromptModalProps> = ({
@@ -425,17 +234,77 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
   onElementsGenerated,
   onClose,
 }) => {
+  const [clientId] = useState<string>(() => getOrCreateClientId());
+  const [quotaSource, setQuotaSource] = useState<QuotaSourceMode>(() => {
+    try {
+      const saved = localStorage.getItem(QUOTA_SOURCE_STORAGE_KEY);
+      if (saved === 'user_aistudio' || saved === 'app_default') return saved;
+    } catch {}
+    return 'app_default';
+  });
+  const [hasConfirmedSource, setHasConfirmedSource] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(QUOTA_CONFIRMED_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [quotaStatus, setQuotaStatus] = useState<ClientQuotaResponse | null>(null);
   const [mode, setMode] = useState<GenerationMode>('vector');
   const [prompt, setPrompt] = useState('');
   const [selectedStageId, setSelectedStageId] = useState<ThinkingStageId>('standard');
   const [isLoading, setIsLoading] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [retryStatusMessage, setRetryStatusMessage] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<StructuredAIError | null>(null);
+  const [manualRetryCount, setManualRetryCount] = useState(0);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentStage = THINKING_STAGES.find((s) => s.id === selectedStageId) || THINKING_STAGES[1];
+
+  const fetchQuotaStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/ai/quota-status?clientId=${encodeURIComponent(clientId)}`);
+      if (res.ok) {
+        const data: ClientQuotaResponse = await res.json();
+        setQuotaStatus(data);
+      }
+    } catch {
+      // Offline or unreachable server will be caught during generation
+    }
+  }, [clientId]);
+
+  useEffect(() => {
+    fetchQuotaStatus();
+  }, [fetchQuotaStatus]);
+
+  const handleSelectQuotaSource = (selected: QuotaSourceMode) => {
+    setQuotaSource(selected);
+    setHasConfirmedSource(true);
+    try {
+      localStorage.setItem(QUOTA_SOURCE_STORAGE_KEY, selected);
+      localStorage.setItem(QUOTA_CONFIRMED_STORAGE_KEY, 'true');
+    } catch {}
+  };
+
+  const handleResetQuota = async () => {
+    try {
+      const res = await fetch('/api/ai/quota-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, mode: quotaSource }),
+      });
+      if (res.ok) {
+        const data: ClientQuotaResponse = await res.json();
+        setQuotaStatus(data);
+        if (errorState?.code === 'QUOTA_LIMIT_REACHED') {
+          setErrorState(null);
+        }
+      }
+    } catch {}
+  };
 
   const clearTimer = () => {
     if (timerIntervalRef.current) {
@@ -469,12 +338,23 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
     };
   }, []);
 
-  const handleGenerate = async (customPrompt?: string, customMode?: GenerationMode) => {
+  const handleGenerate = async (
+    customPrompt?: string,
+    customMode?: GenerationMode,
+    isManualRetry: boolean = false,
+    overrideStageId?: ThinkingStageId
+  ) => {
     const targetPrompt = (customPrompt ?? prompt).trim();
     if (!targetPrompt) return;
 
+    // Ensure user has confirmed API key source
+    if (!hasConfirmedSource) {
+      handleSelectQuotaSource(quotaSource);
+    }
+
     const activeMode = customMode ?? mode;
-    const stage = currentStage;
+    const stage =
+      (overrideStageId && THINKING_STAGES.find((s) => s.id === overrideStageId)) || currentStage;
 
     if (abortControllerRef.current) {
       try {
@@ -485,10 +365,14 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setIsLoading(true);
-    setError(null);
+    setErrorState(null);
+    setRetryStatusMessage(
+      isManualRetry
+        ? `🔄 Hata sonrası kendi kendini onaran çözüm moduyla tekrar deneniyor (Deneme #${manualRetryCount + 1})...`
+        : null
+    );
     setElapsedSeconds(0);
 
-    // Live thinking timer ticker
     clearTimer();
     const startTime = Date.now();
     timerIntervalRef.current = setInterval(() => {
@@ -500,95 +384,147 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
       try {
         controller.abort();
       } catch {}
-    }, stage.clientTimeoutMs);
+    }, stage.clientTimeoutMs + 15000);
+
+    const endpoint = activeMode === 'image' ? '/api/ai/generate-image' : '/api/ai/generate-canvas';
+
+    const executeRequest = async (attemptFlag: boolean) => {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          prompt: targetPrompt,
+          centerX,
+          centerY,
+          author: authorName,
+          thinkingLevel: stage.id,
+          targetDuration: stage.durationSeconds,
+          quotaSource,
+          clientId,
+          isRetryAttempt: attemptFlag,
+        }),
+      });
+
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = await response.json();
+      } catch {
+        throw {
+          message:
+            'Sunucu yanıtı okunamadı veya AI servisine ulaşılamadı. Sahte yıldızlı çıktı üretmek yerine işlem güvenli şekilde durduruldu.',
+          code: 'SERVER_UNREACHABLE',
+          retryable: true,
+          suggestion:
+            'Sunucu bağlantısını kontrol edip "Tekrar Çözmeyi Dene" butonuna tıklayın.',
+          attemptsMade: 1,
+        } satisfies StructuredAIError;
+      }
+
+      if (payload.quota && typeof payload.quota === 'object') {
+        setQuotaStatus(payload.quota as ClientQuotaResponse);
+      }
+
+      if (!response.ok) {
+        throw {
+          message:
+            typeof payload.error === 'string'
+              ? payload.error
+              : `Yapay zeka talebi yerine getirilemedi (HTTP ${response.status}).`,
+          code: typeof payload.code === 'string' ? payload.code : 'MODEL_GENERATION_FAILED',
+          retryable: payload.retryable !== false,
+          suggestion:
+            typeof payload.suggestion === 'string'
+              ? payload.suggestion
+              : 'İsteğinizi biraz daha somutlaştırarak "Tekrar Çözmeyi Dene" butonuna tıklayın.',
+          attemptsMade: typeof payload.attemptsMade === 'number' ? payload.attemptsMade : 1,
+        } satisfies StructuredAIError;
+      }
+
+      return payload;
+    };
 
     try {
-      if (activeMode === 'image') {
-        // AI Image / Visual Sticker Generation
-        let generatedElement: CanvasElement | null = null;
-        try {
-          const response = await fetch('/api/ai/generate-image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-              prompt: targetPrompt,
-              centerX,
-              centerY,
-              author: authorName,
-              thinkingLevel: stage.id,
-              targetDuration: stage.durationSeconds,
-            }),
-          });
-          if (response.ok) {
-            const data = await response.json();
-            if (data && data.element) {
-              generatedElement = data.element;
-            }
-          }
-        } catch {
-          // Static host fallback (GitHub Pages)
-        }
-
-        if (!generatedElement) {
-          generatedElement = buildStaticHostStickerFallback(
-            targetPrompt,
-            centerX,
-            centerY,
-            authorName
+      let resultPayload: Record<string, unknown>;
+      try {
+        resultPayload = await executeRequest(isManualRetry);
+      } catch (firstErr: unknown) {
+        const structured = firstErr as StructuredAIError;
+        // Automatic client-level self-healing retry if the error is retryable and not a quota limit
+        if (
+          structured &&
+          structured.retryable !== false &&
+          structured.code !== 'QUOTA_LIMIT_REACHED' &&
+          structured.code !== 'API_KEY_UNAVAILABLE' &&
+          !controller.signal.aborted
+        ) {
+          setRetryStatusMessage(
+            '⚡ İlk denemede geçerli çizim üretilemedi; yapay zeka hatayı analiz edip otomatik olarak tekrar çözmeyi deniyor (2/2)...'
           );
+          resultPayload = await executeRequest(true);
+        } else {
+          throw firstErr;
         }
+      }
 
-        onElementsGenerated([generatedElement]);
+      if (activeMode === 'image') {
+        const element = resultPayload.element as CanvasElement | undefined;
+        if (!element || element.type !== 'image') {
+          throw {
+            message: 'Yapay zeka geçerli bir SVG görseli döndürmedi.',
+            code: 'INVALID_IMAGE_OUTPUT',
+            retryable: true,
+            suggestion: 'Lütfen "Tekrar Çözmeyi Dene" butonuna tıklayarak yeniden üretin.',
+            attemptsMade: 2,
+          } satisfies StructuredAIError;
+        }
+        onElementsGenerated([element]);
         onClose();
       } else {
-        // AI Vector Canvas Drawing Generation
-        let generatedElements: CanvasElement[] | null = null;
-        try {
-          const response = await fetch('/api/ai/generate-canvas', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-              prompt: targetPrompt,
-              centerX,
-              centerY,
-              author: authorName,
-              thinkingLevel: stage.id,
-              targetDuration: stage.durationSeconds,
-            }),
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            if (Array.isArray(data.elements) && data.elements.length > 0) {
-              generatedElements = data.elements;
-            }
-          }
-        } catch {
-          // Static host fallback (GitHub Pages)
+        const elements = resultPayload.elements as CanvasElement[] | undefined;
+        if (!Array.isArray(elements) || elements.length === 0) {
+          throw {
+            message: 'Yapay zeka bu talep için geçerli vektörel şekil parçaları üretemedi.',
+            code: 'EMPTY_VECTOR_OUTPUT',
+            retryable: true,
+            suggestion: 'Lütfen "Tekrar Çözmeyi Dene" butonuna tıklayarak yeniden deneyin.',
+            attemptsMade: 2,
+          } satisfies StructuredAIError;
         }
-
-        if (!generatedElements || generatedElements.length === 0) {
-          generatedElements = buildStaticHostVectorFallback(
-            targetPrompt,
-            centerX,
-            centerY,
-            authorName
-          );
-        }
-
-        onElementsGenerated(generatedElements);
+        onElementsGenerated(elements);
         onClose();
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
+        setErrorState({
+          message: `İstek süresi (${stage.shortLabel}) dolduğu için çizim zaman aşımına uğradı.`,
+          code: 'TIMEOUT',
+          retryable: true,
+          suggestion:
+            'Aşağıdaki "Tekrar Çözmeyi Dene" veya "Hızlı Modda (10 sn) Tekrar Çöz" butonunu kullanabilirsiniz.',
+          attemptsMade: 2,
+        });
         return;
       }
-      setError(err instanceof Error ? err.message : 'Bağlantı hatası oluştu.');
+
+      if (err && typeof err === 'object' && 'message' in err && 'code' in err) {
+        setErrorState(err as StructuredAIError);
+      } else {
+        setErrorState({
+          message:
+            err instanceof Error
+              ? err.message
+              : 'Yapay zeka servisiyle iletişim kurulurken beklenmeyen bir hata oluştu.',
+          code: 'NETWORK_ERROR',
+          retryable: true,
+          suggestion: 'Lütfen bağlantınızı kontrol edip "Tekrar Çözmeyi Dene" butonuna tıklayın.',
+          attemptsMade: 1,
+        });
+      }
     } finally {
       clearTimeout(clientTimeout);
       clearTimer();
+      setRetryStatusMessage(null);
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
       }
@@ -596,6 +532,28 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
     }
   };
 
+  const activeBucket: QuotaBucketStatus =
+    quotaSource === 'user_aistudio'
+      ? quotaStatus?.userAiStudio ?? {
+          used: 0,
+          limit: 100,
+          remaining: 100,
+          resetAt: Date.now() + 3600000,
+          available: true,
+        }
+      : quotaStatus?.appDefault ?? {
+          used: 0,
+          limit: 15,
+          remaining: 15,
+          resetAt: Date.now() + 3600000,
+          available: true,
+        };
+
+  const usagePercent = Math.min(
+    100,
+    Math.round((activeBucket.used / Math.max(1, activeBucket.limit)) * 100)
+  );
+  const resetMinutesLeft = Math.max(1, Math.ceil((activeBucket.resetAt - Date.now()) / 60000));
   const currentModePrompts = QUICK_PROMPTS.filter((p) => p.mode === mode);
 
   return (
@@ -608,7 +566,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
       }}
     >
       <div
-        className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[94vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -619,11 +577,14 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               <Wand2 className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900">
-                Yapay Zeka ile Çiz & Görsel Ekle
+              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <span>Yapay Zeka ile Çiz & Görsel Ekle</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  Google AI Studio Entegreli
+                </span>
               </h2>
               <p className="text-[11px] text-slate-500">
-                Düşünme süresi çubuğuyla detay derinliğini 10 sn ile 1 dk arasında ayarlayın.
+                API anahtarı kaynağınızı seçin, kullanım sınırınızı takip edin ve gerçek vektörel çizimler üretin.
               </p>
             </div>
           </div>
@@ -645,66 +606,195 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           </button>
         </div>
 
-        {/* Mode Selector Tabs */}
-        <div className="px-6 pt-3 pb-1 bg-white border-b border-slate-100 flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => setMode('vector')}
-            disabled={isLoading}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              mode === 'vector'
-                ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-xs'
-                : 'text-slate-600 hover:bg-slate-50 border border-transparent'
-            }`}
-          >
-            <Shapes className="w-4 h-4 text-blue-600" />
-            <span>🎨 Şekillerle Çiz (Vektörel Çizim)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMode('image')}
-            disabled={isLoading}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              mode === 'image'
-                ? 'bg-purple-50 text-purple-700 border border-purple-200 shadow-xs'
-                : 'text-slate-600 hover:bg-slate-50 border border-transparent'
-            }`}
-          >
-            <ImageIcon className="w-4 h-4 text-purple-600" />
-            <span>🖼️ Görsel / Resim Ekle (AI Çıkartma)</span>
-          </button>
-        </div>
-
-        {/* Mode Explanation Banner */}
-        <div className="px-6 pt-2 pb-0 shrink-0">
-          {mode === 'vector' ? (
-            <div className="bg-blue-50/80 border border-blue-200/70 rounded-xl px-3 py-1.5 text-[11px] text-blue-900 flex items-center gap-2">
-              <Shapes className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-              <span>
-                <strong>Şekillerle Çiz:</strong> Nesneyi beyaz tahtada taşınabilen, döndürülebilen, rengi değiştirilebilen gerçek geometrik şekil parçaları olarak çizer.
-              </span>
-            </div>
-          ) : (
-            <div className="bg-purple-50/80 border border-purple-200/70 rounded-xl px-3 py-1.5 text-[11px] text-purple-900 flex items-center gap-2">
-              <ImageIcon className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-              <span>
-                <strong>Resim Ekle:</strong> Nesneyi şeffaf arka planlı, yüksek çözünürlüklü tek parça vektörel illüstrasyon çıkartması olarak ekler.
-              </span>
-            </div>
-          )}
-        </div>
-
         {/* Body */}
-        <div className="p-6 space-y-4 overflow-y-auto flex-1">
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
+          {/* STEP 1: API Key Source Selection & Real-Time Usage Quota Tracker */}
+          <div
+            className={`rounded-2xl border p-3.5 transition-all ${
+              !hasConfirmedSource
+                ? 'bg-amber-50/70 border-amber-300 ring-2 ring-amber-400/30'
+                : 'bg-slate-50 border-slate-200/90'
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="text-xs font-bold text-slate-800">
+                  1. API Anahtarı Kaynağı & Kullanım Sınırı (Kota) Seçimi
+                </span>
+                {!hasConfirmedSource && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900">
+                    Lütfen Tercihinizi Seçin
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 text-[11px]">
+                <span className="inline-flex items-center gap-1 font-semibold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                  <Gauge className="w-3.5 h-3.5 text-blue-600" />
+                  <span>
+                    Kalan Hak: <strong className="text-blue-700">{activeBucket.remaining}</strong> / {activeBucket.limit} İstek
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetQuota}
+                  title="Saatlik kullanım sayacını sıfırla"
+                  className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* Option A: Application Default API Key */}
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => handleSelectQuotaSource('app_default')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                  quotaSource === 'app_default'
+                    ? 'bg-blue-600 text-white border-blue-700 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50/40'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 shrink-0" />
+                    <span>Uygulamanın API Anahtarı</span>
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                      quotaSource === 'app_default'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {quotaStatus?.appDefault.remaining ?? 15} / {quotaStatus?.appDefault.limit ?? 15} Saatlik
+                  </span>
+                </div>
+                <p
+                  className={`text-[11px] leading-snug ${
+                    quotaSource === 'app_default' ? 'text-blue-100' : 'text-slate-500'
+                  }`}
+                >
+                  CollabBoard varsayılan paylaşımlı anahtarını kullanır. Hızlı testler için saatlik 15 çizim hakkı sunar.
+                </p>
+              </button>
+
+              {/* Option B: User's Own Google AI Studio Key / Quota */}
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => handleSelectQuotaSource('user_aistudio')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                  quotaSource === 'user_aistudio'
+                    ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 shrink-0" />
+                    <span>Kendi Google AI Studio Anahtarım</span>
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                      quotaSource === 'user_aistudio'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-indigo-50 text-indigo-700'
+                    }`}
+                  >
+                    {quotaStatus?.userAiStudio.remaining ?? 100} / {quotaStatus?.userAiStudio.limit ?? 100} Saatlik
+                  </span>
+                </div>
+                <p
+                  className={`text-[11px] leading-snug ${
+                    quotaSource === 'user_aistudio' ? 'text-indigo-100' : 'text-slate-500'
+                  }`}
+                >
+                  Google AI Studio (Settings &gt; Secrets: <code className="font-mono">GEMINI_API_KEY</code>) bağlantınızı kullanır. Saatlik 100 yüksek öncelikli istek sağlar.
+                </p>
+              </button>
+            </div>
+
+            {/* Live Quota Progress Bar */}
+            <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[11px] text-slate-600">
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>
+                    Aktif Kaynak:{' '}
+                    <strong className="text-slate-900">
+                      {quotaSource === 'user_aistudio'
+                        ? 'Kendi Google AI Studio API Anahtarım'
+                        : 'Uygulamanın Varsayılan API Anahtarı'}
+                    </strong>
+                  </span>
+                </span>
+                <span>
+                  Kullanılan: <strong>{activeBucket.used}</strong> / {activeBucket.limit} ({usagePercent}%) · Yenilenme: ~{resetMinutesLeft} dk
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 rounded-full ${
+                    usagePercent >= 90
+                      ? 'bg-rose-500'
+                      : usagePercent >= 70
+                      ? 'bg-amber-500'
+                      : quotaSource === 'user_aistudio'
+                      ? 'bg-indigo-600'
+                      : 'bg-blue-600'
+                  }`}
+                  style={{ width: `${Math.max(3, usagePercent)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Mode Selector Tabs */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setMode('vector')}
+              disabled={isLoading}
+              className={`py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                mode === 'vector'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+              }`}
+            >
+              <Shapes className="w-4 h-4 text-blue-600" />
+              <span>🎨 Şekillerle Çiz (27 Vektörel Şekil)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMode('image')}
+              disabled={isLoading}
+              className={`py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                mode === 'image'
+                  ? 'bg-purple-50 text-purple-700 border border-purple-200 shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+              }`}
+            >
+              <ImageIcon className="w-4 h-4 text-purple-600" />
+              <span>🖼️ Görsel / Resim Ekle (AI SVG Çıkartma)</span>
+            </button>
+          </div>
+
           {/* Prompt input */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-slate-700">
-                {mode === 'vector' ? 'Ne çizilmesini istiyorsunuz?' : 'Hangi görseli getirmek istiyorsunuz?'}
+                {mode === 'vector' ? '2. Ne çizilmesini istiyorsunuz?' : '2. Hangi görseli getirmek istiyorsunuz?'}
               </label>
               <span className="text-[11px] text-slate-400">
-                {mode === 'vector' ? 'Düzenlenebilir vektör parçaları' : 'Şeffaf arka planlı kaliteli çıkartma'}
+                {mode === 'vector'
+                  ? 'Sahte yıldız üretmez · Gerçek parçalar veya hata/tekrar çözüm'
+                  : 'Şeffaf arka planlı kaliteli SVG çıkartma'}
               </span>
             </div>
             <textarea
@@ -721,15 +811,77 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               disabled={isLoading}
               placeholder={
                 mode === 'vector'
-                  ? 'Örn: spor araba çiz, kedi çiz, fincan çiz, bahçeli ev çiz veya roket çiz...'
+                  ? 'Örn: spor araba çiz, kedi çiz, mikroservis mimari şeması çiz, bahçeli ev çiz...'
                   : 'Örn: spor araba resmi, parlak kırmızı elma çıkartması, uzay roketi illüstrasyonu...'
               }
-              className="w-full p-3.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600 focus:ring-1 focus:ring-blue-600 resize-none select-text"
+              className="w-full p-3 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600 focus:ring-1 focus:ring-blue-600 resize-none select-text"
             />
           </div>
 
+          {/* Structured Error & Self-Healing Retry Box (Replaces old fake starry fallback!) */}
+          {errorState && (
+            <div className="p-4 rounded-2xl bg-rose-50/95 border-2 border-rose-300 text-rose-900 space-y-3 animate-in fade-in duration-150 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold text-rose-950">
+                        Çizim Talebi Yerine Getirilemedi
+                      </span>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-rose-200/80 text-rose-900">
+                        {errorState.code}
+                      </span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-white border border-rose-200 text-rose-700">
+                        {errorState.attemptsMade} Deneme Yapıldı
+                      </span>
+                    </div>
+                    <p className="text-xs text-rose-800 leading-relaxed font-medium">
+                      {errorState.message}
+                    </p>
+                    <p className="text-[11px] text-rose-700/90 bg-white/80 px-2.5 py-1.5 rounded-lg border border-rose-200/80">
+                      💡 <strong>Çözüm Önerisi:</strong> {errorState.suggestion}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-1 border-t border-rose-200/80">
+                {selectedStageId !== 'quick' && (
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => {
+                      setSelectedStageId('quick');
+                      setManualRetryCount((c) => c + 1);
+                      handleGenerate(prompt, mode, true, 'quick');
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>⚡ Hızlı Modda (10 sn) Tekrar Çöz</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => {
+                    setManualRetryCount((c) => c + 1);
+                    handleGenerate(prompt, mode, true);
+                  }}
+                  className="px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Tekrar Çözmeyi Dene</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* 4-Stage Horizontal Thinking & Detail Depth Bar */}
-          <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-2.5">
+          <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-800">
                 <Sliders className="w-3.5 h-3.5 text-blue-600" />
@@ -740,7 +892,6 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               </span>
             </div>
 
-            {/* Step buttons track */}
             <div className="grid grid-cols-4 gap-1.5 p-1 bg-slate-200/60 rounded-xl relative">
               {THINKING_STAGES.map((stage) => {
                 const isSelected = selectedStageId === stage.id;
@@ -750,7 +901,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                     type="button"
                     disabled={isLoading}
                     onClick={() => setSelectedStageId(stage.id)}
-                    className={`py-2 px-1 text-center rounded-lg transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 relative z-10 disabled:opacity-60 ${
+                    className={`py-1.5 px-1 text-center rounded-lg transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 relative z-10 disabled:opacity-60 ${
                       isSelected
                         ? `${stage.activeColor} font-bold scale-[1.02]`
                         : 'text-slate-600 hover:text-slate-900 hover:bg-white/80 font-medium'
@@ -763,16 +914,13 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                       {stage.id === 'masterpiece' && <span className="text-xs">🧠</span>}
                       <span>{stage.shortLabel}</span>
                     </span>
-                    <span className="text-[10px] opacity-90 leading-tight">
-                      {stage.name}
-                    </span>
+                    <span className="text-[10px] opacity-90 leading-tight">{stage.name}</span>
                   </button>
                 );
               })}
             </div>
 
-            {/* Explanation card */}
-            <div className="text-[11px] text-slate-600 flex items-start gap-1.5 bg-white p-2.5 rounded-xl border border-slate-200/70">
+            <div className="text-[11px] text-slate-600 flex items-start gap-1.5 bg-white p-2 rounded-xl border border-slate-200/70">
               <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
               <div>
                 <span className="text-slate-900 font-semibold">{currentStage.title}: </span>
@@ -787,14 +935,15 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               <div className="flex items-center justify-between text-xs font-semibold text-blue-900">
                 <span className="flex items-center gap-2">
                   <Brain className="w-4 h-4 animate-pulse text-blue-600" />
-                  <span>Yapay zeka düşünüyor ve çiziyor...</span>
+                  <span>
+                    {retryStatusMessage || 'Yapay zeka düşünüyor ve gerçek koordinatları hesaplıyor...'}
+                  </span>
                 </span>
-                <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded-md border border-blue-200 text-blue-800 shadow-2xs">
+                <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded-md border border-blue-200 text-blue-800 shadow-2xs shrink-0">
                   ⏱️ {elapsedSeconds} sn / {currentStage.shortLabel}
                 </span>
               </div>
 
-              {/* Progress bar */}
               <div className="w-full h-2.5 bg-blue-100 rounded-full overflow-hidden p-0.5">
                 <div
                   className={`h-full transition-all duration-300 rounded-full ${currentStage.progressColor}`}
@@ -803,16 +952,6 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   }}
                 />
               </div>
-
-              <p className="text-[11px] text-blue-700 italic">
-                {selectedStageId === 'masterpiece'
-                  ? '🧠 Derin düşünme devrede (1 dakika): Katmanlar, 3D derinlik, ince gölgeler ve tüm geometrik koordinatlar titizlikle hesaplanıyor...'
-                  : selectedStageId === 'detailed'
-                  ? '🎨 Ayrıntılı mod devrede: Zengin renk katmanları ve ince detaylar hesaplanıyor...'
-                  : selectedStageId === 'standard'
-                  ? '⚖️ Standart mod devrede: Estetik ve dengeli parçalar hesaplanıyor...'
-                  : '⚡ Hızlı taslak modu: Temel hatlar pratik şekilde oluşturuluyor...'}
-              </p>
             </div>
           )}
 
@@ -822,7 +961,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
               <span>Hızlı Örnekler (Tıkla & Çizilsin)</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
               {currentModePrompts.map((item, idx) => (
                 <button
                   key={idx}
@@ -830,25 +969,19 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   disabled={isLoading}
                   onClick={() => {
                     setPrompt(item.prompt);
-                    handleGenerate(item.prompt, item.mode);
+                    handleGenerate(item.prompt, item.mode, false);
                   }}
-                  className="p-2.5 text-left rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all text-xs font-medium text-slate-700 hover:text-blue-700 disabled:opacity-50 cursor-pointer"
+                  className="p-2 text-left rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all text-xs font-medium text-slate-700 hover:text-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {item.label}
                 </button>
               ))}
             </div>
           </div>
-
-          {error && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
-              {error}
-            </div>
-          )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[11px] text-slate-500">
             {isLoading ? (
               <span className="text-blue-600 font-medium flex items-center gap-1.5">
@@ -857,7 +990,11 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               </span>
             ) : (
               <>
-                Seçili: <strong className="text-slate-800">{currentStage.name}</strong> ({currentStage.shortLabel}) · <strong className="font-mono">Ctrl + Enter</strong>
+                Kaynak:{' '}
+                <strong className="text-slate-800">
+                  {quotaSource === 'user_aistudio' ? 'Kendi AI Studio Kotam' : 'Uygulama API Key'}
+                </strong>{' '}
+                ({activeBucket.remaining} hak kaldı) · <strong className="font-mono">Ctrl + Enter</strong>
               </>
             )}
           </span>
@@ -877,9 +1014,24 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
             >
               {isLoading ? 'İptal Et' : 'Vazgeç'}
             </button>
+
+            {errorState && !isLoading && (
+              <button
+                type="button"
+                onClick={() => {
+                  setManualRetryCount((c) => c + 1);
+                  handleGenerate(prompt, mode, true);
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Tekrar Çözmeyi Dene</span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => handleGenerate()}
+              onClick={() => handleGenerate(undefined, undefined, false)}
               disabled={!prompt.trim() || isLoading}
               className={`px-4 py-2 text-xs font-semibold text-white rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed ${
                 mode === 'image'
