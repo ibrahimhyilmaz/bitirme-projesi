@@ -267,6 +267,8 @@ interface ToolbarProps {
   isHidden?: boolean;
   onToggleHidden?: () => void;
   layoutResetCounter?: number;
+  zIndex?: number;
+  onFocus?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -288,6 +290,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isHidden,
   onToggleHidden,
   layoutResetCounter = 0,
+  zIndex,
+  onFocus,
 }) => {
   const [shapesMenuOpen, setShapesMenuOpen] = useState(false);
   const [eraserMenuOpen, setEraserMenuOpen] = useState(false);
@@ -410,6 +414,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Re-clamp position whenever orientation changes so bottom tools never fall off-screen
+  useEffect(() => {
+    setPosition((prev) => {
+      if (!prev || !toolbarRef.current) return prev;
+      const wsEl = toolbarRef.current.closest('[data-workspace-root]') as HTMLElement | null;
+      const pWidth = wsEl?.clientWidth || window.innerWidth;
+      const pHeight = wsEl?.clientHeight || window.innerHeight;
+      const expectedHeight = isVertical ? 380 : 54;
+      const expectedWidth = isVertical ? 88 : 520;
+      const maxX = Math.max(8, pWidth - expectedWidth - 8);
+      const maxY = Math.max(8, pHeight - expectedHeight - 8);
+      return {
+        x: Math.min(Math.max(8, prev.x), maxX),
+        y: Math.min(Math.max(8, prev.y), maxY),
+      };
+    });
+  }, [isVertical]);
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -431,17 +453,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const bar = toolbarRef.current;
     if (!bar) return;
 
-    const workspaceEl = bar.closest('[data-workspace-root]') as HTMLElement | null;
-    const parentRect = workspaceEl?.getBoundingClientRect() || bar.offsetParent?.getBoundingClientRect() || {
-      left: 0,
-      top: 0,
-      width: window.innerWidth,
-      height: window.innerHeight,
-    };
     const barRect = bar.getBoundingClientRect();
-
-    const currentX = barRect.left - parentRect.left;
-    const currentY = barRect.top - parentRect.top;
+    const currentX = barRect.left;
+    const currentY = barRect.top;
 
     dragOffsetRef.current = {
       x: e.clientX - currentX,
@@ -454,21 +468,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const currentBar = toolbarRef.current;
-      const wsEl = currentBar?.closest('[data-workspace-root]') as HTMLElement | null;
-      const pRect = wsEl?.getBoundingClientRect() || currentBar?.offsetParent?.getBoundingClientRect() || {
-        left: 0,
-        top: 0,
-        width: window.innerWidth,
-        height: window.innerHeight,
-      };
       const bW = currentBar?.offsetWidth || 60;
       const bH = currentBar?.offsetHeight || 60;
 
       const nextX = moveEvent.clientX - dragOffsetRef.current.x;
       const nextY = moveEvent.clientY - dragOffsetRef.current.y;
 
-      const clampedX = Math.max(8, Math.min(pRect.width - bW - 8, nextX));
-      const clampedY = Math.max(8, Math.min(pRect.height - bH - 8, nextY));
+      const clampedX = Math.max(8, Math.min(window.innerWidth - bW - 8, nextX));
+      const clampedY = Math.max(64, Math.min(window.innerHeight - bH - 8, nextY));
 
       setPosition({ x: clampedX, y: clampedY });
     };
@@ -526,7 +533,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   };
 
   const dividerClass = isVertical
-    ? 'h-px w-5 bg-slate-200 my-0.5'
+    ? 'col-span-2 h-px w-full bg-slate-200/80 my-0.5'
     : 'w-px h-5 bg-slate-200 mx-0.5';
 
   // Determine smart popover direction based on position
@@ -539,19 +546,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return (
       <div
         ref={toolbarRef}
-        onPointerDown={(e) => e.stopPropagation()}
-        style={
-          position
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onFocus?.();
+        }}
+        style={{
+          zIndex: zIndex ?? (position ? 22 : undefined),
+          ...(position
             ? {
-                position: 'absolute',
+                position: 'fixed',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
                 transform: 'none',
               }
-            : undefined
-        }
+            : {}),
+        }}
         className={`${
-          position ? 'absolute z-20' : 'relative z-20'
+          position ? 'fixed' : 'relative'
         } pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
           isDraggingBar
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
@@ -585,30 +596,34 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     <div
       ref={toolbarRef}
       data-tour="toolbar"
-      onPointerDown={(e) => e.stopPropagation()}
-      style={
-        position
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        onFocus?.();
+      }}
+      style={{
+        zIndex: zIndex ?? (position ? 22 : undefined),
+        ...(position
           ? {
-              position: 'absolute',
+              position: 'fixed',
               left: `${position.x}px`,
               top: `${position.y}px`,
               transform: 'none',
             }
-          : undefined
-      }
-      className={`${position ? 'absolute z-20' : 'relative z-20'} pointer-events-auto flex ${
-        isVertical ? 'flex-col' : 'flex-row flex-wrap max-w-[96vw]'
-      } items-center gap-1 p-1.5 bg-white/95 backdrop-blur-md border ${
+          : {}),
+      }}
+      className={`${position ? 'fixed' : 'relative'} pointer-events-auto flex flex-col items-center p-1.5 bg-white/95 backdrop-blur-md border ${
         isDraggingBar
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'
-      } rounded-xl select-none`}
+      } rounded-xl select-none ${
+        isVertical ? 'w-[88px] max-h-[calc(100vh-4.5rem)]' : 'flex-row flex-wrap max-w-[96vw]'
+      }`}
     >
       {/* Drag Handle & Orientation Controls */}
       <div
         className={`flex ${
-          isVertical ? 'flex-row w-full justify-between pb-1 border-b' : 'flex-row items-center pr-1 border-r'
-        } border-slate-200 gap-0.5`}
+          isVertical ? 'flex-row w-full justify-between pb-1 mb-1 border-b' : 'flex-row items-center pr-1 border-r'
+        } border-slate-200 gap-0.5 shrink-0`}
       >
         <div
           onPointerDown={handleGripPointerDown}
@@ -628,7 +643,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => setIsVertical((v) => !v)}
           className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-          title={isVertical ? 'Yatay Görünüme Geç' : 'Dikey Görünüme Geç'}
+          title={isVertical ? 'Yatay Görünüme Geç' : 'Dikey Görünüme Geç (2 Sütunlu Kompakt Mod)'}
         >
           {isVertical ? <Rows2 className="w-3.5 h-3.5" /> : <Columns2 className="w-3.5 h-3.5" />}
         </button>
@@ -656,6 +671,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
       </div>
 
+      {/* Tools Wrapper: 2-column grid when vertical, horizontal row when horizontal */}
+      <div
+        className={
+          isVertical
+            ? 'grid grid-cols-2 gap-1 items-center justify-items-center w-full max-h-[calc(100vh-8.5rem)] overflow-y-auto no-scrollbar py-0.5'
+            : 'flex flex-row items-center gap-1 flex-wrap'
+        }
+      >
+
       {/* Select & Move */}
       <button
         onClick={() => onSelectTool('select')}
@@ -672,9 +696,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Hand / Pan Canvas */}
       <button
         onClick={() => onSelectTool('pan')}
-        className={`p-2 rounded-lg transition-all ${
+        className={`p-2 rounded-lg transition-all cursor-grab active:cursor-grabbing ${
           activeTool === 'pan'
-            ? 'bg-blue-600 text-white shadow-xs'
+            ? 'bg-slate-200/90 text-slate-800 ring-1 ring-slate-300/80 shadow-2xs'
             : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
         }`}
         title="Tuvali Kaydır (H veya Boşluk Tuşu)"
@@ -689,7 +713,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button
           onClick={onOpenAIPrompt}
           disabled={!canEdit}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            isVertical ? 'col-span-2 w-full' : ''
+          } ${
             canEdit
               ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-xs'
               : 'bg-slate-100 text-slate-400 cursor-not-allowed'
@@ -701,17 +727,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           }
         >
           <Wand2 className="w-3.5 h-3.5" />
-          {!isVertical && <span>AI Çizim</span>}
+          <span>AI Çizim</span>
         </button>
       )}
 
       {!canEdit && (
         <div
-          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-semibold"
+          className={`flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-semibold ${
+            isVertical ? 'col-span-2 w-full' : ''
+          }`}
           title="Bu odada İzleyici (Viewer) rolündesiniz. Sadece inceleyebilir ve yakınlaştırabilirsiniz."
         >
           <Eye className="w-3.5 h-3.5" />
-          {!isVertical && <span>İzleyici Modu</span>}
+          <span>İzleyici</span>
         </div>
       )}
 
@@ -1075,25 +1103,27 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <Trash2 className="w-4 h-4" />
             </button>
           ) : (
-            <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-lg">
-              <span className="text-[11px] font-semibold text-rose-700 whitespace-nowrap">Silinsin mi?</span>
-              <button
-                onClick={() => {
-                  onClear();
-                  setConfirmClearOpen(false);
-                }}
-                className="p-1 rounded bg-rose-600 text-white hover:bg-rose-700"
-                title="Evet, Tahtayı Temizle"
-              >
-                <Check className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => setConfirmClearOpen(false)}
-                className="p-1 rounded text-slate-600 hover:bg-slate-200"
-                title="Vazgeç"
-              >
-                <X className="w-3 h-3" />
-              </button>
+            <div className={`flex items-center gap-1 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-lg ${isVertical ? 'col-span-2 w-full justify-between' : ''}`}>
+              <span className="text-[11px] font-semibold text-rose-700 whitespace-nowrap">Sil?</span>
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => {
+                    onClear();
+                    setConfirmClearOpen(false);
+                  }}
+                  className="p-1 rounded bg-rose-600 text-white hover:bg-rose-700"
+                  title="Evet, Tahtayı Temizle"
+                >
+                  <Check className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={() => setConfirmClearOpen(false)}
+                  className="p-1 rounded text-slate-600 hover:bg-slate-200"
+                  title="Vazgeç"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
             </div>
           )}
         </>
@@ -1103,9 +1133,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Zoom Controls */}
       <div
-        className={`flex ${
-          isVertical ? 'flex-col' : 'flex-row'
-        } items-center gap-0.5 bg-slate-100 px-1 py-0.5 rounded-lg`}
+        className={`flex items-center gap-0.5 bg-slate-100 px-1 py-0.5 rounded-lg ${
+          isVertical ? 'col-span-2 w-full justify-between' : 'flex-row'
+        }`}
       >
         <button
           onClick={onZoomOut}
@@ -1130,5 +1160,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
       </div>
     </div>
-  );
+  </div>
+);
 };

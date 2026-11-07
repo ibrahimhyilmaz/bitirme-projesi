@@ -218,6 +218,24 @@ export default function App() {
   });
   const [layoutResetCounter, setLayoutResetCounter] = useState<number>(0);
 
+  // Floating widget z-index stacking management (bring-to-front on click/drag)
+  const [widgetZIndexes, setWidgetZIndexes] = useState<{ toolbar: number; voice: number; style: number }>({
+    toolbar: 22,
+    voice: 21,
+    style: 20,
+  });
+
+  const bringWidgetToFront = useCallback((widget: 'toolbar' | 'voice' | 'style') => {
+    setWidgetZIndexes((prev) => {
+      const maxZ = Math.max(prev.toolbar, prev.voice, prev.style, 22);
+      if (prev[widget] === maxZ) return prev;
+      return {
+        ...prev,
+        [widget]: maxZ + 1,
+      };
+    });
+  }, []);
+
   const handleToggleToolbar = useCallback(() => {
     setShowToolbar((prev) => {
       const next = !prev;
@@ -273,7 +291,42 @@ export default function App() {
     setShowStyleBar(true);
     setShowVoiceBar(true);
     setShowMinimap(true);
+    setWidgetZIndexes({ toolbar: 22, voice: 21, style: 20 });
     setLayoutResetCounter((c) => c + 1);
+  }, []);
+
+  // Fullscreen State and Controller
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const handleToggleFullscreen = useCallback(() => {
+    try {
+      if (!document.fullscreenElement) {
+        const root = document.documentElement;
+        if (root.requestFullscreen) {
+          root.requestFullscreen().catch(() => {});
+        } else if ((root as any).webkitRequestFullscreen) {
+          (root as any).webkitRequestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        } else if ((document as any).webkitExitFullscreen) {
+          (document as any).webkitExitFullscreen();
+        }
+      }
+    } catch {}
   }, []);
 
   // Canvas Tools and Styling
@@ -799,6 +852,13 @@ export default function App() {
         return;
       }
 
+      // F11 Fullscreen toggle
+      if (e.key === 'F11') {
+        e.preventDefault();
+        handleToggleFullscreen();
+        return;
+      }
+
       // Single-key tool & voice shortcuts
       switch (e.key.toLowerCase()) {
         case 'm':
@@ -882,6 +942,7 @@ export default function App() {
     elements,
     recordUndo,
     deleteElements,
+    handleToggleFullscreen,
   ]);
 
   // Element Actions
@@ -1074,6 +1135,8 @@ export default function App() {
         onToggleVoiceBar={handleToggleVoiceBar}
         onToggleMinimap={handleToggleMinimap}
         onResetWidgetLayout={handleResetWidgetLayout}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={handleToggleFullscreen}
       />
 
       {/* Room Error / Capacity / Lock Banner */}
@@ -1111,7 +1174,7 @@ export default function App() {
         className="relative flex-1 w-full h-full overflow-hidden"
       >
         {/* Top Docked Flex Bar (Toolbar + VoiceChatBar sit side-by-side / wrap cleanly with zero overlap, or float freely when dragged) */}
-        <div className="absolute top-3 left-3 right-3 z-20 pointer-events-none flex flex-wrap items-start justify-center gap-2.5">
+        <div className="absolute top-3 left-3 right-3 pointer-events-none flex flex-wrap items-start justify-center gap-2.5">
           <Toolbar
             activeTool={activeTool}
             onSelectTool={(tool) => {
@@ -1137,6 +1200,8 @@ export default function App() {
             isHidden={!showToolbar}
             onToggleHidden={handleToggleToolbar}
             layoutResetCounter={layoutResetCounter}
+            zIndex={widgetZIndexes.toolbar}
+            onFocus={() => bringWidgetToFront('toolbar')}
           />
 
           <VoiceChatBar
@@ -1152,6 +1217,8 @@ export default function App() {
             isHidden={!showVoiceBar}
             onToggleHidden={handleToggleVoiceBar}
             layoutResetCounter={layoutResetCounter}
+            zIndex={widgetZIndexes.voice}
+            onFocus={() => bringWidgetToFront('voice')}
           />
         </div>
 
@@ -1280,6 +1347,8 @@ export default function App() {
             isHidden={!showStyleBar}
             onToggleHidden={handleToggleStyleBar}
             layoutResetCounter={layoutResetCounter}
+            zIndex={widgetZIndexes.style}
+            onFocus={() => bringWidgetToFront('style')}
           />
         )}
 

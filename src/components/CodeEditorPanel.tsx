@@ -492,7 +492,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
 
   return (
     <div
-      className={`fixed z-30 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${
+      className={`fixed z-40 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 ${
         isFullscreen
           ? 'inset-6'
           : 'top-16 right-4 bottom-6 w-[660px] max-w-[calc(100vw-32px)]'

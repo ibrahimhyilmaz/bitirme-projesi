@@ -76,6 +76,8 @@ interface StyleBarProps {
   isHidden?: boolean;
   onToggleHidden?: () => void;
   layoutResetCounter?: number;
+  zIndex?: number;
+  onFocus?: () => void;
 }
 
 const STROKE_COLORS = [
@@ -147,6 +149,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   isHidden,
   onToggleHidden,
   layoutResetCounter = 0,
+  zIndex,
+  onFocus,
 }) => {
   const [rotationMenuOpen, setRotationMenuOpen] = useState(false);
   const [advancedStyleOpen, setAdvancedStyleOpen] = useState(false);
@@ -266,17 +270,10 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     const bar = barRef.current;
     if (!bar) return;
 
-    const workspaceEl = bar.closest('[data-workspace-root]') as HTMLElement | null;
-    const parentRect = workspaceEl?.getBoundingClientRect() || bar.offsetParent?.getBoundingClientRect() || {
-      left: 0,
-      top: 0,
-      width: window.innerWidth,
-      height: window.innerHeight,
-    };
     const barRect = bar.getBoundingClientRect();
 
-    const currentX = barRect.left - parentRect.left;
-    const currentY = barRect.top - parentRect.top;
+    const currentX = barRect.left;
+    const currentY = barRect.top;
 
     dragOffsetRef.current = {
       x: e.clientX - currentX,
@@ -288,22 +285,18 @@ export const StyleBar: React.FC<StyleBarProps> = ({
 
     const handleMove = (moveEvent: PointerEvent) => {
       const currentBar = barRef.current;
-      const wsEl = currentBar?.closest('[data-workspace-root]') as HTMLElement | null;
-      const pRect = wsEl?.getBoundingClientRect() || currentBar?.offsetParent?.getBoundingClientRect() || {
-        left: 0,
-        top: 0,
-        width: window.innerWidth,
-        height: window.innerHeight,
-      };
       const bW = currentBar?.offsetWidth || 100;
       const bH = currentBar?.offsetHeight || 50;
 
       const nextX = moveEvent.clientX - dragOffsetRef.current.x;
       const nextY = moveEvent.clientY - dragOffsetRef.current.y;
 
+      const clampedX = Math.max(8, Math.min(window.innerWidth - bW - 8, nextX));
+      const clampedY = Math.max(64, Math.min(window.innerHeight - bH - 8, nextY));
+
       setPosition({
-        x: Math.max(8, Math.min(pRect.width - bW - 8, nextX)),
-        y: Math.max(8, Math.min(pRect.height - bH - 8, nextY)),
+        x: clampedX,
+        y: clampedY,
       });
     };
 
@@ -354,18 +347,25 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       <div
         ref={barRef}
         data-tour="style-bar"
-        onPointerDown={(e) => e.stopPropagation()}
-        style={
-          position
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onFocus?.();
+        }}
+        style={{
+          zIndex: zIndex ?? (position ? 20 : 20),
+          ...(position
             ? {
+                position: 'fixed',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
                 bottom: 'auto',
                 transform: 'none',
               }
-            : undefined
-        }
-        className={`absolute z-20 flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+            : {}),
+        }}
+        className={`${
+          position ? 'fixed' : 'absolute'
+        } flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
           isDragging
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
@@ -403,18 +403,25 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     <div
       ref={barRef}
       data-tour="style-bar"
-      onPointerDown={(e) => e.stopPropagation()}
-      style={
-        position
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        onFocus?.();
+      }}
+      style={{
+        zIndex: zIndex ?? (position ? 20 : 20),
+        ...(position
           ? {
+              position: 'fixed',
               left: `${position.x}px`,
               top: `${position.y}px`,
               bottom: 'auto',
               transform: 'none',
             }
-          : undefined
-      }
-      className={`absolute z-20 flex flex-wrap items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border ${
+          : {}),
+      }}
+      className={`${
+        position ? 'fixed' : 'absolute'
+      } flex flex-wrap items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border ${
         isDragging
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'

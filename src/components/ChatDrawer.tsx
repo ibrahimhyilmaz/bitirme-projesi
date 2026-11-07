@@ -21,6 +21,32 @@ interface ChatDrawerProps {
 
 const QUICK_REACTIONS = ['❤️', '👍', '🚀', '🎉', '🔥', '💡', '👏', '😂'];
 
+// Regex for pure emoji messages (including extended pictographics, ZWJ sequences, skin tones, flags, variation selectors, and spaces)
+const EMOJI_ONLY_REGEX = /^[\p{Extended_Pictographic}\uFE0E\uFE0F\u200D\u{1F3FB}-\u{1F3FF}\u{1F1E6}-\u{1F1FF}\s]+$/u;
+
+function checkIsOnlyEmoji(text?: string): { isOnly: boolean; count: number } {
+  if (!text) return { isOnly: false, count: 0 };
+  const trimmed = text.trim();
+  if (!trimmed) return { isOnly: false, count: 0 };
+  if (!EMOJI_ONLY_REGEX.test(trimmed)) {
+    return { isOnly: false, count: 0 };
+  }
+
+  let count = 0;
+  try {
+    if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+      const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
+      count = [...segmenter.segment(trimmed.replace(/\s+/g, ''))].length;
+    } else {
+      count = [...trimmed.replace(/\s+/g, '')].length;
+    }
+  } catch {
+    count = [...trimmed.replace(/\s+/g, '')].length;
+  }
+
+  return { isOnly: count > 0, count };
+}
+
 // Categorized rich emojis
 const EMOJI_CATEGORIES: { id: string; name: string; icon: string; emojis: string[] }[] = [
   {
@@ -317,7 +343,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   }, [selectedGifCategory, searchQuery]);
 
   return (
-    <div className="fixed top-16 right-4 bottom-6 w-[420px] max-w-[calc(100vw-32px)] z-30 bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none">
+    <div className="fixed top-16 right-4 bottom-6 w-[420px] max-w-[calc(100vw-32px)] z-40 bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none">
       {/* Header with Only User Messages Count */}
       <div className="h-12 bg-slate-50 border-b border-slate-200 px-4 flex items-center justify-between text-xs shrink-0">
         <div className="flex items-center gap-2">
@@ -371,6 +397,11 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                 msg.fileAttachment.url.match(/\.(gif|png|jpe?g|webp)(\?.*)?$/i) ||
                 msg.fileAttachment.url.includes('giphy.com'));
 
+            const emojiCheck = !hasGifOrImageAttachment
+              ? checkIsOnlyEmoji(msg.text)
+              : { isOnly: false, count: 0 };
+            const isEmojiOnly = emojiCheck.isOnly;
+
             return (
               <div
                 key={msg.id}
@@ -392,34 +423,50 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                   </span>
                 </div>
 
-                <div
-                  className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed select-text shadow-2xs ${
-                    isSelf
-                      ? 'bg-blue-600 text-white rounded-tr-xs'
-                      : 'bg-slate-100 text-slate-800 rounded-tl-xs'
-                  }`}
-                >
-                  {/* Text content */}
-                  {msg.text && (
-                    <div className="break-words">
-                      {msg.text.startsWith('[GIF') && hasGifOrImageAttachment
-                        ? ''
-                        : msg.text}
-                    </div>
-                  )}
+                {isEmojiOnly ? (
+                  /* Standalone emoji rendering without bubble container, with boosted size */
+                  <div
+                    className={`select-text leading-none transition-transform hover:scale-115 duration-150 inline-block filter drop-shadow-xs px-1 ${
+                      emojiCheck.count === 1
+                        ? 'text-5xl my-1.5'
+                        : emojiCheck.count <= 3
+                        ? 'text-4xl my-1 tracking-wider'
+                        : 'text-3xl my-0.5 tracking-wide'
+                    }`}
+                    title={`${isSelf ? 'Sen' : msg.userName}: ${msg.text}`}
+                  >
+                    {msg.text}
+                  </div>
+                ) : (
+                  <div
+                    className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed select-text shadow-2xs ${
+                      isSelf
+                        ? 'bg-blue-600 text-white rounded-tr-xs'
+                        : 'bg-slate-100 text-slate-800 rounded-tl-xs'
+                    }`}
+                  >
+                    {/* Text content */}
+                    {msg.text && (
+                      <div className="break-words">
+                        {msg.text.startsWith('[GIF') && hasGifOrImageAttachment
+                          ? ''
+                          : msg.text}
+                      </div>
+                    )}
 
-                  {/* Animated GIF / Image Attachment */}
-                  {hasGifOrImageAttachment && (
-                    <div className="mt-1.5 rounded-xl overflow-hidden border border-black/10 bg-black/5">
-                      <img
-                        src={msg.fileAttachment!.url}
-                        alt="GIF / Görsel"
-                        className="max-h-52 w-full object-contain rounded-lg"
-                        loading="lazy"
-                      />
-                    </div>
-                  )}
-                </div>
+                    {/* Animated GIF / Image Attachment */}
+                    {hasGifOrImageAttachment && (
+                      <div className="mt-1.5 rounded-xl overflow-hidden border border-black/10 bg-black/5">
+                        <img
+                          src={msg.fileAttachment!.url}
+                          alt="GIF / Görsel"
+                          className="max-h-52 w-full object-contain rounded-lg"
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })
@@ -434,9 +481,12 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           {QUICK_REACTIONS.map((emoji) => (
             <button
               key={emoji}
-              onClick={() => onSendReaction(emoji)}
+              onClick={() => {
+                onSendMessage(emoji);
+                onSendReaction(emoji);
+              }}
               className="w-7 h-7 rounded-lg hover:bg-slate-200/80 flex items-center justify-center text-sm transition-transform active:scale-90 cursor-pointer"
-              title={`${emoji} tuvale reaksiyon gönder`}
+              title={`${emoji} sohbete tek başına gönder & tuvalde göster`}
             >
               {emoji}
             </button>
