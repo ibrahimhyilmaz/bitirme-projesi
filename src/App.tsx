@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { AlertTriangle, X, DoorOpen } from 'lucide-react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { VoiceManager } from './utils/audio';
-import { ToolType, Point, CanvasElement, StrokeStyle } from './types';
+import { ToolType, Point, CanvasElement, StrokeStyle, AppSettings, ThemeMode } from './types';
 import { TopNav } from './components/TopNav';
 import { Toolbar } from './components/Toolbar';
 import { StyleBar } from './components/StyleBar';
@@ -18,6 +18,7 @@ import { UserSetupModal } from './components/UserSetupModal';
 import { AIPromptModal } from './components/AIPromptModal';
 import { RoomsModal, decodeRoomSnapshot } from './components/RoomsModal';
 import { OnboardingTour } from './components/OnboardingTour';
+import { SettingsModal } from './components/SettingsModal';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 
@@ -217,6 +218,36 @@ export default function App() {
     }
   });
   const [layoutResetCounter, setLayoutResetCounter] = useState<number>(0);
+
+  // Settings & Theme State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
+      const saved = localStorage.getItem('collab_app_settings');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      theme: (localStorage.getItem('collab_theme') as ThemeMode) || 'light',
+      gridStyle: 'dots',
+      selectionMode: 'intersect',
+      showToolbar: true,
+      showStyleBar: true,
+      showVoiceBar: true,
+      soundEffectsEnabled: true,
+      showRemoteCursors: true,
+      autoSmoothFreehand: true,
+    };
+  });
+
+  // Sync theme class to document element for Tailwind dark: variants
+  useEffect(() => {
+    const isDark = settings.theme === 'dark' || settings.theme === 'midnight';
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [settings.theme]);
 
   // Floating widget z-index stacking management (bring-to-front on click/drag)
   const [widgetZIndexes, setWidgetZIndexes] = useState<{ toolbar: number; voice: number; style: number }>({
@@ -1137,6 +1168,8 @@ export default function App() {
         onResetWidgetLayout={handleResetWidgetLayout}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
+        theme={settings.theme}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Room Error / Capacity / Lock Banner */}
@@ -1173,54 +1206,53 @@ export default function App() {
         data-workspace-root="true"
         className="relative flex-1 w-full h-full overflow-hidden"
       >
-        {/* Top Docked Flex Bar (Toolbar + VoiceChatBar sit side-by-side / wrap cleanly with zero overlap, or float freely when dragged) */}
-        <div className="absolute top-3 left-3 right-3 pointer-events-none flex flex-wrap items-start justify-center gap-2.5">
-          <Toolbar
-            activeTool={activeTool}
-            onSelectTool={(tool) => {
-              setActiveTool(tool);
-              if (tool !== 'select') setSelectedElementIds([]);
-            }}
-            canUndo={undoStack.length > 0}
-            canRedo={redoStack.length > 0}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            onClear={handleClearElements}
-            zoom={zoom}
-            onZoomIn={() => setZoom((z) => Math.min(3, z * 1.15))}
-            onZoomOut={() => setZoom((z) => Math.max(0.2, z * 0.85))}
-            onResetZoom={() => {
-              setZoom(1);
-              setPan({ x: 0, y: 0 });
-            }}
-            onPingClick={handlePingCenter}
-            onAddImageFile={(dataUrl, w, h) => handleAddImageToCanvas(dataUrl, w, h)}
-            onOpenAIPrompt={() => setIsAIPromptOpen(true)}
-            canEdit={canEdit}
-            isHidden={!showToolbar}
-            onToggleHidden={handleToggleToolbar}
-            layoutResetCounter={layoutResetCounter}
-            zIndex={widgetZIndexes.toolbar}
-            onFocus={() => bringWidgetToFront('toolbar')}
-          />
+        {/* Main Floating Toolbar (Top Center by default, freely draggable anywhere) */}
+        <Toolbar
+          activeTool={activeTool}
+          onSelectTool={(tool) => {
+            setActiveTool(tool);
+            if (tool !== 'select') setSelectedElementIds([]);
+          }}
+          canUndo={undoStack.length > 0}
+          canRedo={redoStack.length > 0}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onClear={handleClearElements}
+          zoom={zoom}
+          onZoomIn={() => setZoom((z) => Math.min(3, z * 1.15))}
+          onZoomOut={() => setZoom((z) => Math.max(0.2, z * 0.85))}
+          onResetZoom={() => {
+            setZoom(1);
+            setPan({ x: 0, y: 0 });
+          }}
+          onPingClick={handlePingCenter}
+          onAddImageFile={(dataUrl, w, h) => handleAddImageToCanvas(dataUrl, w, h)}
+          onOpenAIPrompt={() => setIsAIPromptOpen(true)}
+          canEdit={canEdit}
+          isHidden={!showToolbar}
+          onToggleHidden={handleToggleToolbar}
+          layoutResetCounter={layoutResetCounter}
+          zIndex={widgetZIndexes.toolbar}
+          onFocus={() => bringWidgetToFront('toolbar')}
+        />
 
-          <VoiceChatBar
-            users={users}
-            currentUser={currentUser}
-            isMuted={isMuted}
-            isDeafened={isDeafened}
-            localVolume={localVolume}
-            onToggleMute={handleToggleMute}
-            onToggleDeafen={handleToggleDeafen}
-            getUserVolume={handleGetUserVolume}
-            onSetUserVolume={handleSetUserVolume}
-            isHidden={!showVoiceBar}
-            onToggleHidden={handleToggleVoiceBar}
-            layoutResetCounter={layoutResetCounter}
-            zIndex={widgetZIndexes.voice}
-            onFocus={() => bringWidgetToFront('voice')}
-          />
-        </div>
+        {/* Voice Chat Floating Bar (Top Right by default, freely draggable anywhere) */}
+        <VoiceChatBar
+          users={users}
+          currentUser={currentUser}
+          isMuted={isMuted}
+          isDeafened={isDeafened}
+          localVolume={localVolume}
+          onToggleMute={handleToggleMute}
+          onToggleDeafen={handleToggleDeafen}
+          getUserVolume={handleGetUserVolume}
+          onSetUserVolume={handleSetUserVolume}
+          isHidden={!showVoiceBar}
+          onToggleHidden={handleToggleVoiceBar}
+          layoutResetCounter={layoutResetCounter}
+          zIndex={widgetZIndexes.voice}
+          onFocus={() => bringWidgetToFront('voice')}
+        />
 
         {/* Contextual Style & Transform Bar (Draggable, Bottom Center by default) */}
         {canEdit && (
@@ -1409,6 +1441,18 @@ export default function App() {
           showMinimap={showMinimap}
           onToggleMinimap={handleToggleMinimap}
           onResetWidgetLayout={handleResetWidgetLayout}
+          theme={settings.theme}
+          gridStyle={settings.gridStyle}
+          onChangeGridStyle={(style) => {
+            setSettings((prev) => {
+              const updated = { ...prev, gridStyle: style };
+              try {
+                localStorage.setItem('collab_app_settings', JSON.stringify(updated));
+              } catch {}
+              return updated;
+            });
+          }}
+          selectionMode={settings.selectionMode}
         />
 
         {/* Collaborative Code Editor Side Panel (Room-Scoped) */}
@@ -1603,6 +1647,55 @@ export default function App() {
           setIsRoomsModalOpen(true);
         }}
       />
+
+      {/* Settings Modal (Theme, Dark Mode, Canvas Grid, Panels, Shortcuts) */}
+      {isSettingsOpen && (
+        <SettingsModal
+          settings={{
+            ...settings,
+            showToolbar,
+            showStyleBar,
+            showVoiceBar,
+          }}
+          onUpdateSettings={(partial) => {
+            setSettings((prev) => {
+              const updated = { ...prev, ...partial };
+              try {
+                localStorage.setItem('collab_app_settings', JSON.stringify(updated));
+                if (partial.theme) {
+                  localStorage.setItem('collab_theme', partial.theme);
+                }
+              } catch {}
+              return updated;
+            });
+            if (partial.showToolbar !== undefined) setShowToolbar(partial.showToolbar);
+            if (partial.showStyleBar !== undefined) setShowStyleBar(partial.showStyleBar);
+            if (partial.showVoiceBar !== undefined) setShowVoiceBar(partial.showVoiceBar);
+          }}
+          onResetFloatingPositions={handleResetWidgetLayout}
+          onResetAllSettings={() => {
+            const defaults: AppSettings = {
+              theme: 'light',
+              gridStyle: 'dots',
+              selectionMode: 'intersect',
+              showToolbar: true,
+              showStyleBar: true,
+              showVoiceBar: true,
+              soundEffectsEnabled: true,
+              showRemoteCursors: true,
+              autoSmoothFreehand: true,
+            };
+            setSettings(defaults);
+            try {
+              localStorage.setItem('collab_app_settings', JSON.stringify(defaults));
+              localStorage.setItem('collab_theme', 'light');
+            } catch {}
+            handleResetWidgetLayout();
+          }}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
     </div>
   );
 }
+

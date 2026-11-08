@@ -625,15 +625,15 @@ export const TopNav: React.FC<TopNavProps> = ({
         {onOpenSettings && (
           <button
             onClick={() => onOpenSettings('appearance')}
-            title="Uygulama Ayarları, Tema ve Çoklu Seçim Seçenekleri"
-            className={`p-1.5 sm:px-2 sm:py-1.5 rounded-lg text-xs font-semibold border transition-colors shrink-0 ${
+            title="Uygulama Ayarları & Koyu Tema Seçimi"
+            className={`flex items-center gap-1.5 p-1.5 sm:px-2 sm:py-1.5 rounded-lg text-xs font-semibold border transition-colors shrink-0 ${
               isDark
                 ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
                 : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/70'
             }`}
           >
-            <Settings className="w-3.5 h-3.5" />
-            <span className="hidden 2xl:inline">Ayarlar</span>
+            <Settings className="w-3.5 h-3.5 text-blue-600" />
+            <span className="hidden md:inline">Ayarlar</span>
           </button>
         )}
 

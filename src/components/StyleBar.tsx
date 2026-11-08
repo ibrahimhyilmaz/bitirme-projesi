@@ -23,6 +23,8 @@ import {
   ChevronDown,
   ArrowUp,
   ArrowDown,
+  PaintBucket,
+  Palette,
 } from 'lucide-react';
 import {
   ALL_SHAPE_TYPES,
@@ -162,6 +164,31 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   const sizeMenuRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
+  // Recently used stroke colors (persisted)
+  const [recentColors, setRecentColors] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('collab_recent_stroke_colors');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return STROKE_COLORS;
+  });
+
+  const handleChooseStrokeColor = (color: string) => {
+    onChangeStrokeColor(color);
+    setRecentColors((prev) => {
+      const normalized = color.toLowerCase();
+      const filtered = prev.filter((c) => c.toLowerCase() !== normalized);
+      const updated = [color, ...filtered].slice(0, 8);
+      try {
+        localStorage.setItem('collab_recent_stroke_colors', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
   // Draggable position for StyleBar (persisted)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
     try {
@@ -270,10 +297,17 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     const bar = barRef.current;
     if (!bar) return;
 
+    const workspaceEl = bar.closest('[data-workspace-root]') as HTMLElement | null;
+    const parentRect = workspaceEl?.getBoundingClientRect() || {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
     const barRect = bar.getBoundingClientRect();
 
-    const currentX = barRect.left;
-    const currentY = barRect.top;
+    const currentX = barRect.left - parentRect.left;
+    const currentY = barRect.top - parentRect.top;
 
     dragOffsetRef.current = {
       x: e.clientX - currentX,
@@ -285,14 +319,21 @@ export const StyleBar: React.FC<StyleBarProps> = ({
 
     const handleMove = (moveEvent: PointerEvent) => {
       const currentBar = barRef.current;
+      const wsEl = currentBar?.closest('[data-workspace-root]') as HTMLElement | null;
+      const pRect = wsEl?.getBoundingClientRect() || {
+        left: 0,
+        top: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
       const bW = currentBar?.offsetWidth || 100;
       const bH = currentBar?.offsetHeight || 50;
 
       const nextX = moveEvent.clientX - dragOffsetRef.current.x;
       const nextY = moveEvent.clientY - dragOffsetRef.current.y;
 
-      const clampedX = Math.max(8, Math.min(window.innerWidth - bW - 8, nextX));
-      const clampedY = Math.max(64, Math.min(window.innerHeight - bH - 8, nextY));
+      const clampedX = Math.max(8, Math.min(pRect.width - bW - 8, nextX));
+      const clampedY = Math.max(8, Math.min(pRect.height - bH - 8, nextY));
 
       setPosition({
         x: clampedX,
@@ -316,10 +357,15 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   const isSticky = selectedElement?.type === 'sticky' || activeTool === 'sticky';
   const isText = selectedElement?.type === 'text' || activeTool === 'text';
   const isImage = selectedElement?.type === 'image';
-  const hasFill =
-    !selectedElement ||
-    FILLABLE_SHAPE_TYPES.has(selectedElement.type) ||
-    (selectedElements && selectedElements.some((e) => FILLABLE_SHAPE_TYPES.has(e.type)));
+  const isToolFillableShape =
+    activeTool &&
+    (activeTool === 'sticky' ||
+      ALL_SHAPE_TYPES.some((s) => s === activeTool && s !== 'double-arrow' && s !== 'curved-arrow'));
+  const hasFill = selectedElement
+    ? FILLABLE_SHAPE_TYPES.has(selectedElement.type)
+    : selectedElements && selectedElements.length > 0
+    ? selectedElements.some((e) => FILLABLE_SHAPE_TYPES.has(e.type))
+    : !!isToolFillableShape;
 
   const activeStrokeColor = selectedElement?.color || strokeColor;
   const activeFillColor = selectedElement?.fillColor || fillColor;
@@ -355,7 +401,6 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           zIndex: zIndex ?? (position ? 20 : 20),
           ...(position
             ? {
-                position: 'fixed',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
                 bottom: 'auto',
@@ -363,9 +408,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
               }
             : {}),
         }}
-        className={`${
-          position ? 'fixed' : 'absolute'
-        } flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+        className={`absolute flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
           isDragging
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
@@ -411,7 +454,6 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         zIndex: zIndex ?? (position ? 20 : 20),
         ...(position
           ? {
-              position: 'fixed',
               left: `${position.x}px`,
               top: `${position.y}px`,
               bottom: 'auto',
@@ -419,9 +461,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             }
           : {}),
       }}
-      className={`${
-        position ? 'fixed' : 'absolute'
-      } flex flex-wrap items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border ${
+      className={`absolute flex flex-wrap items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border ${
         isDragging
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'
@@ -462,15 +502,37 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         <EyeOff className="w-4 h-4" />
       </button>
 
-      {/* Stroke Colors (hidden for pure image elements) */}
+      {/* Stroke Colors & Color Scheme / Spectrum Picker */}
       {!isImage && (
-        <div className="flex items-center gap-1 border-r border-slate-200 pr-2">
-          {STROKE_COLORS.map((c) => (
+        <div className="flex items-center gap-1.5 border-r border-slate-200 pr-2">
+          {/* Custom Color Scheme / Rainbow Spectrum Picker */}
+          <label
+            className="relative w-5 h-5 rounded-full cursor-pointer flex items-center justify-center transition-transform hover:scale-110 shadow-xs border border-slate-300 overflow-hidden shrink-0"
+            style={{
+              background:
+                'conic-gradient(from 90deg, #ff0000, #ff8000, #ffff00, #00ff00, #00ffff, #0000ff, #8000ff, #ff0080, #ff0000)',
+            }}
+            title="Renk Şemasından Özel Renk Seç (Tüm Renkler)"
+          >
+            <input
+              type="color"
+              value={
+                activeStrokeColor.startsWith('#') && activeStrokeColor.length === 7
+                  ? activeStrokeColor
+                  : '#2563eb'
+              }
+              onChange={(e) => handleChooseStrokeColor(e.target.value)}
+              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+            />
+          </label>
+
+          {/* Dynamic Recent / Selected Colors */}
+          {recentColors.map((c) => (
             <button
               key={c}
-              onClick={() => onChangeStrokeColor(c)}
+              onClick={() => handleChooseStrokeColor(c)}
               className={`w-5 h-5 rounded-full transition-transform ${
-                activeStrokeColor === c
+                activeStrokeColor.toLowerCase() === c.toLowerCase()
                   ? 'scale-125 ring-2 ring-blue-500 ring-offset-1'
                   : 'hover:scale-110'
               }`}
@@ -481,9 +543,17 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         </div>
       )}
 
-      {/* Fill Color Picker */}
+      {/* Shape Fill Color (İç Dolgu) - Only shown for fillable shapes / sticky notes with clear explanation */}
       {hasFill && (
-        <div className="flex items-center gap-1 border-r border-slate-200 pr-2">
+        <div className="flex items-center gap-1.5 border-r border-slate-200 pr-2">
+          <div
+            className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded cursor-help"
+            title="Şekil İçi Dolgu Rengi: Dikdörtgen, elips, yıldız gibi kapalı şekillerin iç alanını boyar. Çizgi veya serbest çizim için saydam kalır."
+          >
+            <PaintBucket className="w-3.5 h-3.5 text-slate-500" />
+            <span className="hidden sm:inline">İç Dolgu:</span>
+          </div>
+
           {(isSticky ? STICKY_FILL_COLORS : SHAPE_FILL_COLORS).map((c) => (
             <button
               key={c}
@@ -494,7 +564,11 @@ export const StyleBar: React.FC<StyleBarProps> = ({
                   : 'hover:scale-110'
               } ${c === 'transparent' ? 'relative overflow-hidden bg-white' : ''}`}
               style={{ backgroundColor: c === 'transparent' ? '#ffffff' : c }}
-              title={`Dolgu Rengi: ${c === 'transparent' ? 'Saydam' : c}`}
+              title={
+                c === 'transparent'
+                  ? 'İç Dolgu: Yok (Saydam / Boş Şekil)'
+                  : `Şekil İçi Dolgu Rengi: ${c}`
+              }
             >
               {c === 'transparent' && (
                 <span className="absolute inset-0 flex items-center justify-center text-[10px] text-rose-500 font-bold">
@@ -528,63 +602,140 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             </button>
           ))}
 
-          {/* Stroke Style & Opacity Popover */}
+          {/* Stroke Style, Opacity, Thickness Slider & Live Preview Popover */}
           <div className="relative">
             <button
               onClick={() => setAdvancedStyleOpen((v) => !v)}
               className={`p-1.5 rounded-lg transition-colors ${
-                advancedStyleOpen || activeStrokeStyle !== 'solid' || activeOpacity < 1
+                advancedStyleOpen ||
+                activeStrokeStyle !== 'solid' ||
+                activeOpacity < 1 ||
+                (activeStrokeWidth !== 2 &&
+                  activeStrokeWidth !== 4 &&
+                  activeStrokeWidth !== 8 &&
+                  activeStrokeWidth !== 12)
                   ? 'bg-blue-50 text-blue-600'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
-              title="Çizgi Stili ve Saydamlık"
+              title="Gelişmiş Çizim Ayarları (Kalınlık Çubuğu, Saydamlık, Stil & Canlı Önizleme)"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
             </button>
 
             {advancedStyleOpen && (
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-52 z-50 flex flex-col gap-3">
-                <div>
-                  <div className="text-[11px] font-semibold text-slate-600 mb-1.5">Çizgi Stili</div>
-                  <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-lg">
-                    {(
-                      [
-                        { id: 'solid', label: 'Düz' },
-                        { id: 'dashed', label: 'Kesikli' },
-                        { id: 'dotted', label: 'Noktalı' },
-                      ] as const
-                    ).map((st) => (
-                      <button
-                        key={st.id}
-                        onClick={() => onChangeStrokeStyle(st.id)}
-                        className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors ${
-                          activeStrokeStyle === st.id
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        {st.label}
-                      </button>
-                    ))}
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 z-50 flex flex-row gap-3 min-w-[360px] max-w-[420px]">
+                {/* Left 2/3: Controls (Stil, Saydamlık, Kalınlık Barı) */}
+                <div className="flex-1 flex flex-col justify-between gap-2.5 pr-2.5 border-r border-slate-100">
+                  {/* Çizgi Stili */}
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-600 mb-1">Çizgi Stili</div>
+                    <div className="grid grid-cols-3 gap-1 bg-slate-100 p-0.5 rounded-lg">
+                      {(
+                        [
+                          { id: 'solid', label: 'Düz' },
+                          { id: 'dashed', label: 'Kesikli' },
+                          { id: 'dotted', label: 'Noktalı' },
+                        ] as const
+                      ).map((st) => (
+                        <button
+                          key={st.id}
+                          onClick={() => onChangeStrokeStyle(st.id)}
+                          className={`px-1.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+                            activeStrokeStyle === st.id
+                              ? 'bg-white text-slate-900 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          {st.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Saydamlık Barı */}
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 mb-0.5">
+                      <span>Saydamlık</span>
+                      <span className="font-mono tabular-nums text-slate-800">
+                        %{Math.round(activeOpacity * 100)}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="20"
+                      max="100"
+                      step="5"
+                      value={Math.round(activeOpacity * 100)}
+                      onChange={(e) => onChangeOpacity(Number(e.target.value) / 100)}
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                  </div>
+
+                  {/* Kalınlık Ayar Barı */}
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 mb-0.5">
+                      <span>Kalınlık Ayarı</span>
+                      <span className="font-mono tabular-nums text-blue-600 font-bold">
+                        {activeStrokeWidth}px
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="40"
+                      step="1"
+                      value={activeStrokeWidth}
+                      onChange={(e) => onChangeStrokeWidth(Number(e.target.value))}
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
                   </div>
                 </div>
 
-                <div>
-                  <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 mb-1">
-                    <span>Saydamlık</span>
-                    <span className="font-mono tabular-nums text-slate-800">
-                      %{Math.round(activeOpacity * 100)}
-                    </span>
+                {/* Right 1/3: Canlı Çizim Önizleme Ekranı (aynı yükseklikte) */}
+                <div className="w-[124px] flex flex-col justify-between bg-slate-50 border border-slate-200/80 rounded-xl p-2 shrink-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-center">
+                    Canlı Önizleme
                   </div>
-                  <input
-                    type="range"
-                    min="20"
-                    max="100"
-                    step="5"
-                    value={Math.round(activeOpacity * 100)}
-                    onChange={(e) => onChangeOpacity(Number(e.target.value) / 100)}
-                    className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  />
+
+                  <div className="flex-1 flex items-center justify-center my-1 relative overflow-hidden bg-white rounded-lg border border-slate-200 shadow-inner p-1 min-h-[64px]">
+                    <svg className="w-full h-14" viewBox="0 0 100 60">
+                      {hasFill && activeFillColor !== 'transparent' && (
+                        <rect
+                          x="10"
+                          y="8"
+                          width="80"
+                          height="44"
+                          rx="6"
+                          fill={activeFillColor}
+                          opacity={activeOpacity}
+                        />
+                      )}
+                      <path
+                        d="M 10 32 Q 50 12 90 32"
+                        fill="none"
+                        stroke={activeStrokeColor}
+                        strokeWidth={Math.min(26, Math.max(1, activeStrokeWidth))}
+                        strokeOpacity={activeOpacity}
+                        strokeDasharray={
+                          activeStrokeStyle === 'dashed'
+                            ? '8 6'
+                            : activeStrokeStyle === 'dotted'
+                            ? '2 5'
+                            : 'none'
+                        }
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
+
+                  <div className="text-center text-[10px] text-slate-500 font-mono leading-tight">
+                    {activeStrokeWidth}px •{' '}
+                    {activeStrokeStyle === 'solid'
+                      ? 'Düz'
+                      : activeStrokeStyle === 'dashed'
+                      ? 'Kesikli'
+                      : 'Noktalı'}
+                  </div>
                 </div>
               </div>
             )}

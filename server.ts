@@ -20,7 +20,18 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const PORT = Number(process.env.PORT) || 3000;
+function getPort(): number {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const p = Number(process.argv[portArgIndex + 1]);
+    if (!isNaN(p)) return p;
+  }
+  if (process.env.NODE_ENV === 'production' && process.env.PORT) {
+    return Number(process.env.PORT);
+  }
+  return 3000;
+}
+const PORT = getPort();
 
 // Server-wide capacity limits
 const MAX_ROOMS = 20;

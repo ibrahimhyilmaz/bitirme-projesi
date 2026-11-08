@@ -453,9 +453,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const bar = toolbarRef.current;
     if (!bar) return;
 
+    const workspaceEl = bar.closest('[data-workspace-root]') as HTMLElement | null;
+    const parentRect = workspaceEl?.getBoundingClientRect() || {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
     const barRect = bar.getBoundingClientRect();
-    const currentX = barRect.left;
-    const currentY = barRect.top;
+
+    const currentX = barRect.left - parentRect.left;
+    const currentY = barRect.top - parentRect.top;
 
     dragOffsetRef.current = {
       x: e.clientX - currentX,
@@ -468,14 +476,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const currentBar = toolbarRef.current;
+      const wsEl = currentBar?.closest('[data-workspace-root]') as HTMLElement | null;
+      const pRect = wsEl?.getBoundingClientRect() || {
+        left: 0,
+        top: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
       const bW = currentBar?.offsetWidth || 60;
       const bH = currentBar?.offsetHeight || 60;
 
       const nextX = moveEvent.clientX - dragOffsetRef.current.x;
       const nextY = moveEvent.clientY - dragOffsetRef.current.y;
 
-      const clampedX = Math.max(8, Math.min(window.innerWidth - bW - 8, nextX));
-      const clampedY = Math.max(64, Math.min(window.innerHeight - bH - 8, nextY));
+      const clampedX = Math.max(8, Math.min(pRect.width - bW - 8, nextX));
+      const clampedY = Math.max(8, Math.min(pRect.height - bH - 8, nextY));
 
       setPosition({ x: clampedX, y: clampedY });
     };
@@ -554,20 +569,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           zIndex: zIndex ?? (position ? 22 : undefined),
           ...(position
             ? {
-                position: 'fixed',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
+                bottom: 'auto',
                 transform: 'none',
               }
             : {}),
         }}
-        className={`${
-          position ? 'fixed' : 'relative'
-        } pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+        className={`absolute pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
           isDraggingBar
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
-        } rounded-xl select-none`}
+        } rounded-xl select-none ${!position ? 'top-3 left-1/2 -translate-x-1/2' : ''}`}
       >
         <div
           onPointerDown={handleGripPointerDown}
@@ -604,19 +617,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         zIndex: zIndex ?? (position ? 22 : undefined),
         ...(position
           ? {
-              position: 'fixed',
               left: `${position.x}px`,
               top: `${position.y}px`,
+              bottom: 'auto',
               transform: 'none',
             }
           : {}),
       }}
-      className={`${position ? 'fixed' : 'relative'} pointer-events-auto flex flex-col items-center p-1.5 bg-white/95 backdrop-blur-md border ${
+      className={`absolute pointer-events-auto flex flex-col items-center p-1.5 bg-white/95 backdrop-blur-md border ${
         isDraggingBar
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'
       } rounded-xl select-none ${
-        isVertical ? 'w-[88px] max-h-[calc(100vh-4.5rem)]' : 'flex-row flex-wrap max-w-[96vw]'
+        !position ? 'top-3 left-1/2 -translate-x-1/2' : ''
+      } ${
+        isVertical ? 'w-[96px] max-h-[calc(100vh-4.5rem)] overflow-hidden' : 'flex-row flex-wrap max-w-[96vw]'
       }`}
     >
       {/* Drag Handle & Orientation Controls */}
@@ -675,7 +690,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div
         className={
           isVertical
-            ? 'grid grid-cols-2 gap-1 items-center justify-items-center w-full max-h-[calc(100vh-8.5rem)] overflow-y-auto no-scrollbar py-0.5'
+            ? 'grid grid-cols-2 gap-1 items-center justify-items-center w-full max-h-[calc(100vh-8.5rem)] overflow-y-auto overflow-x-hidden no-scrollbar py-0.5'
             : 'flex flex-row items-center gap-1 flex-wrap'
         }
       >
@@ -683,7 +698,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Select & Move */}
       <button
         onClick={() => onSelectTool('select')}
-        className={`p-2 rounded-lg transition-all ${
+        className={`flex items-center justify-center rounded-lg transition-all ${
+          isVertical ? 'w-9 h-9' : 'p-2'
+        } ${
           activeTool === 'select'
             ? 'bg-blue-600 text-white shadow-xs'
             : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -696,7 +713,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Hand / Pan Canvas */}
       <button
         onClick={() => onSelectTool('pan')}
-        className={`p-2 rounded-lg transition-all cursor-grab active:cursor-grabbing ${
+        className={`flex items-center justify-center rounded-lg transition-all cursor-grab active:cursor-grabbing ${
+          isVertical ? 'w-9 h-9' : 'p-2'
+        } ${
           activeTool === 'pan'
             ? 'bg-slate-200/90 text-slate-800 ring-1 ring-slate-300/80 shadow-2xs'
             : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -750,7 +769,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Freehand Pen */}
           <button
             onClick={() => onSelectTool('pencil')}
-            className={`p-2 rounded-lg transition-all ${
+            className={`flex items-center justify-center rounded-lg transition-all ${
+              isVertical ? 'w-9 h-9' : 'p-2'
+            } ${
               activeTool === 'pencil'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -763,7 +784,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Highlighter */}
           <button
             onClick={() => onSelectTool('highlighter')}
-            className={`p-2 rounded-lg transition-all ${
+            className={`flex items-center justify-center rounded-lg transition-all ${
+              isVertical ? 'w-9 h-9' : 'p-2'
+            } ${
               activeTool === 'highlighter'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -775,10 +798,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           {/* Dual Eraser Dropdown (Object Eraser & Precision Point Eraser) */}
           <div className="relative" ref={eraserMenuRef}>
-            <div className="flex items-center">
+            <div className={`flex items-center ${isVertical ? 'relative' : ''}`}>
               <button
                 onClick={() => onSelectTool(lastEraserTool)}
-                className={`p-2 rounded-lg transition-all ${
+                className={`flex items-center justify-center rounded-lg transition-all ${
+                  isVertical ? 'w-9 h-9' : 'p-2'
+                } ${
                   activeTool === 'eraser' || activeTool === 'point-eraser'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -796,15 +821,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 )}
               </button>
               <button
-                onClick={() => setEraserMenuOpen(!eraserMenuOpen)}
-                className={`p-1 -ml-1 rounded transition-colors ${
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEraserMenuOpen(!eraserMenuOpen);
+                }}
+                className={`rounded transition-colors ${
+                  isVertical ? 'absolute bottom-0.5 right-0.5 p-0.5' : 'p-1 -ml-1'
+                } ${
                   activeTool === 'eraser' || activeTool === 'point-eraser'
-                    ? 'text-blue-200 hover:text-white'
+                    ? isVertical
+                      ? 'text-white/80 hover:text-white'
+                      : 'text-blue-200 hover:text-white'
                     : 'text-slate-400 hover:text-slate-700'
                 }`}
                 title="Silgi Türünü Değiştir (Öğe / Hassas)"
               >
-                <ChevronDown className="w-3 h-3" />
+                <ChevronDown className={isVertical ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
               </button>
             </div>
 
@@ -896,7 +928,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <button
               type="button"
               onClick={() => setShapesMenuOpen(!shapesMenuOpen)}
-              className={`flex items-center gap-1 p-2 rounded-lg transition-all ${
+              className={`flex items-center justify-center rounded-lg transition-all relative ${
+                isVertical ? 'w-9 h-9 p-0' : 'gap-1 p-2'
+              } ${
                 isShapeActive
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -904,7 +938,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               title="Şekiller, Akış Diyagramları, Blok Oklar & Konuşma Balonları (27 Şekil)"
             >
               {getShapeIcon()}
-              <ChevronDown className="w-3 h-3 opacity-70" />
+              <ChevronDown className={isVertical ? "w-2.5 h-2.5 absolute bottom-0.5 right-0.5 opacity-70" : "w-3 h-3 opacity-70"} />
             </button>
 
             {shapesMenuOpen && (
@@ -966,7 +1000,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Arrow */}
           <button
             onClick={() => onSelectTool('arrow')}
-            className={`p-2 rounded-lg transition-all ${
+            className={`flex items-center justify-center rounded-lg transition-all ${
+              isVertical ? 'w-9 h-9' : 'p-2'
+            } ${
               activeTool === 'arrow'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -979,7 +1015,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Line */}
           <button
             onClick={() => onSelectTool('line')}
-            className={`p-2 rounded-lg transition-all ${
+            className={`flex items-center justify-center rounded-lg transition-all ${
+              isVertical ? 'w-9 h-9' : 'p-2'
+            } ${
               activeTool === 'line'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -992,7 +1030,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Sticky Note */}
           <button
             onClick={() => onSelectTool('sticky')}
-            className={`p-2 rounded-lg transition-all ${
+            className={`flex items-center justify-center rounded-lg transition-all ${
+              isVertical ? 'w-9 h-9' : 'p-2'
+            } ${
               activeTool === 'sticky'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -1005,7 +1045,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Text */}
           <button
             onClick={() => onSelectTool('text')}
-            className={`p-2 rounded-lg transition-all ${
+            className={`flex items-center justify-center rounded-lg transition-all ${
+              isVertical ? 'w-9 h-9' : 'p-2'
+            } ${
               activeTool === 'text'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -1027,7 +1069,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <button
                 onClick={() => imageInputRef.current?.click()}
-                className="p-2 rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-all"
+                className={`flex items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-all ${
+                  isVertical ? 'w-9 h-9' : 'p-2'
+                }`}
                 title="Tahtaya Görsel Yükle"
               >
                 <ImagePlus className="w-4 h-4" />
@@ -1042,7 +1086,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Laser Pointer */}
       <button
         onClick={() => onSelectTool('laser')}
-        className={`p-2 rounded-lg transition-all ${
+        className={`flex items-center justify-center rounded-lg transition-all ${
+          isVertical ? 'w-9 h-9' : 'p-2'
+        } ${
           activeTool === 'laser'
             ? 'bg-rose-600 text-white shadow-xs'
             : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -1055,7 +1101,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Live Ping Tool Button */}
       <button
         onClick={() => onSelectTool('ping')}
-        className={`p-2 rounded-lg transition-all ${
+        className={`flex items-center justify-center rounded-lg transition-all ${
+          isVertical ? 'w-9 h-9' : 'p-2'
+        } ${
           activeTool === 'ping'
             ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-500/30'
             : 'text-slate-700 hover:bg-emerald-50 hover:text-emerald-600'
@@ -1073,7 +1121,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             onClick={onUndo}
             disabled={!canUndo}
-            className={`p-2 rounded-lg transition-all ${
+            className={`flex items-center justify-center rounded-lg transition-all ${
+              isVertical ? 'w-9 h-9' : 'p-2'
+            } ${
               canUndo ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 cursor-not-allowed'
             }`}
             title="Geri Al (Ctrl+Z)"
@@ -1085,7 +1135,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             onClick={onRedo}
             disabled={!canRedo}
-            className={`p-2 rounded-lg transition-all ${
+            className={`flex items-center justify-center rounded-lg transition-all ${
+              isVertical ? 'w-9 h-9' : 'p-2'
+            } ${
               canRedo ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 cursor-not-allowed'
             }`}
             title="Yinele (Ctrl+Y)"
@@ -1097,7 +1149,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {!confirmClearOpen ? (
             <button
               onClick={() => setConfirmClearOpen(true)}
-              className="p-2 rounded-lg text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-all"
+              className={`flex items-center justify-center rounded-lg text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-all ${
+                isVertical ? 'w-9 h-9' : 'p-2'
+              }`}
               title="Tahtayı Temizle"
             >
               <Trash2 className="w-4 h-4" />
@@ -1133,27 +1187,27 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Zoom Controls */}
       <div
-        className={`flex items-center gap-0.5 bg-slate-100 px-1 py-0.5 rounded-lg ${
-          isVertical ? 'col-span-2 w-full justify-between' : 'flex-row'
+        className={`flex items-center bg-slate-100 px-1 py-0.5 rounded-lg ${
+          isVertical ? 'col-span-2 w-full justify-between' : 'gap-0.5'
         }`}
       >
         <button
           onClick={onZoomOut}
-          className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-white"
+          className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-white shrink-0"
           title="Uzaklaş"
         >
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
         <button
           onClick={onResetZoom}
-          className="px-1.5 py-0.5 text-[11px] font-mono tabular-nums font-medium text-slate-700 hover:text-slate-900"
+          className="px-1 py-0.5 text-[10px] font-mono tabular-nums font-semibold text-slate-700 hover:text-slate-900 shrink-0"
           title="Yakınlaştırmayı Sıfırla (%100)"
         >
           {Math.round(zoom * 100)}%
         </button>
         <button
           onClick={onZoomIn}
-          className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-white"
+          className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-white shrink-0"
           title="Yakınlaş"
         >
           <ZoomIn className="w-3.5 h-3.5" />

@@ -145,9 +145,17 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
     const bar = barRef.current;
     if (!bar) return;
 
+    const workspaceEl = bar.closest('[data-workspace-root]') as HTMLElement | null;
+    const parentRect = workspaceEl?.getBoundingClientRect() || {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
     const barRect = bar.getBoundingClientRect();
-    const currentX = barRect.left;
-    const currentY = barRect.top;
+
+    const currentX = barRect.left - parentRect.left;
+    const currentY = barRect.top - parentRect.top;
 
     dragOffsetRef.current = {
       x: e.clientX - currentX,
@@ -159,14 +167,21 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const currentBar = barRef.current;
+      const wsEl = currentBar?.closest('[data-workspace-root]') as HTMLElement | null;
+      const pRect = wsEl?.getBoundingClientRect() || {
+        left: 0,
+        top: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
       const bW = currentBar?.offsetWidth || 180;
       const bH = currentBar?.offsetHeight || 44;
 
       const nextX = moveEvent.clientX - dragOffsetRef.current.x;
       const nextY = moveEvent.clientY - dragOffsetRef.current.y;
 
-      const clampedX = Math.max(8, Math.min(window.innerWidth - bW - 8, nextX));
-      const clampedY = Math.max(64, Math.min(window.innerHeight - bH - 8, nextY));
+      const clampedX = Math.max(8, Math.min(pRect.width - bW - 8, nextX));
+      const clampedY = Math.max(8, Math.min(pRect.height - bH - 8, nextY));
 
       setPosition({ x: clampedX, y: clampedY });
     };
@@ -196,7 +211,6 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
           zIndex: zIndex ?? (position ? 21 : undefined),
           ...(position
             ? {
-                position: 'fixed',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
                 right: 'auto',
@@ -205,13 +219,11 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
               }
             : {}),
         }}
-        className={`${
-          position ? 'fixed' : 'relative'
-        } pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+        className={`absolute pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
           isDragging
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
-        } rounded-xl select-none`}
+        } rounded-xl select-none ${!position ? 'top-3 right-4' : ''}`}
       >
         {/* Grip Handle */}
         <div
@@ -269,7 +281,6 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
         zIndex: zIndex ?? (position ? 21 : undefined),
         ...(position
           ? {
-              position: 'fixed',
               left: `${position.x}px`,
               top: `${position.y}px`,
               right: 'auto',
@@ -278,9 +289,9 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
             }
           : {}),
       }}
-      className={`${
-        position ? 'fixed' : 'relative'
-      } pointer-events-auto flex flex-col items-end select-none`}
+      className={`absolute pointer-events-auto flex flex-col items-end select-none ${
+        !position ? 'top-3 right-4' : ''
+      }`}
     >
       {/* Voice Channel Bar */}
       <div

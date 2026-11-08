@@ -7,6 +7,7 @@ import {
   StrokeStyle,
   TEXT_FONT_SIZES,
   ToolType,
+  ThemeMode,
   UserPing,
   UserPresence,
   UserReaction,
@@ -70,6 +71,7 @@ const PING_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/
 const GRAB_CURSOR = 'grab';
 const GRABBING_CURSOR = 'grabbing';
 
+
 interface CanvasBoardProps {
   elements: CanvasElement[];
   users: UserPresence[];
@@ -131,6 +133,10 @@ interface CanvasBoardProps {
   showMinimap?: boolean;
   onToggleMinimap?: () => void;
   onResetWidgetLayout?: () => void;
+  theme?: ThemeMode;
+  gridStyle?: 'dots' | 'grid' | 'none';
+  onChangeGridStyle?: (style: 'dots' | 'grid' | 'none') => void;
+  selectionMode?: 'intersect' | 'contain';
 }
 
 // Bounding box intersection test for marquee drag multi-selection
@@ -312,6 +318,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   showMinimap = true,
   onToggleMinimap,
   onResetWidgetLayout,
+  theme = 'light',
+  gridStyle: propGridStyle,
+  onChangeGridStyle,
+  selectionMode = 'intersect',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -373,7 +383,25 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const pendingNewTextRef = useRef<CanvasElement | null>(null);
 
   // Grid style & Right-Click Context Menus
-  const [gridStyle, setGridStyle] = useState<'dots' | 'grid' | 'none'>('dots');
+  const [gridStyle, setGridStyle] = useState<'dots' | 'grid' | 'none'>(propGridStyle || 'dots');
+
+  useEffect(() => {
+    if (propGridStyle) {
+      setGridStyle(propGridStyle);
+    }
+  }, [propGridStyle]);
+
+  const handleGridStyleChange = useCallback(
+    (newStyle: 'dots' | 'grid' | 'none') => {
+      setGridStyle(newStyle);
+      if (onChangeGridStyle) {
+        onChangeGridStyle(newStyle);
+      }
+    },
+    [onChangeGridStyle]
+  );
+
+  const effectiveGridStyle = gridStyle;
   const [radialMenuPos, setRadialMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -2280,7 +2308,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       onDrop={handleDrop}
       style={{ cursor: getCursorStyle() }}
       className={`relative w-full h-full overflow-hidden select-none touch-none ${
-        gridStyle === 'dots' ? 'canvas-dots' : gridStyle === 'grid' ? 'canvas-grid' : 'bg-slate-50'
+        theme === 'dark'
+          ? (effectiveGridStyle === 'dots' ? 'canvas-dots-dark' : effectiveGridStyle === 'grid' ? 'canvas-grid-dark' : 'canvas-plain-dark')
+          : theme === 'midnight'
+          ? (effectiveGridStyle === 'dots' ? 'canvas-dots-midnight' : effectiveGridStyle === 'grid' ? 'canvas-grid-midnight' : 'canvas-plain-midnight')
+          : theme === 'sepia'
+          ? (effectiveGridStyle === 'dots' ? 'canvas-dots-sepia' : effectiveGridStyle === 'grid' ? 'canvas-grid-sepia' : 'canvas-plain-sepia')
+          : (effectiveGridStyle === 'dots' ? 'canvas-dots-light' : effectiveGridStyle === 'grid' ? 'canvas-grid-light' : 'canvas-plain-light')
       } ${getCursorClass()}`}
     >
       <canvas ref={canvasRef} className="block w-full h-full" />
@@ -3146,7 +3180,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         radialMenuPos={radialMenuPos}
         onCloseRadialMenu={() => setRadialMenuPos(null)}
         gridStyle={gridStyle}
-        onChangeGridStyle={setGridStyle}
+        onChangeGridStyle={handleGridStyleChange}
         showMinimap={showMinimap}
         onToggleMinimap={onToggleMinimap}
         onResetWidgetLayout={onResetWidgetLayout}
