@@ -1499,6 +1499,8 @@ export default function App() {
           <ChatDrawer
             messages={chatMessages}
             currentUserId={currentUser.id}
+            currentUserName={currentUser.name}
+            reactions={reactions}
             onSendMessage={sendChatMessage}
             onSendReaction={(emoji) => {
               const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom;
@@ -1517,12 +1519,56 @@ export default function App() {
           centerY={Math.round((window.innerHeight / 2 - pan.y) / zoom)}
           authorName={currentUser.name}
           onElementsGenerated={(aiElements) => {
+            if (!aiElements || aiElements.length === 0) return;
             recordUndo();
-            loadTemplate(aiElements);
-            if (aiElements.length > 0) {
-              setSelectedElementIds([aiElements[0].id]);
-              setActiveTool('select');
+
+            // Compute bounding box of generated elements and center them around current viewport center
+            const targetCenterX = (window.innerWidth / 2 - pan.x) / zoom;
+            const targetCenterY = (window.innerHeight / 2 - pan.y) / zoom;
+
+            let minX = Infinity;
+            let minY = Infinity;
+            let maxX = -Infinity;
+            let maxY = -Infinity;
+
+            for (const el of aiElements) {
+              if (el.points && el.points.length > 0) {
+                for (const pt of el.points) {
+                  minX = Math.min(minX, pt.x);
+                  minY = Math.min(minY, pt.y);
+                  maxX = Math.max(maxX, pt.x);
+                  maxY = Math.max(maxY, pt.y);
+                }
+              } else {
+                const w = el.width ?? 140;
+                const h = el.height ?? 80;
+                minX = Math.min(minX, el.x, el.x + w);
+                minY = Math.min(minY, el.y, el.y + h);
+                maxX = Math.max(maxX, el.x, el.x + w);
+                maxY = Math.max(maxY, el.y, el.y + h);
+              }
             }
+
+            const currentCx = Number.isFinite(minX) ? (minX + maxX) / 2 : targetCenterX;
+            const currentCy = Number.isFinite(minY) ? (minY + maxY) / 2 : targetCenterY;
+            const offsetX = Math.round(targetCenterX - currentCx);
+            const offsetY = Math.round(targetCenterY - currentCy);
+
+            const centeredElements = aiElements.map((el) => ({
+              ...el,
+              x: Math.round(el.x + offsetX),
+              y: Math.round(el.y + offsetY),
+              points: el.points
+                ? el.points.map((pt) => ({
+                    x: Math.round(pt.x + offsetX),
+                    y: Math.round(pt.y + offsetY),
+                  }))
+                : undefined,
+            }));
+
+            loadTemplate(centeredElements);
+            setSelectedElementIds(centeredElements.map((el) => el.id));
+            setActiveTool('select');
           }}
           onClose={() => setIsAIPromptOpen(false)}
         />

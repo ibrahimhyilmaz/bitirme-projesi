@@ -55,18 +55,23 @@ import {
   X,
 } from 'lucide-react';
 import { getPdfInfo, renderPdfPage } from '../utils/pdfRenderer';
+import {
+  validateFile,
+  validateVideoFileMetadata,
+  createDocumentCardSvgDataUrl,
+} from '../utils/fileValidation';
 import { CanvasQuickAccess } from './CanvasQuickAccess';
 
-// Custom SVG Cursors for Pencil, Highlighter, Erasers, and Ping (matching button icons & sizing)
-const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/><path d='m15 5 4 4'/></g><g stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z' fill='%23ffffff'/><path d='m15 5 4 4'/></g></svg>") 2 18, crosshair`;
+// Custom Precision SVG Cursors for Pencil, Highlighter, Erasers, and Ping
+const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z'/><path d='m15 5 4 4'/></g><path d='M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z' fill='%23dbeafe' stroke='%231d4ed8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/><path d='m15 5 4 4' stroke='%231d4ed8' stroke-width='1.8' stroke-linecap='round'/><circle cx='2' cy='22' r='1.5' fill='%23ef4444'/></svg>") 2 22, crosshair`;
 
-const HIGHLIGHTER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h9l3-3'/><path d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/></g><g stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h9l3-3' fill='%23fef08a'/><path d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4' fill='%23ffffff'/></g></svg>") 3 17, crosshair`;
+const HIGHLIGHTER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h9l3-3'/><path d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/></g><g stroke='%23d97706' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h9l3-3' fill='%23fef08a'/><path d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4' fill='%23ffffff'/></g><circle cx='3' cy='20' r='1.5' fill='%23d97706'/></svg>") 3 20, crosshair`;
 
-const ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g><g stroke='%23e11d48' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21' fill='%23ffffff'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g></svg>") 6 18, auto`;
+const ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g><g stroke='%23e11d48' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21' fill='%23ffe4e6'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g></svg>") 7 20, crosshair`;
 
-const POINT_ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3'/><path d='M8.12 8.12 12 12'/><path d='M20 4 8.12 15.88'/><circle cx='6' cy='18' r='3'/><path d='M14.8 14.8 20 20'/></g><g stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3' fill='%23ffffff'/><path d='M8.12 8.12 12 12'/><path d='M20 4 8.12 15.88'/><circle cx='6' cy='18' r='3' fill='%23ffffff'/><path d='M14.8 14.8 20 20'/></g></svg>") 10 10, crosshair`;
+const POINT_ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='8' stroke='%23ffffff' stroke-width='3'/><circle cx='12' cy='12' r='8' stroke='%23d97706' stroke-width='1.8' stroke-dasharray='3 2' fill='rgba(245,158,11,0.15)'/><circle cx='12' cy='12' r='2' fill='%23d97706'/></svg>") 12 12, crosshair`;
 
-const PING_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g><g stroke='%23059669' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2' fill='%2310b981'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g></svg>") 10 10, crosshair`;
+const PING_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g><g stroke='%23059669' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2.5' fill='%2310b981'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g></svg>") 11 11, crosshair`;
 
 const GRAB_CURSOR = 'grab';
 const GRABBING_CURSOR = 'grabbing';
@@ -727,27 +732,89 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     drawReactions(ctx, reactions, pan, zoom);
     drawRemoteCursors(ctx, users, currentUser.id, pan, zoom);
 
-    // Visible Contact Area Indicator for Precision Eraser (Hassas Silgi temas alanı)
-    if (activeTool === 'point-eraser' && mouseScreenPosRef.current) {
+    // Visible Contact Area Indicator for Erasers (Öğe Silgisi & Hassas Silgi) and Live Nib for Pencil/Highlighter
+    if (mouseScreenPosRef.current) {
       const mousePt = mouseScreenPosRef.current;
-      const radius = 16;
 
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(mousePt.x, mousePt.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
-      ctx.fill();
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 3]);
-      ctx.stroke();
+      if (activeTool === 'eraser') {
+        const radius = 18;
+        ctx.save();
+        // Outer white contrast halo
+        ctx.beginPath();
+        ctx.arc(mousePt.x, mousePt.y, radius + 1.5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
 
-      // Precision center dot
-      ctx.beginPath();
-      ctx.arc(mousePt.x, mousePt.y, 2, 0, Math.PI * 2);
-      ctx.fillStyle = '#f59e0b';
-      ctx.fill();
-      ctx.restore();
+        // Main rose eraser ring
+        ctx.beginPath();
+        ctx.arc(mousePt.x, mousePt.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = isPointerDownRef.current
+          ? 'rgba(225, 29, 72, 0.28)'
+          : 'rgba(225, 29, 72, 0.15)';
+        ctx.fill();
+        ctx.strokeStyle = '#e11d48';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Center target dot
+        ctx.beginPath();
+        ctx.arc(mousePt.x, mousePt.y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#e11d48';
+        ctx.fill();
+        ctx.restore();
+      } else if (activeTool === 'point-eraser') {
+        const radius = 16;
+        ctx.save();
+        // Outer white halo
+        ctx.beginPath();
+        ctx.arc(mousePt.x, mousePt.y, radius + 1.5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(mousePt.x, mousePt.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = isPointerDownRef.current
+          ? 'rgba(245, 158, 11, 0.28)'
+          : 'rgba(245, 158, 11, 0.16)';
+        ctx.fill();
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([4, 3]);
+        ctx.stroke();
+
+        // Precision center dot
+        ctx.beginPath();
+        ctx.arc(mousePt.x, mousePt.y, 2.2, 0, Math.PI * 2);
+        ctx.fillStyle = '#f59e0b';
+        ctx.fill();
+        ctx.restore();
+      } else if (activeTool === 'pencil' || activeTool === 'highlighter') {
+        const rawRadius =
+          activeTool === 'highlighter'
+            ? ((strokeWidth || 4) * 3 * zoom) / 2
+            : ((strokeWidth || 3) * zoom) / 2;
+        const nibRadius = Math.max(3, Math.min(42, rawRadius));
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(mousePt.x, mousePt.y, nibRadius + 1.5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(mousePt.x, mousePt.y, nibRadius, 0, Math.PI * 2);
+        ctx.fillStyle = strokeColor || '#0f172a';
+        ctx.globalAlpha = activeTool === 'highlighter' ? 0.42 : 0.85;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = strokeColor || '#0f172a';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     ctx.restore(); // Restore DPR
@@ -769,6 +836,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     users,
     currentUser.id,
     activeTool,
+    strokeColor,
+    strokeWidth,
   ]);
 
   // High DPI resize handler
@@ -1052,6 +1121,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
     if (radialMenuPos) {
       setRadialMenuPos(null);
+    }
+
+    // Capture pointer on the canvas container so moving outside the screen never breaks drawing/dragging
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore if pointer capture is unsupported for synthetic events
     }
 
     // Pan with Middle Mouse Button, Space Key, or Pan Tool
@@ -1410,15 +1486,17 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     const canvasPt = screenToCanvas(screenPt, pan, zoom);
     const cursorPt = { x: screenPt.x / zoom, y: screenPt.y / zoom };
 
-    // Track pointer position for visible eraser contact circle & ping shortcut
+    // Track pointer position for visible eraser/pen contact circle & ping shortcut
     mouseScreenPosRef.current = screenPt;
     lastCanvasPtRef.current = canvasPt;
 
-    // Throttle cursor emit (independent of canvas pan offset)
-    const now = Date.now();
-    if (now - lastCursorEmitRef.current > 35) {
-      lastCursorEmitRef.current = now;
-      onCursorMove(cursorPt, isPointerDownRef.current, activeTool);
+    // Throttle cursor emit (only when NOT using the Pan tool so panning never moves remote cursors)
+    if (activeTool !== 'pan' && !isSpacePressedRef.current && !isPanningRef.current) {
+      const now = Date.now();
+      if (now - lastCursorEmitRef.current > 35) {
+        lastCursorEmitRef.current = now;
+        onCursorMove(cursorPt, isPointerDownRef.current, activeTool);
+      }
     }
 
     // Handle Marquee Box dragging (with live selection preview & Ctrl/Shift additive support)
@@ -1782,10 +1860,21 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       const curr = currentDrawingElementRef.current;
 
       if (curr.type === 'pencil' || curr.type === 'highlighter') {
-        const lastPt = curr.points && curr.points.length > 0 ? curr.points[curr.points.length - 1] : null;
-        if (!lastPt || Math.hypot(canvasPt.x - lastPt.x, canvasPt.y - lastPt.y) >= 2.0) {
-          const pts = [...(curr.points || []), canvasPt];
-          const updated = { ...curr, points: pts };
+        const pts = curr.points || [];
+        const lastPt = pts.length > 0 ? pts[pts.length - 1] : null;
+        if (!lastPt || Math.hypot(canvasPt.x - lastPt.x, canvasPt.y - lastPt.y) >= 1.8) {
+          let nextPts: Point[];
+          if (pts.length >= 2) {
+            const prevPt = pts[pts.length - 2];
+            const stabilizedLast = {
+              x: 0.25 * prevPt.x + 0.5 * lastPt!.x + 0.25 * canvasPt.x,
+              y: 0.25 * prevPt.y + 0.5 * lastPt!.y + 0.25 * canvasPt.y,
+            };
+            nextPts = [...pts.slice(0, -1), stabilizedLast, canvasPt];
+          } else {
+            nextPts = [...pts, canvasPt];
+          }
+          const updated = { ...curr, points: nextPts };
           currentDrawingElementRef.current = updated;
           setCurrentDrawingElement(updated);
         }
@@ -1807,6 +1896,15 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
   // Pointer Up
   const handlePointerUp = (e?: React.PointerEvent) => {
+    if (e) {
+      try {
+        if (e.currentTarget?.hasPointerCapture?.(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        // Ignore if already released
+      }
+    }
     isPointerDownRef.current = false;
     isPanningRef.current = false;
     isDraggingSelectedRef.current = false;
@@ -1964,8 +2062,43 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
   const editingInfo = getEditingElementScreenRect();
 
-  // PDF Page Loading states and helpers
+  // Global window pointerup / pointercancel / blur listener so releasing mouse outside screen never corrupts state
+  const handlePointerUpRef = useRef(handlePointerUp);
+  handlePointerUpRef.current = handlePointerUp;
+
+  useEffect(() => {
+    const handleGlobalEnd = () => {
+      if (
+        isPointerDownRef.current ||
+        isPanningRef.current ||
+        isDraggingSelectedRef.current ||
+        activeTransformHandleRef.current !== null ||
+        isMarqueeSelectingRef.current ||
+        currentDrawingElementRef.current !== null
+      ) {
+        handlePointerUpRef.current();
+      }
+    };
+
+    window.addEventListener('pointerup', handleGlobalEnd);
+    window.addEventListener('pointercancel', handleGlobalEnd);
+    window.addEventListener('blur', handleGlobalEnd);
+    return () => {
+      window.removeEventListener('pointerup', handleGlobalEnd);
+      window.removeEventListener('pointercancel', handleGlobalEnd);
+      window.removeEventListener('blur', handleGlobalEnd);
+    };
+  }, []);
+
+  // PDF Page Loading states and drop error notification banner
   const [loadingPdfPages, setLoadingPdfPages] = useState<Record<string, boolean>>({});
+  const [dropErrorToast, setDropErrorToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!dropErrorToast) return;
+    const t = setTimeout(() => setDropErrorToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [dropErrorToast]);
 
   const handlePdfPageTurn = async (el: CanvasElement, direction: 'prev' | 'next') => {
     if (!el.pdfUrl || loadingPdfPages[el.id]) return;
@@ -2139,7 +2272,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           } else if (isVideo) {
             handleAddVideoAtPosition(file.dataUrl, file.name, canvasPt.x, canvasPt.y);
             return;
-          } else if (file.type && file.type.startsWith('image/')) {
+          } else if (
+            (file.type && file.type.startsWith('image/')) ||
+            /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(file.name || '')
+          ) {
             const img = new Image();
             img.src = file.dataUrl;
             img.onload = () => {
@@ -2158,6 +2294,21 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               handleAddImageAtPosition(file.dataUrl, canvasPt.x, canvasPt.y, w, h);
             };
             return;
+          } else {
+            // Any other shared document (Word, Excel, PPTX, TXT, CSV, JSON, Audio, etc.)
+            const cardSvg = createDocumentCardSvgDataUrl({
+              name: file.name || 'Belge',
+              size: file.size || 0,
+              type: file.type,
+            });
+            handleAddImageAtPosition(
+              cardSvg.dataUrl,
+              canvasPt.x,
+              canvasPt.y,
+              cardSvg.width,
+              cardSvg.height
+            );
+            return;
           }
         }
       } catch (err) {
@@ -2170,13 +2321,18 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     if (files.length === 0) return;
 
     const file = files[0];
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const validation = validateFile(file.name, file.type, file.size);
+    if (!validation.valid) {
+      setDropErrorToast(validation.error || 'Bu dosya türü tahtaya eklenemez.');
+      return;
+    }
+
+    const lowerName = file.name.toLowerCase();
+    const isPdf = file.type === 'application/pdf' || lowerName.endsWith('.pdf');
     const isVideo =
-      file.type.startsWith('video/') ||
-      file.name.toLowerCase().endsWith('.mp4') ||
-      file.name.toLowerCase().endsWith('.webm') ||
-      file.name.toLowerCase().endsWith('.mov');
-    const isImage = file.type.startsWith('image/');
+      file.type.startsWith('video/') || /\.(mp4|webm|mov|ogg)$/.test(lowerName);
+    const isImage =
+      file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/.test(lowerName);
 
     if (isPdf) {
       const reader = new FileReader();
@@ -2188,11 +2344,21 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       };
       reader.readAsDataURL(file);
     } else if (isVideo) {
+      const videoCheck = await validateVideoFileMetadata(file);
+      if (!videoCheck.valid) {
+        setDropErrorToast(videoCheck.error || 'Video süre veya boyut sınırını aşıyor.');
+        return;
+      }
       const reader = new FileReader();
       reader.onload = (event) => {
         const dataUrl = event.target?.result as string;
         if (dataUrl) {
-          handleAddVideoAtPosition(dataUrl, file.name, canvasPt.x, canvasPt.y);
+          const w = 480;
+          const h =
+            videoCheck.width && videoCheck.height
+              ? Math.round((w * videoCheck.height) / videoCheck.width)
+              : 270;
+          handleAddVideoAtPosition(dataUrl, file.name, canvasPt.x, canvasPt.y, w, h);
         }
       };
       reader.readAsDataURL(file);
@@ -2204,8 +2370,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         img.src = dataUrl;
         img.onload = () => {
           const maxDim = 320;
-          let w = img.width;
-          let h = img.height;
+          let w = img.width || 300;
+          let h = img.height || 240;
           if (w > maxDim || h > maxDim) {
             if (w > h) {
               h = (h / w) * maxDim;
@@ -2219,6 +2385,20 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         };
       };
       reader.readAsDataURL(file);
+    } else {
+      // Office / Text / Audio / Other permitted file: instant SVG Document Card
+      const cardSvg = createDocumentCardSvgDataUrl({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      });
+      handleAddImageAtPosition(
+        cardSvg.dataUrl,
+        canvasPt.x,
+        canvasPt.y,
+        cardSvg.width,
+        cardSvg.height
+      );
     }
   };
 
@@ -2673,6 +2853,20 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           );
         })}
 
+      {/* Drop Validation Error Banner */}
+      {dropErrorToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-rose-600 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-rose-400/50 flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-top-2">
+          <span>⚠️ {dropErrorToast}</span>
+          <button
+            type="button"
+            onClick={() => setDropErrorToast(null)}
+            className="p-0.5 rounded-md hover:bg-rose-700"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Interactive Video Players on the Whiteboard */}
       {elements
         .filter((el) => el.type === 'video' && el.videoUrl)
@@ -2694,6 +2888,43 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           }
 
           const isSelected = activeSelectedIds.includes(videoEl.id);
+          const startVideoResize = (e: React.PointerEvent, handle: TransformHandleType) => {
+            if (!canEdit || videoEl.isLocked) return;
+            e.stopPropagation();
+            e.preventDefault();
+            const container = containerRef.current;
+            if (!container) return;
+            const rect = container.getBoundingClientRect();
+            const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            const canvasPt = screenToCanvas(screenPt, pan, zoom);
+
+            if (!isSelected) {
+              updateSelectedIds([videoEl.id]);
+            }
+            if (onSelectTool && activeTool !== 'select') {
+              onSelectTool('select');
+            }
+            if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+            isPointerDownRef.current = true;
+            activeTransformHandleRef.current = handle;
+            dragStartCanvasPointRef.current = canvasPt;
+            initialElementSnapshotRef.current = { ...videoEl };
+            initialBoundsRef.current = getElementBounds(videoEl);
+          };
+
+          const resizeHandles: {
+            handle: TransformHandleType;
+            className: string;
+          }[] = [
+            { handle: 'nw', className: '-top-1.5 -left-1.5 cursor-nwse-resize' },
+            { handle: 'n', className: '-top-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize' },
+            { handle: 'ne', className: '-top-1.5 -right-1.5 cursor-nesw-resize' },
+            { handle: 'e', className: 'top-1/2 -translate-y-1/2 -right-1.5 cursor-ew-resize' },
+            { handle: 'se', className: '-bottom-1.5 -right-1.5 cursor-nwse-resize' },
+            { handle: 's', className: '-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize' },
+            { handle: 'sw', className: '-bottom-1.5 -left-1.5 cursor-nesw-resize' },
+            { handle: 'w', className: 'top-1/2 -translate-y-1/2 -left-1.5 cursor-ew-resize' },
+          ];
 
           return (
             <div
@@ -2701,10 +2932,16 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               style={{
                 left: `${screenX}px`,
                 top: `${screenY}px`,
-                width: `${Math.max(180, screenW)}px`,
-                height: `${Math.max(120, screenH)}px`,
+                width: `${Math.max(160, screenW)}px`,
+                height: `${Math.max(110, screenH)}px`,
               }}
               onPointerDown={(e) => {
+                if (activeTool === 'eraser' && canEdit && !videoEl.isLocked) {
+                  e.stopPropagation();
+                  if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                  onDeleteElements([videoEl.id]);
+                  return;
+                }
                 if (activeTool === 'select') {
                   e.stopPropagation();
                   if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -2726,28 +2963,60 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 setRadialMenuPos(null);
                 setContextMenuPos({ x: e.clientX, y: e.clientY });
               }}
-              className={`absolute z-20 rounded-xl overflow-hidden shadow-2xl flex flex-col bg-slate-950 border-2 transition-shadow ${
+              className={`absolute z-20 rounded-xl flex flex-col bg-slate-950 border-2 shadow-2xl transition-shadow ${
                 isSelected
                   ? 'border-blue-500 ring-4 ring-blue-500/20'
                   : 'border-slate-700/80 hover:border-slate-500'
               }`}
             >
-              {/* Header Bar: Draggable handle to select & move video */}
+              {/* Interactive 8-Point Resize Handles when Selected */}
+              {isSelected && canEdit && !videoEl.isLocked &&
+                resizeHandles.map((rh) => (
+                  <div
+                    key={rh.handle}
+                    onPointerDown={(e) => startVideoResize(e, rh.handle)}
+                    className={`absolute z-30 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs shadow-md hover:scale-125 transition-transform ${rh.className}`}
+                    title="Videoyu boyutlandırmak için sürükleyin"
+                  />
+                ))}
+
+              {/* Header Bar: Draggable handle to select, move, or delete video */}
               <div
                 onPointerDown={(e) => {
-                  if (activeTool === 'select') {
-                    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-                      e.stopPropagation();
-                      const next = isSelected
-                        ? activeSelectedIds.filter((id) => id !== videoEl.id)
-                        : [...activeSelectedIds, videoEl.id];
-                      updateSelectedIds(next);
-                    } else if (!isSelected) {
-                      updateSelectedIds([videoEl.id]);
-                    }
+                  e.stopPropagation();
+                  const container = containerRef.current;
+                  if (!container) return;
+                  const rect = container.getBoundingClientRect();
+                  const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                  const canvasPt = screenToCanvas(screenPt, pan, zoom);
+
+                  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                    const next = isSelected
+                      ? activeSelectedIds.filter((id) => id !== videoEl.id)
+                      : [...activeSelectedIds, videoEl.id];
+                    updateSelectedIds(next);
+                    return;
+                  }
+
+                  if (!isSelected) {
+                    updateSelectedIds([videoEl.id]);
+                  }
+                  if (onSelectTool && activeTool !== 'select') {
+                    onSelectTool('select');
+                  }
+                  if (canEdit && !videoEl.isLocked) {
+                    if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                    isPointerDownRef.current = true;
+                    isDraggingSelectedRef.current = true;
+                    dragStartCanvasPointRef.current = canvasPt;
+                    const snapMap = new Map<string, CanvasElement>();
+                    snapMap.set(videoEl.id, { ...videoEl });
+                    initialElementsSnapshotRef.current = snapMap;
+                    initialElementSnapshotRef.current = { ...videoEl };
+                    initialBoundsRef.current = getElementBounds(videoEl);
                   }
                 }}
-                className="h-7 bg-slate-900/95 px-2.5 flex items-center justify-between text-[11px] text-slate-300 border-b border-slate-800 shrink-0 cursor-move select-none"
+                className="h-7 bg-slate-900/95 px-2.5 rounded-t-[10px] flex items-center justify-between text-[11px] text-slate-300 border-b border-slate-800 shrink-0 cursor-move select-none"
               >
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
@@ -2755,13 +3024,30 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                     {videoEl.fileName || 'Video Oynatıcı'}
                   </span>
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-2">
-                  {Math.round(videoEl.width || 480)}x{Math.round(videoEl.height || 270)}
-                </span>
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {Math.round(videoEl.width || 480)}×{Math.round(videoEl.height || 270)}
+                  </span>
+                  {canEdit && !videoEl.isLocked && (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                        onDeleteElements([videoEl.id]);
+                      }}
+                      className="p-0.5 rounded text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer"
+                      title="Videoyu Kaldır"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Video Player */}
-              <div className="relative flex-1 w-full bg-black flex items-center justify-center overflow-hidden">
+              <div className="relative flex-1 w-full bg-black rounded-b-[10px] flex items-center justify-center overflow-hidden">
                 <video
                   src={videoEl.videoUrl}
                   controls

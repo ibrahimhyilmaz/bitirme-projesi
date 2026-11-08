@@ -267,8 +267,6 @@ interface ToolbarProps {
   isHidden?: boolean;
   onToggleHidden?: () => void;
   layoutResetCounter?: number;
-  zIndex?: number;
-  onFocus?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -290,8 +288,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isHidden,
   onToggleHidden,
   layoutResetCounter = 0,
-  zIndex,
-  onFocus,
 }) => {
   const [shapesMenuOpen, setShapesMenuOpen] = useState(false);
   const [eraserMenuOpen, setEraserMenuOpen] = useState(false);
@@ -414,24 +410,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Re-clamp position whenever orientation changes so bottom tools never fall off-screen
-  useEffect(() => {
-    setPosition((prev) => {
-      if (!prev || !toolbarRef.current) return prev;
-      const wsEl = toolbarRef.current.closest('[data-workspace-root]') as HTMLElement | null;
-      const pWidth = wsEl?.clientWidth || window.innerWidth;
-      const pHeight = wsEl?.clientHeight || window.innerHeight;
-      const expectedHeight = isVertical ? 380 : 54;
-      const expectedWidth = isVertical ? 88 : 520;
-      const maxX = Math.max(8, pWidth - expectedWidth - 8);
-      const maxY = Math.max(8, pHeight - expectedHeight - 8);
-      return {
-        x: Math.min(Math.max(8, prev.x), maxX),
-        y: Math.min(Math.max(8, prev.y), maxY),
-      };
-    });
-  }, [isVertical]);
-
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -453,8 +431,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const bar = toolbarRef.current;
     if (!bar) return;
 
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
+
     const workspaceEl = bar.closest('[data-workspace-root]') as HTMLElement | null;
-    const parentRect = workspaceEl?.getBoundingClientRect() || {
+    const parentRect = workspaceEl?.getBoundingClientRect() || bar.offsetParent?.getBoundingClientRect() || {
       left: 0,
       top: 0,
       width: window.innerWidth,
@@ -473,24 +455,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setPosition({ x: currentX, y: currentY });
     setIsDraggingBar(true);
     setShapesMenuOpen(false);
+    setEraserMenuOpen(false);
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const currentBar = toolbarRef.current;
       const wsEl = currentBar?.closest('[data-workspace-root]') as HTMLElement | null;
-      const pRect = wsEl?.getBoundingClientRect() || {
+      const pRect = wsEl?.getBoundingClientRect() || currentBar?.offsetParent?.getBoundingClientRect() || {
         left: 0,
         top: 0,
         width: window.innerWidth,
         height: window.innerHeight,
       };
-      const bW = currentBar?.offsetWidth || 60;
-      const bH = currentBar?.offsetHeight || 60;
+      const bW = currentBar?.offsetWidth || 88;
+      const bH = currentBar?.offsetHeight || 120;
 
       const nextX = moveEvent.clientX - dragOffsetRef.current.x;
       const nextY = moveEvent.clientY - dragOffsetRef.current.y;
 
-      const clampedX = Math.max(8, Math.min(pRect.width - bW - 8, nextX));
-      const clampedY = Math.max(8, Math.min(pRect.height - bH - 8, nextY));
+      const clampedX = Math.max(8, Math.min(Math.max(8, pRect.width - bW - 8), nextX));
+      const clampedY = Math.max(8, Math.min(Math.max(8, pRect.height - bH - 8), nextY));
 
       setPosition({ x: clampedX, y: clampedY });
     };
@@ -499,10 +482,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       setIsDraggingBar(false);
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
     };
 
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+  };
+
+  const handleToggleVerticalMode = () => {
+    setIsVertical((prev) => {
+      const next = !prev;
+      if (next && !position) {
+        // When switching to vertical mode while docked at top, place at comfortable left-side floating position
+        setPosition({ x: 16, y: 16 });
+      }
+      return next;
+    });
   };
 
   const handleResetPosition = () => {
@@ -548,44 +544,42 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   };
 
   const dividerClass = isVertical
-    ? 'col-span-2 h-px w-full bg-slate-200/80 my-0.5'
+    ? 'col-span-2 h-px w-full bg-slate-200 my-0.5'
     : 'w-px h-5 bg-slate-200 mx-0.5';
 
   // Determine smart popover direction based on position
   const openPopoverUpward =
-    position && typeof window !== 'undefined' && position.y > window.innerHeight * 0.65;
+    position && typeof window !== 'undefined' && position.y > window.innerHeight * 0.6;
   const openPopoverLeftward =
-    position && typeof window !== 'undefined' && position.x > window.innerWidth * 0.65;
+    position && typeof window !== 'undefined' && position.x > window.innerWidth * 0.6;
 
   if (effectiveHidden) {
     return (
       <div
         ref={toolbarRef}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onFocus?.();
-        }}
-        style={{
-          zIndex: zIndex ?? (position ? 22 : undefined),
-          ...(position
+        onPointerDown={(e) => e.stopPropagation()}
+        style={
+          position
             ? {
+                position: 'absolute',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
-                bottom: 'auto',
                 transform: 'none',
               }
-            : {}),
-        }}
-        className={`absolute pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+            : undefined
+        }
+        className={`${
+          position ? 'absolute z-30' : 'relative z-20'
+        } pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
           isDraggingBar
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
-        } rounded-xl select-none ${!position ? 'top-3 left-1/2 -translate-x-1/2' : ''}`}
+        } rounded-xl select-none`}
       >
         <div
           onPointerDown={handleGripPointerDown}
           onDoubleClick={handleResetPosition}
-          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors touch-none"
           title="Araç Çubuğunu Taşı (Kenetlemek için çift tıkla)"
         >
           {isVertical ? <GripHorizontal className="w-4 h-4" /> : <GripVertical className="w-4 h-4" />}
@@ -609,557 +603,558 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     <div
       ref={toolbarRef}
       data-tour="toolbar"
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        onFocus?.();
-      }}
-      style={{
-        zIndex: zIndex ?? (position ? 22 : undefined),
-        ...(position
+      onPointerDown={(e) => e.stopPropagation()}
+      style={
+        position
           ? {
+              position: 'absolute',
               left: `${position.x}px`,
               top: `${position.y}px`,
-              bottom: 'auto',
               transform: 'none',
             }
-          : {}),
-      }}
-      className={`absolute pointer-events-auto flex flex-col items-center p-1.5 bg-white/95 backdrop-blur-md border ${
+          : undefined
+      }
+      className={`${position ? 'absolute z-30' : 'relative z-20'} pointer-events-auto flex ${
+        isVertical
+          ? 'flex-col w-[98px] p-2 gap-1.5'
+          : 'flex-row flex-wrap max-w-[96vw] items-center gap-1 p-1.5'
+      } bg-white/95 backdrop-blur-md border ${
         isDraggingBar
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'
-      } rounded-xl select-none ${
-        !position ? 'top-3 left-1/2 -translate-x-1/2' : ''
-      } ${
-        isVertical ? 'w-[96px] max-h-[calc(100vh-4.5rem)] overflow-hidden' : 'flex-row flex-wrap max-w-[96vw]'
-      }`}
+      } rounded-2xl select-none`}
     >
-      {/* Drag Handle & Orientation Controls */}
+      {/* Top Drag Handle & Orientation Controls */}
       <div
         className={`flex ${
-          isVertical ? 'flex-row w-full justify-between pb-1 mb-1 border-b' : 'flex-row items-center pr-1 border-r'
-        } border-slate-200 gap-0.5 shrink-0`}
+          isVertical
+            ? 'flex-col w-full gap-1 pb-1.5 border-b border-slate-200'
+            : 'flex-row items-center pr-1 border-r border-slate-200 gap-0.5'
+        }`}
       >
         <div
           onPointerDown={handleGripPointerDown}
           onDoubleClick={handleResetPosition}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors flex items-center"
+          className={`rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 active:bg-blue-50 cursor-grab active:cursor-grabbing transition-colors flex items-center justify-center touch-none ${
+            isVertical
+              ? 'w-full py-1 px-1.5 bg-slate-100/80 border border-slate-200/80 gap-1 text-[10px] font-bold uppercase tracking-wider'
+              : 'p-1.5'
+          }`}
           title="Araç Çubuğunu Sürükle & Serbest Taşı (Kenetlemek için çift tıkla)"
         >
           {isVertical ? (
-            <GripHorizontal className="w-4 h-4" />
+            <>
+              <GripHorizontal className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span>Taşı</span>
+            </>
           ) : (
             <GripVertical className="w-4 h-4" />
           )}
         </div>
 
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => setIsVertical((v) => !v)}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-          title={isVertical ? 'Yatay Görünüme Geç' : 'Dikey Görünüme Geç (2 Sütunlu Kompakt Mod)'}
-        >
-          {isVertical ? <Rows2 className="w-3.5 h-3.5" /> : <Columns2 className="w-3.5 h-3.5" />}
-        </button>
-
-        {position && (
+        <div className={`flex items-center ${isVertical ? ' justify-between w-full' : 'gap-0.5'}`}>
           <button
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={handleResetPosition}
-            className="p-1.5 rounded-lg text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
-            title="Üst Flex Bara Kenetle (Sabit Düzen)"
+            onClick={handleToggleVerticalMode}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+            title={isVertical ? 'Yatay Görünüme Geç' : 'İki Sütunlu Dikey Görünüme Geç'}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            {isVertical ? <Rows2 className="w-3.5 h-3.5" /> : <Columns2 className="w-3.5 h-3.5" />}
           </button>
-        )}
 
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={handleToggleMinimize}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-          title="Araç Çubuğunu Gizle"
-        >
-          <EyeOff className="w-3.5 h-3.5" />
-        </button>
+          {(position || isVertical) && (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={handleResetPosition}
+              className="p-1.5 rounded-lg text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+              title="Üst Flex Bara Kenetle (Sabit Düzen)"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={handleToggleMinimize}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+            title="Araç Çubuğunu Gizle"
+          >
+            <EyeOff className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
-      {/* Tools Wrapper: 2-column grid when vertical, horizontal row when horizontal */}
+      {/* Tools Container: 2-Column Compact Grid when Vertical, Flex Row when Horizontal */}
       <div
         className={
           isVertical
-            ? 'grid grid-cols-2 gap-1 items-center justify-items-center w-full max-h-[calc(100vh-8.5rem)] overflow-y-auto overflow-x-hidden no-scrollbar py-0.5'
-            : 'flex flex-row items-center gap-1 flex-wrap'
+            ? 'grid grid-cols-2 gap-1 w-full place-items-center'
+            : 'flex flex-row flex-wrap items-center gap-1'
         }
       >
-
-      {/* Select & Move */}
-      <button
-        onClick={() => onSelectTool('select')}
-        className={`flex items-center justify-center rounded-lg transition-all ${
-          isVertical ? 'w-9 h-9' : 'p-2'
-        } ${
-          activeTool === 'select'
-            ? 'bg-blue-600 text-white shadow-xs'
-            : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-        }`}
-        title="Seç, Taşı, Boyutlandır ve Döndür (V)"
-      >
-        <MousePointer className="w-4 h-4" />
-      </button>
-
-      {/* Hand / Pan Canvas */}
-      <button
-        onClick={() => onSelectTool('pan')}
-        className={`flex items-center justify-center rounded-lg transition-all cursor-grab active:cursor-grabbing ${
-          isVertical ? 'w-9 h-9' : 'p-2'
-        } ${
-          activeTool === 'pan'
-            ? 'bg-slate-200/90 text-slate-800 ring-1 ring-slate-300/80 shadow-2xs'
-            : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-        }`}
-        title="Tuvali Kaydır (H veya Boşluk Tuşu)"
-      >
-        <Hand className="w-4 h-4" />
-      </button>
-
-      <div className={dividerClass} />
-
-      {/* AI Prompt Instant Generator Button */}
-      {onOpenAIPrompt && (
+        {/* Select & Move */}
         <button
-          onClick={onOpenAIPrompt}
-          disabled={!canEdit}
-          className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            isVertical ? 'col-span-2 w-full' : ''
+          onClick={() => onSelectTool('select')}
+          className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+            isVertical ? 'w-full' : ''
           } ${
-            canEdit
-              ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-xs'
-              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+            activeTool === 'select'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
           }`}
-          title={
-            canEdit
-              ? 'Yapay Zeka (AI) İle Tahta Üzerinde Anında Şekil, Nesne veya Diyagram Oluştur'
-              : 'İzleyici modunda AI oluşturucu devre dışıdır'
-          }
+          title="Seç, Taşı, Boyutlandır ve Döndür (V)"
         >
-          <Wand2 className="w-3.5 h-3.5" />
-          <span>AI Çizim</span>
+          <MousePointer className="w-4 h-4" />
         </button>
-      )}
 
-      {!canEdit && (
-        <div
-          className={`flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-semibold ${
-            isVertical ? 'col-span-2 w-full' : ''
+        {/* Hand / Pan Canvas */}
+        <button
+          onClick={() => onSelectTool('pan')}
+          className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+            isVertical ? 'w-full' : ''
+          } ${
+            activeTool === 'pan'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
           }`}
-          title="Bu odada İzleyici (Viewer) rolündesiniz. Sadece inceleyebilir ve yakınlaştırabilirsiniz."
+          title="Tuvali Kaydır (H veya Boşluk Tuşu)"
         >
-          <Eye className="w-3.5 h-3.5" />
-          <span>İzleyici</span>
-        </div>
-      )}
+          <Hand className="w-4 h-4" />
+        </button>
 
-      {canEdit && (
-        <>
-          <div className={dividerClass} />
+        <div className={dividerClass} />
 
-          {/* Freehand Pen */}
+        {/* AI Prompt Instant Generator Button */}
+        {onOpenAIPrompt && (
           <button
-            onClick={() => onSelectTool('pencil')}
-            className={`flex items-center justify-center rounded-lg transition-all ${
-              isVertical ? 'w-9 h-9' : 'p-2'
+            onClick={onOpenAIPrompt}
+            disabled={!canEdit}
+            className={`flex items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition-all ${
+              isVertical ? 'col-span-2 w-full py-1.5 px-2' : 'px-2.5 py-1.5'
             } ${
-              activeTool === 'pencil'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              canEdit
+                ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
             }`}
-            title="Çizim Kalemi (P)"
+            title={
+              canEdit
+                ? 'Yapay Zeka (AI) İle Tahta Üzerinde Anında Şekil, Nesne veya Diyagram Oluştur'
+                : 'İzleyici modunda AI oluşturucu devre dışıdır'
+            }
           >
-            <Pencil className="w-4 h-4" />
+            <Wand2 className="w-3.5 h-3.5 shrink-0" />
+            <span>{isVertical ? 'AI Çiz' : 'AI Çizim'}</span>
           </button>
+        )}
 
-          {/* Highlighter */}
-          <button
-            onClick={() => onSelectTool('highlighter')}
-            className={`flex items-center justify-center rounded-lg transition-all ${
-              isVertical ? 'w-9 h-9' : 'p-2'
-            } ${
-              activeTool === 'highlighter'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+        {!canEdit && (
+          <div
+            className={`flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-semibold ${
+              isVertical ? 'col-span-2 w-full' : ''
             }`}
-            title="Fosforlu Vurgulayıcı Kalem"
+            title="Bu odada İzleyici (Viewer) rolündesiniz. Sadece inceleyebilir ve yakınlaştırabilirsiniz."
           >
-            <Highlighter className="w-4 h-4" />
-          </button>
-
-          {/* Dual Eraser Dropdown (Object Eraser & Precision Point Eraser) */}
-          <div className="relative" ref={eraserMenuRef}>
-            <div className={`flex items-center ${isVertical ? 'relative' : ''}`}>
-              <button
-                onClick={() => onSelectTool(lastEraserTool)}
-                className={`flex items-center justify-center rounded-lg transition-all ${
-                  isVertical ? 'w-9 h-9' : 'p-2'
-                } ${
-                  activeTool === 'eraser' || activeTool === 'point-eraser'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-                title={
-                  lastEraserTool === 'point-eraser'
-                    ? 'Hassas Silgi (Dokunduğu yeri siler / böler - Kısayol: E veya Shift+E)'
-                    : 'Öğe Silgisi (Tek hamlede öğeyi siler - Kısayol: E)'
-                }
-              >
-                {lastEraserTool === 'point-eraser' ? (
-                  <Scissors className="w-4 h-4" />
-                ) : (
-                  <Eraser className="w-4 h-4" />
-                )}
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEraserMenuOpen(!eraserMenuOpen);
-                }}
-                className={`rounded transition-colors ${
-                  isVertical ? 'absolute bottom-0.5 right-0.5 p-0.5' : 'p-1 -ml-1'
-                } ${
-                  activeTool === 'eraser' || activeTool === 'point-eraser'
-                    ? isVertical
-                      ? 'text-white/80 hover:text-white'
-                      : 'text-blue-200 hover:text-white'
-                    : 'text-slate-400 hover:text-slate-700'
-                }`}
-                title="Silgi Türünü Değiştir (Öğe / Hassas)"
-              >
-                <ChevronDown className={isVertical ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
-              </button>
-            </div>
-
-            {eraserMenuOpen && (
-              <div
-                className={`absolute ${
-                  isVertical
-                    ? openPopoverLeftward
-                      ? 'right-full mr-2 top-0'
-                      : 'left-full ml-2 top-0'
-                    : openPopoverUpward
-                    ? 'bottom-full mb-2 left-0'
-                    : 'top-full mt-2 left-0'
-                } bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 flex flex-col gap-1 z-50 w-60`}
-              >
-                <button
-                  onClick={() => {
-                    setLastEraserTool('eraser');
-                    try {
-                      localStorage.setItem('collab_last_eraser', 'eraser');
-                    } catch {
-                      // ignore
-                    }
-                    onSelectTool('eraser');
-                    setEraserMenuOpen(false);
-                  }}
-                  className={`flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
-                    activeTool === 'eraser'
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="p-1.5 rounded-md bg-rose-50 text-rose-600 mt-0.5">
-                    <Eraser className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">Öğe Silgisi</span>
-                      <kbd className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">
-                        E
-                      </kbd>
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
-                      Dokunulan şekil veya çizgiyi tek dokunuşta tamamen kaldırır.
-                    </p>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setLastEraserTool('point-eraser');
-                    try {
-                      localStorage.setItem('collab_last_eraser', 'point-eraser');
-                    } catch {
-                      // ignore
-                    }
-                    onSelectTool('point-eraser');
-                    setEraserMenuOpen(false);
-                  }}
-                  className={`flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
-                    activeTool === 'point-eraser'
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="p-1.5 rounded-md bg-amber-50 text-amber-600 mt-0.5">
-                    <Scissors className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">Hassas Silgi</span>
-                      <kbd className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">
-                        Shift+E
-                      </kbd>
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
-                      Yalnızca dokunduğu kısmı siler, serbest çizimleri böler.
-                    </p>
-                  </div>
-                </button>
-              </div>
-            )}
+            <Eye className="w-3.5 h-3.5" />
+            {!isVertical && <span>İzleyici Modu</span>}
           </div>
+        )}
 
-          <div className={dividerClass} />
+        {canEdit && (
+          <>
+            <div className={dividerClass} />
 
-          {/* Microsoft Office-Style Categorized Shapes Gallery Dropdown */}
-          <div className="relative" ref={shapesMenuRef}>
+            {/* Freehand Pen */}
             <button
-              type="button"
-              onClick={() => setShapesMenuOpen(!shapesMenuOpen)}
-              className={`flex items-center justify-center rounded-lg transition-all relative ${
-                isVertical ? 'w-9 h-9 p-0' : 'gap-1 p-2'
+              onClick={() => onSelectTool('pencil')}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
               } ${
-                isShapeActive
+                activeTool === 'pencil'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
               }`}
-              title="Şekiller, Akış Diyagramları, Blok Oklar & Konuşma Balonları (27 Şekil)"
+              title="Çizim Kalemi (P)"
             >
-              {getShapeIcon()}
-              <ChevronDown className={isVertical ? "w-2.5 h-2.5 absolute bottom-0.5 right-0.5 opacity-70" : "w-3 h-3 opacity-70"} />
+              <Pencil className="w-4 h-4" />
             </button>
 
-            {shapesMenuOpen && (
-              <div
-                className={`absolute ${
-                  isVertical
-                    ? openPopoverLeftward
-                      ? 'right-full mr-2 top-0'
-                      : 'left-full ml-2 top-0'
-                    : openPopoverUpward
-                    ? 'bottom-full mb-2 left-0'
-                    : 'top-full mt-2 left-0'
-                } bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 flex flex-col gap-3 z-50 w-80 max-h-[72vh] overflow-y-auto`}
-              >
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-                  <span className="text-xs font-bold text-slate-800">
-                    Şekil & Diyagram Kütüphanesi
-                  </span>
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">
-                    27 Vektörel Şekil
-                  </span>
-                </div>
-
-                {SHAPE_CATEGORIES.map((cat) => (
-                  <div key={cat.title} className="space-y-1.5">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
-                      {cat.title}
-                    </div>
-                    <div className="grid grid-cols-3 gap-1">
-                      {cat.items.map((item) => {
-                        const isSelected = activeTool === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => {
-                              onSelectTool(item.id);
-                              setShapesMenuOpen(false);
-                            }}
-                            className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-[11px] font-medium transition-colors ${
-                              isSelected
-                                ? 'bg-blue-600 text-white shadow-xs'
-                                : 'text-slate-700 hover:bg-slate-100'
-                            }`}
-                            title={item.title}
-                          >
-                            {renderShapeSvgIcon(item.id, 'w-4 h-4')}
-                            <span className="truncate max-w-full leading-tight">{item.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Arrow */}
-          <button
-            onClick={() => onSelectTool('arrow')}
-            className={`flex items-center justify-center rounded-lg transition-all ${
-              isVertical ? 'w-9 h-9' : 'p-2'
-            } ${
-              activeTool === 'arrow'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-            title="Bağlantı Oku (A)"
-          >
-            <ArrowRight className="w-4 h-4" />
-          </button>
-
-          {/* Line */}
-          <button
-            onClick={() => onSelectTool('line')}
-            className={`flex items-center justify-center rounded-lg transition-all ${
-              isVertical ? 'w-9 h-9' : 'p-2'
-            } ${
-              activeTool === 'line'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-            title="Düz Çizgi (L)"
-          >
-            <Minus className="w-4 h-4" />
-          </button>
-
-          {/* Sticky Note */}
-          <button
-            onClick={() => onSelectTool('sticky')}
-            className={`flex items-center justify-center rounded-lg transition-all ${
-              isVertical ? 'w-9 h-9' : 'p-2'
-            } ${
-              activeTool === 'sticky'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-            title="Yapışkan Not (N)"
-          >
-            <StickyNote className="w-4 h-4 text-amber-500" />
-          </button>
-
-          {/* Text */}
-          <button
-            onClick={() => onSelectTool('text')}
-            className={`flex items-center justify-center rounded-lg transition-all ${
-              isVertical ? 'w-9 h-9' : 'p-2'
-            } ${
-              activeTool === 'text'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-            title="Metin Yazısı (T)"
-          >
-            <Type className="w-4 h-4" />
-          </button>
-
-          {/* Quick Image Upload */}
-          {onAddImageFile && (
-            <>
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleQuickImageUpload}
-                className="hidden"
-              />
-              <button
-                onClick={() => imageInputRef.current?.click()}
-                className={`flex items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-all ${
-                  isVertical ? 'w-9 h-9' : 'p-2'
-                }`}
-                title="Tahtaya Görsel Yükle"
-              >
-                <ImagePlus className="w-4 h-4" />
-              </button>
-            </>
-          )}
-        </>
-      )}
-
-      <div className={dividerClass} />
-
-      {/* Laser Pointer */}
-      <button
-        onClick={() => onSelectTool('laser')}
-        className={`flex items-center justify-center rounded-lg transition-all ${
-          isVertical ? 'w-9 h-9' : 'p-2'
-        } ${
-          activeTool === 'laser'
-            ? 'bg-rose-600 text-white shadow-xs'
-            : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-        }`}
-        title="Lazer Sunum İşaretçisi (K)"
-      >
-        <Flame className="w-4 h-4" />
-      </button>
-
-      {/* Live Ping Tool Button */}
-      <button
-        onClick={() => onSelectTool('ping')}
-        className={`flex items-center justify-center rounded-lg transition-all ${
-          isVertical ? 'w-9 h-9' : 'p-2'
-        } ${
-          activeTool === 'ping'
-            ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-500/30'
-            : 'text-slate-700 hover:bg-emerald-50 hover:text-emerald-600'
-        }`}
-        title="Konum İşareti / Ping (Tıkla ve haritada yeri seç - Kısayol: X veya Q)"
-      >
-        <Radio className="w-4 h-4" />
-      </button>
-
-      {canEdit && (
-        <>
-          <div className={dividerClass} />
-
-          {/* Undo */}
-          <button
-            onClick={onUndo}
-            disabled={!canUndo}
-            className={`flex items-center justify-center rounded-lg transition-all ${
-              isVertical ? 'w-9 h-9' : 'p-2'
-            } ${
-              canUndo ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 cursor-not-allowed'
-            }`}
-            title="Geri Al (Ctrl+Z)"
-          >
-            <Undo2 className="w-4 h-4" />
-          </button>
-
-          {/* Redo */}
-          <button
-            onClick={onRedo}
-            disabled={!canRedo}
-            className={`flex items-center justify-center rounded-lg transition-all ${
-              isVertical ? 'w-9 h-9' : 'p-2'
-            } ${
-              canRedo ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 cursor-not-allowed'
-            }`}
-            title="Yinele (Ctrl+Y)"
-          >
-            <Redo2 className="w-4 h-4" />
-          </button>
-
-          {/* Clear with inline confirmation */}
-          {!confirmClearOpen ? (
+            {/* Highlighter */}
             <button
-              onClick={() => setConfirmClearOpen(true)}
-              className={`flex items-center justify-center rounded-lg text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-all ${
-                isVertical ? 'w-9 h-9' : 'p-2'
+              onClick={() => onSelectTool('highlighter')}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                activeTool === 'highlighter'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
               }`}
-              title="Tahtayı Temizle"
+              title="Fosforlu Vurgulayıcı Kalem"
             >
-              <Trash2 className="w-4 h-4" />
+              <Highlighter className="w-4 h-4" />
             </button>
-          ) : (
-            <div className={`flex items-center gap-1 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-lg ${isVertical ? 'col-span-2 w-full justify-between' : ''}`}>
-              <span className="text-[11px] font-semibold text-rose-700 whitespace-nowrap">Sil?</span>
-              <div className="flex items-center gap-0.5">
+
+            {/* Dual Eraser Dropdown (Object Eraser & Precision Point Eraser) */}
+            <div className={`relative ${isVertical ? 'w-full' : ''}`} ref={eraserMenuRef}>
+              <div className="flex items-center justify-center">
+                <button
+                  onClick={() => onSelectTool(lastEraserTool)}
+                  className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                    activeTool === 'eraser' || activeTool === 'point-eraser'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                  title={
+                    lastEraserTool === 'point-eraser'
+                      ? 'Hassas Silgi (Dokunduğu yeri siler / böler - Kısayol: E veya Shift+E)'
+                      : 'Öğe Silgisi (Tek hamlede öğeyi siler - Kısayol: E)'
+                  }
+                >
+                  {lastEraserTool === 'point-eraser' ? (
+                    <Scissors className="w-4 h-4" />
+                  ) : (
+                    <Eraser className="w-4 h-4" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setEraserMenuOpen(!eraserMenuOpen)}
+                  className={`p-0.5 -ml-1 rounded transition-colors ${
+                    activeTool === 'eraser' || activeTool === 'point-eraser'
+                      ? 'text-blue-200 hover:text-white'
+                      : 'text-slate-400 hover:text-slate-700'
+                  }`}
+                  title="Silgi Türünü Değiştir (Öğe / Hassas)"
+                >
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+              </div>
+
+              {eraserMenuOpen && (
+                <div
+                  className={`absolute ${
+                    isVertical
+                      ? openPopoverLeftward
+                        ? 'right-full mr-2 top-0'
+                        : 'left-full ml-2 top-0'
+                      : openPopoverUpward
+                      ? 'bottom-full mb-2 left-0'
+                      : 'top-full mt-2 left-0'
+                  } bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 flex flex-col gap-1 z-50 w-60`}
+                >
+                  <button
+                    onClick={() => {
+                      setLastEraserTool('eraser');
+                      try {
+                        localStorage.setItem('collab_last_eraser', 'eraser');
+                      } catch {}
+                      onSelectTool('eraser');
+                      setEraserMenuOpen(false);
+                    }}
+                    className={`flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
+                      activeTool === 'eraser'
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="p-1.5 rounded-md bg-rose-50 text-rose-600 mt-0.5">
+                      <Eraser className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">Öğe Silgisi</span>
+                        <kbd className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">
+                          E
+                        </kbd>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                        Dokunulan şekil veya çizgiyi tek dokunuşta tamamen kaldırır.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setLastEraserTool('point-eraser');
+                      try {
+                        localStorage.setItem('collab_last_eraser', 'point-eraser');
+                      } catch {}
+                      onSelectTool('point-eraser');
+                      setEraserMenuOpen(false);
+                    }}
+                    className={`flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
+                      activeTool === 'point-eraser'
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="p-1.5 rounded-md bg-amber-50 text-amber-600 mt-0.5">
+                      <Scissors className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">Hassas Silgi</span>
+                        <kbd className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">
+                          Shift+E
+                        </kbd>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                        Yalnızca dokunduğu kısmı siler, serbest çizimleri böler.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Microsoft Office-Style Categorized Shapes Gallery Dropdown */}
+            <div className={`relative ${isVertical ? 'w-full' : ''}`} ref={shapesMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShapesMenuOpen(!shapesMenuOpen)}
+                className={`flex items-center justify-center gap-0.5 p-2 rounded-lg transition-all ${
+                  isVertical ? 'w-full' : ''
+                } ${
+                  isShapeActive
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+                title="Şekiller, Akış Diyagramları, Blok Oklar & Konuşma Balonları (27 Şekil)"
+              >
+                {getShapeIcon()}
+                <ChevronDown className="w-3 h-3 opacity-70" />
+              </button>
+
+              {shapesMenuOpen && (
+                <div
+                  className={`absolute ${
+                    isVertical
+                      ? openPopoverLeftward
+                        ? 'right-full mr-2 top-0'
+                        : 'left-full ml-2 top-0'
+                      : openPopoverUpward
+                      ? 'bottom-full mb-2 left-0'
+                      : 'top-full mt-2 left-0'
+                  } bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 flex flex-col gap-3 z-50 w-80 max-h-[72vh] overflow-y-auto`}
+                >
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                    <span className="text-xs font-bold text-slate-800">
+                      Şekil & Diyagram Kütüphanesi
+                    </span>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">
+                      27 Vektörel Şekil
+                    </span>
+                  </div>
+
+                  {SHAPE_CATEGORIES.map((cat) => (
+                    <div key={cat.title} className="space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                        {cat.title}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {cat.items.map((item) => {
+                          const isSelected = activeTool === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                onSelectTool(item.id);
+                                setShapesMenuOpen(false);
+                              }}
+                              className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-[11px] font-medium transition-colors ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white shadow-xs'
+                                  : 'text-slate-700 hover:bg-slate-100'
+                              }`}
+                              title={item.title}
+                            >
+                              {renderShapeSvgIcon(item.id, 'w-4 h-4')}
+                              <span className="truncate max-w-full leading-tight">{item.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Arrow */}
+            <button
+              onClick={() => onSelectTool('arrow')}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                activeTool === 'arrow'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+              title="Bağlantı Oku (A)"
+            >
+              <ArrowRight className="w-4 h-4" />
+            </button>
+
+            {/* Line */}
+            <button
+              onClick={() => onSelectTool('line')}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                activeTool === 'line'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+              title="Düz Çizgi (L)"
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+
+            {/* Sticky Note */}
+            <button
+              onClick={() => onSelectTool('sticky')}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                activeTool === 'sticky'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+              title="Yapışkan Not (N)"
+            >
+              <StickyNote className="w-4 h-4 text-amber-500" />
+            </button>
+
+            {/* Text */}
+            <button
+              onClick={() => onSelectTool('text')}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                activeTool === 'text'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+              title="Metin Yazısı (T)"
+            >
+              <Type className="w-4 h-4" />
+            </button>
+
+            {/* Quick Image Upload */}
+            {onAddImageFile && (
+              <>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleQuickImageUpload}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => imageInputRef.current?.click()}
+                  className={`p-2 rounded-lg text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-all flex items-center justify-center ${
+                    isVertical ? 'w-full' : ''
+                  }`}
+                  title="Tahtaya Görsel Yükle"
+                >
+                  <ImagePlus className="w-4 h-4" />
+                </button>
+              </>
+            )}
+          </>
+        )}
+
+        <div className={dividerClass} />
+
+        {/* Laser Pointer */}
+        <button
+          onClick={() => onSelectTool('laser')}
+          className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+            isVertical ? 'w-full' : ''
+          } ${
+            activeTool === 'laser'
+              ? 'bg-rose-600 text-white shadow-xs'
+              : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+          title="Lazer Sunum İşaretçisi (K)"
+        >
+          <Flame className="w-4 h-4" />
+        </button>
+
+        {/* Live Ping Tool Button */}
+        <button
+          onClick={() => {
+            onSelectTool('ping');
+            onPingClick();
+          }}
+          className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+            isVertical ? 'w-full' : ''
+          } ${
+            activeTool === 'ping'
+              ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-500/30'
+              : 'text-slate-700 hover:bg-emerald-50 hover:text-emerald-600'
+          }`}
+          title="Konum İşareti / Ping (Tıkla veya haritada yeri seç - Kısayol: X veya Q)"
+        >
+          <Radio className="w-4 h-4" />
+        </button>
+
+        {canEdit && (
+          <>
+            <div className={dividerClass} />
+
+            {/* Undo */}
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                canUndo ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 cursor-not-allowed'
+              }`}
+              title="Geri Al (Ctrl+Z)"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+
+            {/* Redo */}
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                canRedo ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 cursor-not-allowed'
+              }`}
+              title="Yinele (Ctrl+Y)"
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
+
+            {/* Clear with inline confirmation */}
+            {!confirmClearOpen ? (
+              <button
+                onClick={() => setConfirmClearOpen(true)}
+                className={`p-2 rounded-lg text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-all flex items-center justify-center ${
+                  isVertical ? 'col-span-2 w-full' : ''
+                }`}
+                title="Tahtayı Temizle"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            ) : (
+              <div
+                className={`flex items-center justify-center gap-1 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-lg ${
+                  isVertical ? 'col-span-2 w-full' : ''
+                }`}
+              >
+                {!isVertical && (
+                  <span className="text-[11px] font-semibold text-rose-700 whitespace-nowrap">
+                    Silinsin mi?
+                  </span>
+                )}
                 <button
                   onClick={() => {
                     onClear();
@@ -1178,42 +1173,41 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   <X className="w-3 h-3" />
                 </button>
               </div>
-            </div>
-          )}
-        </>
-      )}
+            )}
+          </>
+        )}
 
-      <div className={dividerClass} />
+        <div className={dividerClass} />
 
-      {/* Zoom Controls */}
-      <div
-        className={`flex items-center bg-slate-100 px-1 py-0.5 rounded-lg ${
-          isVertical ? 'col-span-2 w-full justify-between' : 'gap-0.5'
-        }`}
-      >
-        <button
-          onClick={onZoomOut}
-          className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-white shrink-0"
-          title="Uzaklaş"
+        {/* Zoom Controls */}
+        <div
+          className={`flex items-center justify-between bg-slate-100 px-1 py-0.5 rounded-lg ${
+            isVertical ? 'col-span-2 w-full' : 'gap-0.5'
+          }`}
         >
-          <ZoomOut className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={onResetZoom}
-          className="px-1 py-0.5 text-[10px] font-mono tabular-nums font-semibold text-slate-700 hover:text-slate-900 shrink-0"
-          title="Yakınlaştırmayı Sıfırla (%100)"
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <button
-          onClick={onZoomIn}
-          className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-white shrink-0"
-          title="Yakınlaş"
-        >
-          <ZoomIn className="w-3.5 h-3.5" />
-        </button>
+          <button
+            onClick={onZoomOut}
+            className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-white"
+            title="Uzaklaş"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onResetZoom}
+            className="px-1 py-0.5 text-[10px] font-mono tabular-nums font-semibold text-slate-700 hover:text-slate-900"
+            title="Yakınlaştırmayı Sıfırla (%100)"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            onClick={onZoomIn}
+            className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-white"
+            title="Yakınlaş"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
 };

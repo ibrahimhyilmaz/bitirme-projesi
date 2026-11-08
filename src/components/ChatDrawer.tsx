@@ -9,43 +9,19 @@ import {
   Film,
   ExternalLink,
 } from 'lucide-react';
-import { ChatMessage } from '../types';
+import { ChatMessage, UserReaction } from '../types';
 
 interface ChatDrawerProps {
   messages: ChatMessage[];
   currentUserId: string;
+  currentUserName?: string;
+  reactions?: UserReaction[];
   onSendMessage: (text: string, fileAttachment?: { name: string; url: string; type?: string }) => void;
   onSendReaction: (emoji: string) => void;
   onClose: () => void;
 }
 
 const QUICK_REACTIONS = ['❤️', '👍', '🚀', '🎉', '🔥', '💡', '👏', '😂'];
-
-// Regex for pure emoji messages (including extended pictographics, ZWJ sequences, skin tones, flags, variation selectors, and spaces)
-const EMOJI_ONLY_REGEX = /^[\p{Extended_Pictographic}\uFE0E\uFE0F\u200D\u{1F3FB}-\u{1F3FF}\u{1F1E6}-\u{1F1FF}\s]+$/u;
-
-function checkIsOnlyEmoji(text?: string): { isOnly: boolean; count: number } {
-  if (!text) return { isOnly: false, count: 0 };
-  const trimmed = text.trim();
-  if (!trimmed) return { isOnly: false, count: 0 };
-  if (!EMOJI_ONLY_REGEX.test(trimmed)) {
-    return { isOnly: false, count: 0 };
-  }
-
-  let count = 0;
-  try {
-    if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
-      const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
-      count = [...segmenter.segment(trimmed.replace(/\s+/g, ''))].length;
-    } else {
-      count = [...trimmed.replace(/\s+/g, '')].length;
-    }
-  } catch {
-    count = [...trimmed.replace(/\s+/g, '')].length;
-  }
-
-  return { isOnly: count > 0, count };
-}
 
 // Categorized rich emojis
 const EMOJI_CATEGORIES: { id: string; name: string; icon: string; emojis: string[] }[] = [
@@ -235,9 +211,18 @@ const CURATED_GIFS: ReactionGif[] = [
 
 const GIF_CATEGORIES = ['Tümü', 'Alkış', 'Kutlama', 'Onay', 'Gülme', 'Şaşırma', 'Dans', 'Teşekkür'];
 
+interface LocalDrawerBurst {
+  id: string;
+  emoji: string;
+  userName: string;
+  timestamp: number;
+}
+
 export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   messages,
   currentUserId,
+  currentUserName = 'Sen',
+  reactions = [],
   onSendMessage,
   onSendReaction,
   onClose,
@@ -249,16 +234,87 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   const [selectedGifCategory, setSelectedGifCategory] = useState<string>('Tümü');
   const [searchQuery, setSearchQuery] = useState('');
   const [customGifUrl, setCustomGifUrl] = useState('');
+  const [messageReactions, setMessageReactions] = useState<Record<string, Record<string, string[]>>>({});
+  const [drawerBursts, setDrawerBursts] = useState<LocalDrawerBurst[]>([]);
+  const seenReactionIdsRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Exclude system notification messages from total message count!
-  const userMessagesCount = useMemo(() => {
-    return messages.filter((m) => m.userId !== 'system' && m.userColor !== 'system').length;
+  const userMessages = useMemo(() => {
+    return messages.filter((m) => m.userId !== 'system' && m.userColor !== 'system');
   }, [messages]);
+
+  const userMessagesCount = userMessages.length;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Listen to incoming/local reactions and show them at the top-left of the ChatDrawer + attach to latest message bubble
+  useEffect(() => {
+    if (!reactions || reactions.length === 0) return;
+    const now = Date.now();
+    const fresh = reactions.filter(
+      (r) => !seenReactionIdsRef.current.has(r.id) && now - r.timestamp < 4000
+    );
+    if (fresh.length === 0) return;
+
+    fresh.forEach((r) => seenReactionIdsRef.current.add(r.id));
+
+    const newBursts: LocalDrawerBurst[] = fresh.map((r) => ({
+      id: r.id,
+      emoji: r.emoji,
+      userName: r.userName || 'Kullanıcı',
+      timestamp: Date.now(),
+    }));
+
+    setDrawerBursts((prev) => [...prev.slice(-6), ...newBursts]);
+
+    // Also attach reaction badge to the most recent user message bubble if one exists
+    const latestMsg = userMessages[userMessages.length - 1];
+    if (latestMsg) {
+      setMessageReactions((prev) => {
+        const next = { ...prev };
+        const msgMap = { ...(next[latestMsg.id] || {}) };
+        fresh.forEach((r) => {
+          const existingUsers = msgMap[r.emoji] || [];
+          const sender = r.userName || 'Kullanıcı';
+          if (!existingUsers.includes(sender)) {
+            msgMap[r.emoji] = [...existingUsers, sender];
+          }
+        });
+        next[latestMsg.id] = msgMap;
+        return next;
+      });
+    }
+  }, [reactions, userMessages]);
+
+  // Periodically prune expired top-left drawer bursts
+  useEffect(() => {
+    if (drawerBursts.length === 0) return;
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setDrawerBursts((prev) => prev.filter((b) => now - b.timestamp < 3200));
+    }, 400);
+    return () => clearInterval(timer);
+  }, [drawerBursts.length]);
+
+  const triggerQuickReaction = (emoji: string, targetMessageId?: string) => {
+    const targetId = targetMessageId || userMessages[userMessages.length - 1]?.id;
+    if (targetId) {
+      setMessageReactions((prev) => {
+        const next = { ...prev };
+        const msgMap = { ...(next[targetId] || {}) };
+        const existingUsers = msgMap[emoji] || [];
+        if (!existingUsers.includes(currentUserName)) {
+          msgMap[emoji] = [...existingUsers, currentUserName];
+        }
+        next[targetId] = msgMap;
+        return next;
+      });
+    }
+    onSendReaction(emoji);
+  };
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -343,7 +399,24 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   }, [selectedGifCategory, searchQuery]);
 
   return (
-    <div className="fixed top-16 right-4 bottom-6 w-[420px] max-w-[calc(100vw-32px)] z-40 bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none">
+    <div className="fixed top-16 right-4 bottom-6 w-[420px] max-w-[calc(100vw-32px)] z-30 bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none">
+      {/* Top-Left Edge Quick Reaction Floating Overlay */}
+      {drawerBursts.length > 0 && (
+        <div className="absolute top-14 left-3 z-50 pointer-events-none flex flex-col items-start gap-1.5 max-w-[260px]">
+          {drawerBursts.map((burst) => (
+            <div
+              key={burst.id}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/90 text-white shadow-xl border border-white/15 backdrop-blur-md animate-bounce"
+            >
+              <span className="text-lg leading-none">{burst.emoji}</span>
+              <span className="text-[11px] font-semibold truncate">
+                {burst.userName} tepki verdi
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Header with Only User Messages Count */}
       <div className="h-12 bg-slate-50 border-b border-slate-200 px-4 flex items-center justify-between text-xs shrink-0">
         <div className="flex items-center gap-2">
@@ -397,15 +470,15 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                 msg.fileAttachment.url.match(/\.(gif|png|jpe?g|webp)(\?.*)?$/i) ||
                 msg.fileAttachment.url.includes('giphy.com'));
 
-            const emojiCheck = !hasGifOrImageAttachment
-              ? checkIsOnlyEmoji(msg.text)
-              : { isOnly: false, count: 0 };
-            const isEmojiOnly = emojiCheck.isOnly;
+            const msgReactions = messageReactions[msg.id] || {};
+            const reactionEntries = Object.entries(msgReactions).filter(
+              ([, users]) => users.length > 0
+            );
 
             return (
               <div
                 key={msg.id}
-                className={`flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}
+                className={`group relative flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}
               >
                 <div className="flex items-center gap-1.5 mb-1 text-[11px] text-slate-400">
                   <span
@@ -423,23 +496,28 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                   </span>
                 </div>
 
-                {isEmojiOnly ? (
-                  /* Standalone emoji rendering without bubble container, with boosted size */
+                <div className="relative max-w-[85%]">
+                  {/* Hover Quick Reaction Picker for this Message Bubble */}
                   <div
-                    className={`select-text leading-none transition-transform hover:scale-115 duration-150 inline-block filter drop-shadow-xs px-1 ${
-                      emojiCheck.count === 1
-                        ? 'text-5xl my-1.5'
-                        : emojiCheck.count <= 3
-                        ? 'text-4xl my-1 tracking-wider'
-                        : 'text-3xl my-0.5 tracking-wide'
-                    }`}
-                    title={`${isSelf ? 'Sen' : msg.userName}: ${msg.text}`}
+                    className={`opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity absolute -top-7 ${
+                      isSelf ? 'right-0' : 'left-0'
+                    } z-20 flex items-center gap-0.5 bg-white border border-slate-200 rounded-full px-1.5 py-0.5 shadow-md`}
                   >
-                    {msg.text}
+                    {QUICK_REACTIONS.slice(0, 5).map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => triggerQuickReaction(emoji, msg.id)}
+                        className="w-5 h-5 rounded-full hover:bg-slate-100 flex items-center justify-center text-xs transition-transform hover:scale-125 cursor-pointer"
+                        title={`${emoji} tepkisi ekle`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
                   </div>
-                ) : (
+
                   <div
-                    className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed select-text shadow-2xs ${
+                    className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed select-text shadow-2xs ${
                       isSelf
                         ? 'bg-blue-600 text-white rounded-tr-xs'
                         : 'bg-slate-100 text-slate-800 rounded-tl-xs'
@@ -466,7 +544,29 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                       </div>
                     )}
                   </div>
-                )}
+
+                  {/* Reaction Badges on Message Bubble */}
+                  {reactionEntries.length > 0 && (
+                    <div
+                      className={`flex flex-wrap items-center gap-1 mt-1 ${
+                        isSelf ? 'justify-end' : 'justify-start'
+                      }`}
+                    >
+                      {reactionEntries.map(([emoji, users]) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => triggerQuickReaction(emoji, msg.id)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100 border border-blue-200 text-[11px] font-semibold text-blue-700 shadow-2xs transition-transform active:scale-95 cursor-pointer"
+                          title={users.join(', ')}
+                        >
+                          <span>{emoji}</span>
+                          <span>{users.length}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })
@@ -481,12 +581,10 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           {QUICK_REACTIONS.map((emoji) => (
             <button
               key={emoji}
-              onClick={() => {
-                onSendMessage(emoji);
-                onSendReaction(emoji);
-              }}
+              type="button"
+              onClick={() => triggerQuickReaction(emoji)}
               className="w-7 h-7 rounded-lg hover:bg-slate-200/80 flex items-center justify-center text-sm transition-transform active:scale-90 cursor-pointer"
-              title={`${emoji} sohbete tek başına gönder & tuvalde göster`}
+              title={`${emoji} hızlı tepki gönder`}
             >
               {emoji}
             </button>

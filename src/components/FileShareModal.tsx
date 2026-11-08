@@ -12,9 +12,15 @@ import {
   X,
   GripVertical,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { SharedFile } from '../types';
-import { validateFile, FILE_INPUT_ACCEPT } from '../utils/fileValidation';
+import {
+  validateFile,
+  validateVideoFileMetadata,
+  createDocumentCardSvgDataUrl,
+  FILE_INPUT_ACCEPT,
+} from '../utils/fileValidation';
 
 interface FileShareModalProps {
   files: SharedFile[];
@@ -36,39 +42,65 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
   onClose,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
     setValidationError(null);
-    const validation = validateFile(file.name, file.type);
+    const validation = validateFile(file.name, file.type, file.size);
     if (!validation.valid) {
       setValidationError(validation.error || 'Bu dosya türü desteklenmiyor.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      onUploadFile({
-        name: file.name,
-        size: file.size,
-        fileType:
-          file.type ||
-          (file.name.endsWith('.pdf')
-            ? 'application/pdf'
-            : file.name.endsWith('.mp4')
-            ? 'video/mp4'
-            : 'application/octet-stream'),
-        dataUrl,
-      });
-    };
-    reader.readAsDataURL(file);
+    setIsProcessing(true);
+    try {
+      const videoCheck = await validateVideoFileMetadata(file);
+      if (!videoCheck.valid) {
+        setValidationError(videoCheck.error || 'Video süre veya boyut sınırını aşıyor.');
+        setIsProcessing(false);
+        return;
+      }
+
+      const lower = file.name.toLowerCase();
+      const resolvedMime =
+        file.type ||
+        (lower.endsWith('.pdf')
+          ? 'application/pdf'
+          : lower.endsWith('.mp4')
+          ? 'video/mp4'
+          : lower.endsWith('.webm')
+          ? 'video/webm'
+          : lower.endsWith('.mov')
+          ? 'video/quicktime'
+          : 'application/octet-stream');
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        onUploadFile({
+          name: file.name,
+          size: file.size,
+          fileType: resolvedMime,
+          dataUrl,
+        });
+        setIsProcessing(false);
+      };
+      reader.onerror = () => {
+        setValidationError('Dosya okunurken bir hata oluştu.');
+        setIsProcessing(false);
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      setValidationError('Dosya işlenirken beklenmeyen bir hata oluştu.');
+      setIsProcessing(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      processFile(e.target.files[0]);
+      void processFile(e.target.files[0]);
       e.target.value = '';
     }
   };
@@ -77,7 +109,7 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processFile(e.dataTransfer.files[0]);
+      void processFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -159,7 +191,7 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
           }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => !isProcessing && fileInputRef.current?.click()}
           className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
             isDragging
               ? 'border-blue-500 bg-blue-50/50'
@@ -173,16 +205,27 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
             onChange={handleFileChange}
             className="hidden"
           />
-          <Upload className="w-5 h-5 text-slate-400 mb-1.5" />
-          <p className="text-xs font-semibold text-slate-700">
-            Dosya yüklemek için tıklayın veya sürükleyip bırakın
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            PDF, Word, PPTX, Excel, Görseller (PNG, JPG) ve Videolar (MP4, WebM)
-          </p>
-          <span className="inline-block mt-1 text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-medium">
-            Güvenlik: .exe ve çalıştırılabilir dosyalara izin verilmez
-          </span>
+          {isProcessing ? (
+            <>
+              <Loader2 className="w-5 h-5 text-blue-600 animate-spin mb-1.5" />
+              <p className="text-xs font-semibold text-blue-700">
+                Dosya kontrol ediliyor ve optimize ediliyor...
+              </p>
+            </>
+          ) : (
+            <>
+              <Upload className="w-5 h-5 text-slate-400 mb-1.5" />
+              <p className="text-xs font-semibold text-slate-700">
+                Dosya yüklemek için tıklayın veya sürükleyip bırakın
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                PDF, Word, PPTX, Excel, Görseller ve Videolar (Maks. 3 dk / 50 MB)
+              </p>
+              <span className="inline-block mt-1 text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-medium">
+                Güvenlik: .exe ve çalıştırılabilir dosyalara izin verilmez
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -198,17 +241,19 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
           </div>
         ) : (
           files.map((file) => {
-            const isImage = file.type.startsWith('image/');
+            const lower = file.name.toLowerCase();
+            const isImage =
+              file.type.startsWith('image/') ||
+              /\.(png|jpe?g|gif|webp|svg|bmp)$/.test(lower);
             const isPdf =
               file.type === 'application/pdf' ||
-              file.name.toLowerCase().endsWith('.pdf') ||
+              lower.endsWith('.pdf') ||
               file.dataUrl.startsWith('data:application/pdf');
             const isVideo =
               file.type.startsWith('video/') ||
-              file.name.toLowerCase().endsWith('.mp4') ||
-              file.name.toLowerCase().endsWith('.webm') ||
-              file.name.toLowerCase().endsWith('.mov') ||
+              /\.(mp4|webm|mov|ogg)$/.test(lower) ||
               file.dataUrl.startsWith('data:video/');
+            const isOtherDoc = !isImage && !isPdf && !isVideo;
 
             return (
               <div
@@ -297,6 +342,25 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
                     </button>
                   )}
 
+                  {isOtherDoc && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const cardSvg = createDocumentCardSvgDataUrl({
+                          name: file.name,
+                          size: file.size,
+                          type: file.type,
+                        });
+                        onAddImageToCanvas(cardSvg.dataUrl, file.name);
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-medium transition-colors cursor-pointer"
+                      title="Belge Kartı Olarak Tahtaya Ekle"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>Tahtaya Ekle</span>
+                    </button>
+                  )}
+
                   <a
                     href={file.dataUrl}
                     download={file.name}
@@ -326,7 +390,7 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
 
       {/* Footer hint */}
       <div className="bg-slate-50/80 px-4 py-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-        <span>İpucu: Görselleri, PDF&apos;leri ve videoları doğrudan tahtaya sürükleyebilirsiniz.</span>
+        <span>İpucu: Tüm dosyaları, görselleri, PDF&apos;leri ve videoları tahtaya sürükleyebilirsiniz.</span>
       </div>
     </div>
   );

@@ -877,29 +877,59 @@ export function useWebSocket({
 
           case 'ping-received':
           case 'user-ping': {
-            const newPing: UserPing = {
-              x: msg.x,
-              y: msg.y,
-              userName: msg.userName,
-              userColor: msg.userColor,
-              timestamp: Date.now(),
-            };
-            setPings((prev) => [...prev.slice(-10), newPing]);
-            soundEffects.playPingSound();
+            if (msg._senderId && msg._senderId === userRef.current.id) {
+              break;
+            }
+            const now = Date.now();
+            setPings((prev) => {
+              const isDuplicate = prev.some(
+                (p) =>
+                  p.userName === msg.userName &&
+                  Math.abs(now - p.timestamp) < 600 &&
+                  Math.hypot(p.x - msg.x, p.y - msg.y) < 5
+              );
+              if (isDuplicate) return prev;
+              soundEffects.playPingSound();
+              return [
+                ...prev.slice(-10),
+                {
+                  x: msg.x,
+                  y: msg.y,
+                  userName: msg.userName,
+                  userColor: msg.userColor,
+                  timestamp: now,
+                },
+              ];
+            });
             break;
           }
 
           case 'reaction-received':
           case 'reaction': {
-            const newReaction: UserReaction = {
-              id: `rx-${Date.now()}-${Math.random()}`,
-              x: msg.x,
-              y: msg.y,
-              emoji: msg.emoji,
-              userName: msg.userName,
-              timestamp: Date.now(),
-            };
-            setReactions((prev) => [...prev.slice(-20), newReaction]);
+            if (msg._senderId && msg._senderId === userRef.current.id) {
+              break;
+            }
+            const now = Date.now();
+            setReactions((prev) => {
+              const isDuplicate = prev.some(
+                (r) =>
+                  r.userName === msg.userName &&
+                  r.emoji === msg.emoji &&
+                  Math.abs(now - r.timestamp) < 600
+              );
+              if (isDuplicate) return prev;
+              return [
+                ...prev.slice(-20),
+                {
+                  id: `rx-${now}-${Math.random()}`,
+                  x: msg.x,
+                  y: msg.y,
+                  emoji: msg.emoji,
+                  userName: msg.userName,
+                  timestamp: now,
+                },
+              ];
+            });
             break;
           }
 
@@ -1615,25 +1645,25 @@ export function useWebSocket({
 
   const sendPing = useCallback(
     (x: number, y: number) => {
-      if (isMeshModeRef.current) {
-        setPings((prev) => [
-          ...prev.slice(-10),
-          {
-            x,
-            y,
-            userName: userRef.current.name,
-            userColor: userRef.current.color,
-            timestamp: Date.now(),
-          },
-        ]);
-        soundEffects.playPingSound();
-      }
+      const now = Date.now();
+      setPings((prev) => [
+        ...prev.slice(-10),
+        {
+          x,
+          y,
+          userName: userRef.current.name,
+          userColor: userRef.current.color,
+          timestamp: now,
+        },
+      ]);
+      soundEffects.playPingSound();
       sendMessage({
         type: 'user-ping',
         x,
         y,
         userName: userRef.current.name,
         userColor: userRef.current.color,
+        timestamp: now,
       });
     },
     [sendMessage]
@@ -1641,21 +1671,21 @@ export function useWebSocket({
 
   const sendReaction = useCallback(
     (emoji: string, x: number, y: number) => {
-      if (isMeshModeRef.current) {
-        setReactions((prev) => [
-          ...prev.slice(-20),
-          {
-            id: `rx-${Date.now()}-${Math.random()}`,
-            x,
-            y,
-            emoji,
-            userName: userRef.current.name,
-            timestamp: Date.now(),
-          },
-        ]);
-      }
+      const rxId = `rx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      setReactions((prev) => [
+        ...prev.slice(-20),
+        {
+          id: rxId,
+          x,
+          y,
+          emoji,
+          userName: userRef.current.name,
+          timestamp: Date.now(),
+        },
+      ]);
       sendMessage({
         type: 'reaction',
+        id: rxId,
         emoji,
         x,
         y,

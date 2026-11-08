@@ -403,6 +403,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             ? {
                 left: `${position.x}px`,
                 top: `${position.y}px`,
+                right: 'auto',
                 bottom: 'auto',
                 transform: 'none',
               }
@@ -412,7 +413,11 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           isDragging
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
-        } rounded-xl select-none ${!position ? 'bottom-4 left-1/2 -translate-x-1/2' : ''}`}
+        } rounded-xl select-none ${
+          !position
+            ? 'bottom-16 left-3 right-3 md:bottom-3 md:left-[268px] md:right-4 mx-auto w-fit'
+            : ''
+        }`}
       >
         <div
           onPointerDown={handleGripPointerDown}
@@ -456,6 +461,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           ? {
               left: `${position.x}px`,
               top: `${position.y}px`,
+              right: 'auto',
               bottom: 'auto',
               transform: 'none',
             }
@@ -465,8 +471,10 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         isDragging
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'
-      } rounded-xl select-none max-w-[95vw] ${
-        !position ? 'bottom-4 left-1/2 -translate-x-1/2' : ''
+      } rounded-xl select-none ${
+        !position
+          ? 'bottom-16 left-3 right-3 md:bottom-3 md:left-[268px] md:right-4 mx-auto w-fit max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-288px)]'
+          : 'max-w-[95vw]'
       }`}
     >
       {/* Drag Handle */}

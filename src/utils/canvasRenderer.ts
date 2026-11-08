@@ -206,40 +206,60 @@ export function hitTestTransformHandle(
 }
 
 /**
- * Smooths and vectorizes freehand point arrays using distance filtering
- * and Chaikin corner-cutting algorithm for silky-smooth vector curves.
+ * Smooths and vectorizes freehand point arrays using distance filtering,
+ * Laplacian hand-tremor stabilization, and 2-pass Chaikin corner-cutting
+ * for silky-smooth vector curves.
  */
 export function smoothPoints(points: Point[]): Point[] {
   if (!points || points.length <= 2) return points;
 
-  // 1. Distance filtering: remove points that are too close (< 2.5px) to eliminate hand jitter
+  // 1. Distance filtering: remove points that are too close (< 1.8px) to eliminate micro-jitter
   const filtered: Point[] = [points[0]];
   for (let i = 1; i < points.length; i++) {
     const prev = filtered[filtered.length - 1];
     const curr = points[i];
-    if (Math.hypot(curr.x - prev.x, curr.y - prev.y) >= 2.5 || i === points.length - 1) {
+    if (Math.hypot(curr.x - prev.x, curr.y - prev.y) >= 1.8 || i === points.length - 1) {
       filtered.push(curr);
     }
   }
 
   if (filtered.length <= 2) return filtered;
 
-  // 2. Chaikin corner-cutting smoothing pass
-  const smoothed: Point[] = [filtered[0]];
-  for (let i = 0; i < filtered.length - 1; i++) {
-    const p0 = filtered[i];
-    const p1 = filtered[i + 1];
-    smoothed.push({
-      x: 0.75 * p0.x + 0.25 * p1.x,
-      y: 0.75 * p0.y + 0.25 * p1.y,
-    });
-    smoothed.push({
-      x: 0.25 * p0.x + 0.75 * p1.x,
-      y: 0.25 * p0.y + 0.75 * p1.y,
+  // 2. Weighted 3-point Laplacian stabilization pass (preserves endpoints)
+  const stabilized: Point[] = [filtered[0]];
+  for (let i = 1; i < filtered.length - 1; i++) {
+    const prev = filtered[i - 1];
+    const curr = filtered[i];
+    const next = filtered[i + 1];
+    stabilized.push({
+      x: 0.25 * prev.x + 0.5 * curr.x + 0.25 * next.x,
+      y: 0.25 * prev.y + 0.5 * curr.y + 0.25 * next.y,
     });
   }
-  smoothed.push(filtered[filtered.length - 1]);
-  return smoothed;
+  stabilized.push(filtered[filtered.length - 1]);
+
+  // 3. Two-pass Chaikin corner-cutting smoothing (capped to prevent excessive vertex counts)
+  let current = stabilized;
+  const passes = current.length < 180 ? 2 : 1;
+  for (let p = 0; p < passes; p++) {
+    const nextPass: Point[] = [current[0]];
+    for (let i = 0; i < current.length - 1; i++) {
+      const p0 = current[i];
+      const p1 = current[i + 1];
+      nextPass.push({
+        x: 0.75 * p0.x + 0.25 * p1.x,
+        y: 0.75 * p0.y + 0.25 * p1.y,
+      });
+      nextPass.push({
+        x: 0.25 * p0.x + 0.75 * p1.x,
+        y: 0.25 * p0.y + 0.75 * p1.y,
+      });
+    }
+    nextPass.push(current[current.length - 1]);
+    current = nextPass;
+  }
+
+  return current;
 }
 
 // Draw a single element onto the 2D context
@@ -316,14 +336,17 @@ export function drawElement(
       if (pts.length === 2) {
         ctx.lineTo(pts[1].x, pts[1].y);
       } else {
-        // High-precision vector smooth curve
-        let i = 1;
-        for (i = 1; i < pts.length - 1; i++) {
+        // C1-continuous quadratic midpoint B-spline without endpoint hook/kink
+        const firstMidX = (pts[0].x + pts[1].x) / 2;
+        const firstMidY = (pts[0].y + pts[1].y) / 2;
+        ctx.lineTo(firstMidX, firstMidY);
+
+        for (let i = 1; i < pts.length - 1; i++) {
           const xc = (pts[i].x + pts[i + 1].x) / 2;
           const yc = (pts[i].y + pts[i + 1].y) / 2;
           ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
         }
-        ctx.quadraticCurveTo(pts[i - 1].x, pts[i - 1].y, pts[pts.length - 1].x, pts[pts.length - 1].y);
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
       }
       ctx.stroke();
       break;
@@ -1447,44 +1470,66 @@ export function drawPings(
 
     const screenPos = canvasToScreen({ x: ping.x, y: ping.y }, pan, zoom);
     const progress = elapsed / 3500;
-    const radius = 10 + progress * 70;
+    const maxRadius = 85;
     const alpha = Math.max(0, 1 - progress);
+    const color = ping.userColor || '#2563eb';
 
     ctx.save();
     ctx.translate(screenPos.x, screenPos.y);
 
-    // Ripple circles
-    ctx.strokeStyle = ping.userColor || '#2563eb';
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = alpha;
+    // Soft outer glow fill
+    const glowRadius = 14 + progress * maxRadius;
+    const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, glowRadius);
+    grad.addColorStop(0, `${color}44`);
+    grad.addColorStop(1, `${color}00`);
+    ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(0, 0, radius * 0.6, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Center dot
-    ctx.fillStyle = ping.userColor || '#2563eb';
-    ctx.beginPath();
-    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Ping user banner
-    ctx.globalAlpha = Math.min(1, alpha * 1.4);
+    // 3 Staggered sonar ripple rings
+    const ringScales = [1, 0.68, 0.36];
+    for (const scale of ringScales) {
+      const r = 8 + progress * maxRadius * scale;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.8;
+      ctx.globalAlpha = alpha * (scale === 1 ? 0.95 : 0.75);
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Center beacon dot with white halo
+    ctx.globalAlpha = Math.min(1, alpha * 1.5);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(0, 0, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ping user banner (anchored cleanly above center so it stays readable)
+    ctx.globalAlpha = Math.min(1, alpha * 1.45);
     ctx.font = '600 12px "Plus Jakarta Sans", sans-serif';
-    const text = `${ping.userName} burayı işaret etti!`;
+    const text = `📍 ${ping.userName} burayı işaret etti!`;
     const tw = ctx.measureText(text).width;
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    const bannerY = -38 - Math.sin(progress * Math.PI) * 8;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(-tw / 2 - 8, -radius - 28, tw + 16, 22, 6);
+    ctx.roundRect(-tw / 2 - 10, bannerY - 12, tw + 20, 24, 8);
     ctx.fill();
+    ctx.stroke();
 
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 0, -radius - 17);
+    ctx.fillText(text, 0, bannerY);
 
     ctx.restore();
   }

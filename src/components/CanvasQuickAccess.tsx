@@ -235,11 +235,11 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
 
   return (
     <>
-      {/* 1. Unified Bottom-Left Flex Dock (Minimap + Grid Selector + Layout Reset — Zero Overlap) */}
+      {/* 1. Unified Bottom-Left Flex Dock (Minimap stacked above Grid Selector & Layout Reset — Zero Overlap) */}
       <div
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
-        className="fixed bottom-4 left-4 z-20 pointer-events-none flex flex-wrap items-end gap-2.5 select-none"
+        className="fixed bottom-3 left-3 z-20 pointer-events-none flex flex-col items-start gap-2 select-none max-w-[calc(100vw-24px)]"
       >
         {/* Minimap Widget or Compact Restore Pill */}
         {showMinimap ? (

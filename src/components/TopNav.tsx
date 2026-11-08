@@ -29,8 +29,6 @@ import {
   Palette,
   Radio,
   Compass,
-  Maximize,
-  Minimize,
 } from 'lucide-react';
 import { RoomSettings, ThemeMode, UserPresence, UserRole } from '../types';
 import { getShareableRoomUrl } from './RoomsModal';
@@ -74,8 +72,6 @@ interface TopNavProps {
   onToggleVoiceBar?: () => void;
   onToggleMinimap?: () => void;
   onResetWidgetLayout?: () => void;
-  isFullscreen?: boolean;
-  onToggleFullscreen?: () => void;
 }
 
 const ROLE_TEXT: Record<UserRole, string> = {
@@ -124,8 +120,6 @@ export const TopNav: React.FC<TopNavProps> = ({
   onToggleVoiceBar,
   onToggleMinimap,
   onResetWidgetLayout,
-  isFullscreen = false,
-  onToggleFullscreen,
 }) => {
   const [copied, setCopied] = useState(false);
   const [showBoxesMenu, setShowBoxesMenu] = useState(false);
@@ -179,7 +173,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
   return (
     <header
-      className={`h-14 border-b px-2 sm:px-3 md:px-4 w-full max-w-full flex items-center justify-between gap-1.5 sm:gap-2 shrink-0 relative z-40 select-none transition-colors ${
+      className={`h-14 w-full max-w-full border-b px-2.5 lg:px-3.5 flex items-center justify-between gap-1.5 lg:gap-2.5 shrink-0 z-30 select-none transition-colors ${
         theme === 'dark'
           ? 'bg-slate-900 border-slate-800 text-slate-100'
           : theme === 'midnight'
@@ -190,11 +184,11 @@ export const TopNav: React.FC<TopNavProps> = ({
       }`}
     >
       {/* Zone 1: Brand & Room Identity */}
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
+      <div className="flex items-center gap-1.5 lg:gap-2 shrink-0 min-w-0">
         <div className="flex items-center gap-1.5 shrink-0">
           <BrandLogo size="md" />
           <span
-            className={`text-sm font-bold tracking-tight whitespace-nowrap shrink-0 hidden 2xl:inline ${
+            className={`text-sm lg:text-base font-bold tracking-tight whitespace-nowrap shrink-0 hidden 2xl:inline ${
               isDark ? 'text-white' : 'text-slate-900'
             }`}
           >
@@ -202,13 +196,13 @@ export const TopNav: React.FC<TopNavProps> = ({
           </span>
         </div>
 
-        <div className={`h-4 w-px hidden md:block shrink-0 ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
+        <div className={`h-4 w-px hidden sm:block ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
 
         {/* Room Info, Lock Status, Capacity & Invite */}
-        <div className="flex items-center gap-1 text-xs shrink-0">
+        <div className="flex items-center gap-1 text-xs min-w-0">
           <button
             onClick={() => onOpenRoomsModal('rooms')}
-            className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg transition-colors ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-colors min-w-0 ${
               isDark
                 ? 'hover:bg-slate-800 text-slate-200'
                 : 'hover:bg-slate-100 text-slate-700 hover:text-blue-600'
@@ -220,15 +214,15 @@ export const TopNav: React.FC<TopNavProps> = ({
             ) : (
               <DoorOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
             )}
-            <span className="font-semibold truncate max-w-[70px] sm:max-w-[100px] md:max-w-[130px]">{roomName}</span>
-            <span className={`font-mono text-[10px] sm:text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            <span className="font-semibold truncate max-w-[90px] xl:max-w-[125px]">{roomName}</span>
+            <span className={`font-mono text-[11px] shrink-0 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
               ({users.length}/{roomSettings.maxUsers})
             </span>
           </button>
 
           <button
             onClick={() => onOpenRoomsModal('permissions')}
-            className={`hidden lg:flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+            className={`hidden xl:flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-medium transition-colors shrink-0 ${
               isDark
                 ? 'text-slate-300 hover:text-blue-400 hover:bg-slate-800'
                 : 'text-slate-600 hover:text-blue-600 hover:bg-slate-100'
@@ -246,7 +240,7 @@ export const TopNav: React.FC<TopNavProps> = ({
               onOpenRoomsModal('invite');
             }}
             title="QR Kod İle Cihaz Davet Et ve Oda Bağlantısını Paylaş"
-            className={`flex items-center gap-1 sm:gap-1.5 px-2 py-1 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 border ${
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 border ${
               isDark
                 ? 'text-blue-300 bg-blue-950/60 hover:bg-blue-900/70 border-blue-800/70'
                 : 'text-blue-600 bg-blue-50/70 hover:bg-blue-100/80 border-blue-200/70'
@@ -257,15 +251,15 @@ export const TopNav: React.FC<TopNavProps> = ({
             ) : (
               <QrCode className="w-3.5 h-3.5" />
             )}
-            <span className="hidden sm:inline">{copied ? 'Kopyalandı' : 'Davet'}</span>
+            <span className="hidden sm:inline">{copied ? 'Kopyalandı' : 'Davet & QR'}</span>
           </button>
         </div>
       </div>
 
-      {/* Zone 2: Workspace View Toggles */}
+      {/* Zone 2: Workspace View Toggles (Scrollable if narrow, never pushes right zone off-screen) */}
       <nav
         data-tour="workspace-nav"
-        className={`flex items-center gap-0.5 sm:gap-1 p-0.5 sm:p-1 rounded-lg shrink-0 ${
+        className={`flex items-center gap-0.5 p-1 rounded-lg min-w-0 overflow-x-auto no-scrollbar shrink ${
           isDark ? 'bg-slate-800/90' : theme === 'sepia' ? 'bg-[#ebe2ce]' : 'bg-slate-100'
         }`}
       >
@@ -273,7 +267,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           data-tour="ai-draw-btn"
           onClick={onOpenAIPrompt}
           disabled={currentUserRole === 'viewer'}
-          className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 md:px-2.5 py-1 sm:py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap shrink-0 ${
+          className={`flex items-center gap-1 px-2 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap shrink-0 ${
             currentUserRole === 'viewer'
               ? 'text-slate-400 cursor-not-allowed'
               : isDark
@@ -283,13 +277,13 @@ export const TopNav: React.FC<TopNavProps> = ({
           title="Yapay Zeka İle Tahtada Anında Şekil veya Diyagram Oluştur"
         >
           <Wand2 className="w-3.5 h-3.5 text-violet-500" />
-          <span className="hidden xl:inline">AI Çizim</span>
+          <span className="hidden lg:inline">AI Çizim</span>
         </button>
 
         <button
           onClick={onOpenTemplates}
           disabled={currentUserRole === 'viewer'}
-          className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 md:px-2.5 py-1 sm:py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
+          className={`flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             currentUserRole === 'viewer'
               ? 'text-slate-400 cursor-not-allowed'
               : isDark
@@ -299,13 +293,13 @@ export const TopNav: React.FC<TopNavProps> = ({
           title="Hazır Şablonlar"
         >
           <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-          <span className="hidden 2xl:inline">Şablonlar</span>
+          <span className="hidden xl:inline">Şablonlar</span>
         </button>
 
         <button
           data-tour="code-editor-btn"
           onClick={() => onTogglePanel('code')}
-          className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 md:px-2.5 py-1 sm:py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
+          className={`flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             activePanel === 'code'
               ? isDark
                 ? 'bg-blue-600 text-white shadow-xs'
@@ -317,12 +311,12 @@ export const TopNav: React.FC<TopNavProps> = ({
           title="Odaya Özel Ortak Kod Editörü (Çoklu Kullanıcı & Canlı İmleç)"
         >
           <Code2 className="w-3.5 h-3.5" />
-          <span className="hidden xl:inline">Kod</span>
+          <span className="hidden md:inline">Kod</span>
         </button>
 
         <button
           onClick={() => onTogglePanel('notes')}
-          className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 md:px-2.5 py-1 sm:py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
+          className={`flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             activePanel === 'notes'
               ? isDark
                 ? 'bg-blue-600 text-white shadow-xs'
@@ -334,12 +328,12 @@ export const TopNav: React.FC<TopNavProps> = ({
           title="Ortak Notlar"
         >
           <FileText className="w-3.5 h-3.5" />
-          <span className="hidden xl:inline">Notlar</span>
+          <span className="hidden md:inline">Notlar</span>
         </button>
 
         <button
           onClick={() => onTogglePanel('files')}
-          className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 md:px-2.5 py-1 sm:py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
+          className={`flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             activePanel === 'files'
               ? isDark
                 ? 'bg-blue-600 text-white shadow-xs'
@@ -351,12 +345,12 @@ export const TopNav: React.FC<TopNavProps> = ({
           title="Dosya Paylaşımı"
         >
           <FolderOpen className="w-3.5 h-3.5" />
-          <span className="hidden xl:inline">Dosyalar</span>
+          <span className="hidden md:inline">Dosyalar</span>
         </button>
 
         <button
           onClick={() => onTogglePanel('chat')}
-          className={`relative flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 md:px-2.5 py-1 sm:py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
+          className={`relative flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap shrink-0 ${
             activePanel === 'chat'
               ? isDark
                 ? 'bg-blue-600 text-white shadow-xs'
@@ -368,40 +362,40 @@ export const TopNav: React.FC<TopNavProps> = ({
           title="Sohbet"
         >
           <MessageSquare className="w-3.5 h-3.5" />
-          <span className="hidden xl:inline">Sohbet</span>
+          <span className="hidden md:inline">Sohbet</span>
           {unreadChatCount > 0 && (
-            <span className="ml-0.5 sm:ml-1 px-1.5 py-0.2 bg-rose-600 text-white text-[10px] font-mono tabular-nums font-bold rounded-full">
+            <span className="ml-0.5 px-1.5 py-0.2 bg-rose-600 text-white text-[10px] font-mono tabular-nums font-bold rounded-full">
               {unreadChatCount}
             </span>
           )}
         </button>
       </nav>
 
-      {/* Zone 3: Floating Boxes Visibility, Tour, Theme, Fullscreen, Settings, Audio & Export */}
-      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+      {/* Zone 3: Floating Boxes Visibility, Tour, Theme, Settings, Audio & Export */}
+      <div className="flex items-center gap-1.5 shrink-0">
         {/* Interactive Onboarding Tour Trigger */}
         {onStartOnboardingTour && (
           <button
             onClick={onStartOnboardingTour}
             title="Etkileşimli Tanıtım Turunu & Kullanım Rehberini Başlat"
-            className={`flex items-center gap-1.5 p-1.5 sm:px-2 sm:py-1.5 rounded-lg text-xs font-semibold border transition-colors shrink-0 ${
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
               isDark
                 ? 'bg-indigo-950/60 text-indigo-300 border-indigo-800/70 hover:bg-indigo-900/70'
                 : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100/80'
             }`}
           >
             <Compass className="w-3.5 h-3.5 text-indigo-500" />
-            <span className="hidden 2xl:inline">Rehber</span>
+            <span className="hidden 2xl:inline">Tanıtım Turu</span>
           </button>
         )}
 
         {/* Quick Floating Boxes Hide/Show & Flex Dock Layout Popover */}
-        <div className="relative shrink-0" ref={boxesMenuRef}>
+        <div className="relative" ref={boxesMenuRef}>
           <button
             type="button"
             onClick={() => setShowBoxesMenu((v) => !v)}
             title="Çalışma Alanı Kutucuklarını Gizle / Göster ve Kenetli Flex Düzenine Sıfırla"
-            className={`relative flex items-center gap-1.5 p-1.5 sm:px-2 sm:py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            className={`relative flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
               hiddenCount > 0
                 ? 'bg-amber-500/15 text-amber-600 border-amber-400/50'
                 : isDark
@@ -410,10 +404,10 @@ export const TopNav: React.FC<TopNavProps> = ({
             }`}
           >
             <Layout className="w-3.5 h-3.5" />
-            <span className="hidden 2xl:inline">Kutucuklar</span>
+            <span className="hidden xl:inline">Kutucuklar</span>
             {hiddenCount > 0 && (
-              <span className="px-1 py-0.2 text-[9px] font-bold bg-amber-500 text-white rounded-full">
-                {4 - hiddenCount}
+              <span className="px-1.5 py-0.2 text-[10px] font-bold bg-amber-500 text-white rounded-full">
+                {4 - hiddenCount}/4
               </span>
             )}
           </button>
@@ -591,7 +585,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           <button
             onClick={onCycleTheme}
             title={`Tema Değiştir (Şu an: ${THEME_LABELS[theme]})`}
-            className={`p-1.5 rounded-lg border transition-colors shrink-0 ${
+            className={`p-1.5 rounded-lg border transition-colors ${
               isDark
                 ? 'bg-slate-800 border-slate-700 hover:bg-slate-700'
                 : 'bg-slate-100 border-slate-200 hover:bg-slate-200/70'
@@ -601,45 +595,25 @@ export const TopNav: React.FC<TopNavProps> = ({
           </button>
         )}
 
-        {/* Fullscreen Toggle Button */}
-        {onToggleFullscreen && (
-          <button
-            type="button"
-            onClick={onToggleFullscreen}
-            title={isFullscreen ? 'Tam Ekrandan Çık (F11 / Esc)' : 'Tam Ekran Modu (F11)'}
-            className={`p-1.5 rounded-lg border transition-colors shrink-0 ${
-              isFullscreen
-                ? isDark
-                  ? 'bg-blue-900/60 text-blue-300 border-blue-700 hover:bg-blue-800/80'
-                  : 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'
-                : isDark
-                ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
-                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/70'
-            }`}
-          >
-            {isFullscreen ? <Minimize className="w-3.5 h-3.5 text-blue-500" /> : <Maximize className="w-3.5 h-3.5" />}
-          </button>
-        )}
-
         {/* Settings Button */}
         {onOpenSettings && (
           <button
             onClick={() => onOpenSettings('appearance')}
-            title="Uygulama Ayarları & Koyu Tema Seçimi"
-            className={`flex items-center gap-1.5 p-1.5 sm:px-2 sm:py-1.5 rounded-lg text-xs font-semibold border transition-colors shrink-0 ${
+            title="Uygulama Ayarları, Tema ve Çoklu Seçim Seçenekleri"
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
               isDark
                 ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
                 : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/70'
             }`}
           >
-            <Settings className="w-3.5 h-3.5 text-blue-600" />
-            <span className="hidden md:inline">Ayarlar</span>
+            <Settings className="w-3.5 h-3.5" />
+            <span className="hidden 2xl:inline">Ayarlar</span>
           </button>
         )}
 
         {/* Voice Chat Quick Buttons */}
         <div
-          className={`flex items-center gap-0.5 border-r pr-1 sm:pr-1.5 shrink-0 ${
+          className={`flex items-center gap-0.5 border-r pr-1.5 ${
             isDark ? 'border-slate-700' : 'border-slate-200'
           }`}
         >
@@ -652,7 +626,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                 : 'bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25'
             }`}
           >
-            {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+            {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
           </button>
 
           <button
@@ -668,12 +642,12 @@ export const TopNav: React.FC<TopNavProps> = ({
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            {isDeafened ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+            {isDeafened ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
         </div>
 
         {/* User Avatars Presence & Profile Switcher */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1">
           <div className="flex items-center -space-x-1.5 overflow-hidden">
             {users.slice(0, 3).map((u) => {
               const isSelf = u.id === currentUser.id;
@@ -684,7 +658,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                   title={`${u.name} ${isSelf ? '(Sen - Profili Düzenle)' : ''} ${
                     u.isSpeaking ? '· Konuşuyor' : u.isMuted ? '· Sessiz' : ''
                   }`}
-                  className={`relative w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 border-white flex items-center justify-center text-white text-[10px] sm:text-[11px] font-bold shadow-xs transition-transform hover:scale-105 shrink-0 ${
+                  className={`relative w-6.5 h-6.5 rounded-full border-2 border-white flex items-center justify-center text-white text-[10px] font-bold shadow-xs transition-transform hover:scale-105 ${
                     u.isSpeaking ? 'speaking-active' : ''
                   }`}
                   style={{ backgroundColor: u.color || '#2563eb' }}
@@ -694,7 +668,7 @@ export const TopNav: React.FC<TopNavProps> = ({
               );
             })}
             {users.length > 3 && (
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[9px] sm:text-[10px] font-mono tabular-nums font-semibold text-slate-700 shrink-0">
+              <div className="w-6.5 h-6.5 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[9px] font-mono tabular-nums font-semibold text-slate-700">
                 +{users.length - 3}
               </div>
             )}
@@ -702,29 +676,29 @@ export const TopNav: React.FC<TopNavProps> = ({
 
           <button
             onClick={onOpenUserSetup}
-            className={`p-1 sm:p-1.5 rounded-lg transition-colors shrink-0 ${
+            className={`p-1.5 rounded-lg transition-colors ${
               isDark
                 ? 'text-slate-400 hover:text-white hover:bg-slate-800'
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
             }`}
             title="Kullanıcı & Oda Ayarları"
           >
-            <UserCog className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <UserCog className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Export Button */}
+        {/* Export Button (Always visible on the right edge) */}
         <button
           onClick={onOpenExport}
-          title="Tahtayı Dışa Aktar (PNG, SVG, JSON)"
-          className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 shadow-xs ${
+          title="Tahtayı PNG, PDF veya JSON Olarak Dışa Aktar / İçe Aktar"
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 shadow-xs ${
             isDark
               ? 'bg-blue-600 text-white hover:bg-blue-500'
               : 'bg-slate-900 text-white hover:bg-slate-800'
           }`}
         >
-          <Download className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Dışa Aktar</span>
+          <Download className="w-3.5 h-3.5 shrink-0" />
+          <span>Dışa Aktar</span>
         </button>
       </div>
     </header>
