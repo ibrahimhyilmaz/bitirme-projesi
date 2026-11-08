@@ -69,7 +69,9 @@ const HIGHLIGHTER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.
 
 const ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g><g stroke='%23e11d48' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21' fill='%23ffe4e6'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g></svg>") 7 20, crosshair`;
 
-const POINT_ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='8' stroke='%23ffffff' stroke-width='3'/><circle cx='12' cy='12' r='8' stroke='%23d97706' stroke-width='1.8' stroke-dasharray='3 2' fill='rgba(245,158,11,0.15)'/><circle cx='12' cy='12' r='2' fill='%23d97706'/></svg>") 12 12, crosshair`;
+const POINT_ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3'/><circle cx='6' cy='18' r='3'/><line x1='20' y1='4' x2='8.12' y2='15.88'/><line x1='14.47' y1='14.47' x2='20' y2='20'/><line x1='8.12' y1='8.12' x2='12' y2='12'/></g><g stroke='%23d97706' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3' fill='%23fef3c7'/><circle cx='6' cy='18' r='3' fill='%23fef3c7'/><line x1='20' y1='4' x2='8.12' y2='15.88'/><line x1='14.47' y1='14.47' x2='20' y2='20'/><line x1='8.12' y1='8.12' x2='12' y2='12'/></g></svg>") 6 6, crosshair`;
+
+const LASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='8' fill='%23ef4444' opacity='0.3'/><circle cx='12' cy='12' r='5' fill='%23ef4444'/><circle cx='12' cy='12' r='2' fill='%23ffffff'/></svg>") 12 12, crosshair`;
 
 const PING_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g><g stroke='%23059669' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2.5' fill='%2310b981'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g></svg>") 11 11, crosshair`;
 
@@ -142,6 +144,7 @@ interface CanvasBoardProps {
   gridStyle?: 'dots' | 'grid' | 'none';
   onChangeGridStyle?: (style: 'dots' | 'grid' | 'none') => void;
   selectionMode?: 'intersect' | 'contain';
+  eraserShape?: 'circle' | 'square';
 }
 
 // Bounding box intersection test for marquee drag multi-selection
@@ -327,6 +330,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   gridStyle: propGridStyle,
   onChangeGridStyle,
   selectionMode = 'intersect',
+  eraserShape = 'circle',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -421,7 +425,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const applyPointEraser = useCallback(
     (canvasPt: Point) => {
       if (!canEdit) return;
-      const eraserRadius = 16 / zoom;
+      const eraserRadius = (strokeWidth ? Math.max(12, strokeWidth * 3) : 16) / zoom;
+      const isSquare = eraserShape === 'square';
       const toDelete: string[] = [];
       const toUpdate: { id: string; changes: Partial<CanvasElement> }[] = [];
       const toCreate: CanvasElement[] = [];
@@ -444,23 +449,29 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           isClosedLoop = sampled.isClosed;
         }
 
-        // Check if any point is within eraser radius
+        // Check if any point is within eraser shape boundary
         let hasHit = false;
         for (let i = 0; i < strokePoints.length; i++) {
-          if (Math.hypot(strokePoints[i].x - canvasPt.x, strokePoints[i].y - canvasPt.y) <= eraserRadius) {
+          const p = strokePoints[i];
+          const isHit = isSquare
+            ? Math.abs(p.x - canvasPt.x) <= eraserRadius && Math.abs(p.y - canvasPt.y) <= eraserRadius
+            : Math.hypot(p.x - canvasPt.x, p.y - canvasPt.y) <= eraserRadius;
+          if (isHit) {
             hasHit = true;
             break;
           }
         }
         if (!hasHit) continue;
 
-        // Break stroke into sub-segments of points outside eraser radius
+        // Break stroke into sub-segments of points outside eraser boundary
         const segments: Point[][] = [];
         let currentSeg: Point[] = [];
 
         for (const pt of strokePoints) {
-          const d = Math.hypot(pt.x - canvasPt.x, pt.y - canvasPt.y);
-          if (d > eraserRadius) {
+          const isErased = isSquare
+            ? Math.abs(pt.x - canvasPt.x) <= eraserRadius && Math.abs(pt.y - canvasPt.y) <= eraserRadius
+            : Math.hypot(pt.x - canvasPt.x, pt.y - canvasPt.y) <= eraserRadius;
+          if (!isErased) {
             currentSeg.push(pt);
           } else {
             if (currentSeg.length > 0) {
@@ -725,97 +736,37 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       ctx.restore();
     }
 
+    // Render live visible eraser contact boundary (Square or Circle)
+    if ((activeTool === 'eraser' || activeTool === 'point-eraser') && mouseScreenPosRef.current) {
+      const hoverCanvasPt = screenToCanvas(mouseScreenPosRef.current, pan, zoom);
+      const eraserRadius = (strokeWidth ? Math.max(12, strokeWidth * 3) : 16) / zoom;
+      ctx.save();
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2 / zoom;
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+      ctx.setLineDash([4 / zoom, 3 / zoom]);
+      ctx.beginPath();
+      if (eraserShape === 'square') {
+        ctx.rect(
+          hoverCanvasPt.x - eraserRadius,
+          hoverCanvasPt.y - eraserRadius,
+          eraserRadius * 2,
+          eraserRadius * 2
+        );
+      } else {
+        ctx.arc(hoverCanvasPt.x, hoverCanvasPt.y, eraserRadius, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.restore(); // Restore world transform
 
     // Render screen-space overlays (Remote cursors, pings, reactions)
     drawPings(ctx, pings, pan, zoom);
     drawReactions(ctx, reactions, pan, zoom);
     drawRemoteCursors(ctx, users, currentUser.id, pan, zoom);
-
-    // Visible Contact Area Indicator for Erasers (Öğe Silgisi & Hassas Silgi) and Live Nib for Pencil/Highlighter
-    if (mouseScreenPosRef.current) {
-      const mousePt = mouseScreenPosRef.current;
-
-      if (activeTool === 'eraser') {
-        const radius = 18;
-        ctx.save();
-        // Outer white contrast halo
-        ctx.beginPath();
-        ctx.arc(mousePt.x, mousePt.y, radius + 1.5, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-
-        // Main rose eraser ring
-        ctx.beginPath();
-        ctx.arc(mousePt.x, mousePt.y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = isPointerDownRef.current
-          ? 'rgba(225, 29, 72, 0.28)'
-          : 'rgba(225, 29, 72, 0.15)';
-        ctx.fill();
-        ctx.strokeStyle = '#e11d48';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Center target dot
-        ctx.beginPath();
-        ctx.arc(mousePt.x, mousePt.y, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#e11d48';
-        ctx.fill();
-        ctx.restore();
-      } else if (activeTool === 'point-eraser') {
-        const radius = 16;
-        ctx.save();
-        // Outer white halo
-        ctx.beginPath();
-        ctx.arc(mousePt.x, mousePt.y, radius + 1.5, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(mousePt.x, mousePt.y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = isPointerDownRef.current
-          ? 'rgba(245, 158, 11, 0.28)'
-          : 'rgba(245, 158, 11, 0.16)';
-        ctx.fill();
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 1.8;
-        ctx.setLineDash([4, 3]);
-        ctx.stroke();
-
-        // Precision center dot
-        ctx.beginPath();
-        ctx.arc(mousePt.x, mousePt.y, 2.2, 0, Math.PI * 2);
-        ctx.fillStyle = '#f59e0b';
-        ctx.fill();
-        ctx.restore();
-      } else if (activeTool === 'pencil' || activeTool === 'highlighter') {
-        const rawRadius =
-          activeTool === 'highlighter'
-            ? ((strokeWidth || 4) * 3 * zoom) / 2
-            : ((strokeWidth || 3) * zoom) / 2;
-        const nibRadius = Math.max(3, Math.min(42, rawRadius));
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(mousePt.x, mousePt.y, nibRadius + 1.5, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(mousePt.x, mousePt.y, nibRadius, 0, Math.PI * 2);
-        ctx.fillStyle = strokeColor || '#0f172a';
-        ctx.globalAlpha = activeTool === 'highlighter' ? 0.42 : 0.85;
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = strokeColor || '#0f172a';
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
 
     ctx.restore(); // Restore DPR
   }, [
@@ -838,6 +789,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     activeTool,
     strokeColor,
     strokeWidth,
+    eraserShape,
   ]);
 
   // High DPI resize handler
@@ -2419,6 +2371,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     if (activeTool === 'highlighter') return HIGHLIGHTER_CURSOR;
     if (activeTool === 'eraser') return ERASER_CURSOR;
     if (activeTool === 'point-eraser') return POINT_ERASER_CURSOR;
+    if (activeTool === 'laser') return LASER_CURSOR;
     if (activeTool === 'ping') return PING_CURSOR;
     return 'crosshair';
   };

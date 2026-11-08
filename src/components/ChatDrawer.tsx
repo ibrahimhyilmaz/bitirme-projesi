@@ -218,6 +218,18 @@ interface LocalDrawerBurst {
   timestamp: number;
 }
 
+const isEmojiOnly = (str?: string): boolean => {
+  if (!str) return false;
+  const clean = str.trim().replace(/\s+/g, '');
+  if (!clean) return false;
+  try {
+    const emojiRegex = /^(\p{Extended_Pictographic}|\p{Emoji_Component})+$/u;
+    return emojiRegex.test(clean);
+  } catch {
+    return false;
+  }
+};
+
 export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   messages,
   currentUserId,
@@ -235,85 +247,50 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [customGifUrl, setCustomGifUrl] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, Record<string, string[]>>>({});
-  const [drawerBursts, setDrawerBursts] = useState<LocalDrawerBurst[]>([]);
-  const seenReactionIdsRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Exclude system notification messages from total message count!
-  const userMessages = useMemo(() => {
+  // Single top system welcome message
+  const firstSystemMsg = useMemo(() => {
+    return messages.find((m) => m.userId === 'system' || m.userColor === 'system');
+  }, [messages]);
+
+  // Exclude system notification messages from main chat stream
+  const nonSystemMessages = useMemo(() => {
     return messages.filter((m) => m.userId !== 'system' && m.userColor !== 'system');
   }, [messages]);
 
-  const userMessagesCount = userMessages.length;
+  const userMessagesCount = nonSystemMessages.length;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Listen to incoming/local reactions and show them at the top-left of the ChatDrawer + attach to latest message bubble
-  useEffect(() => {
-    if (!reactions || reactions.length === 0) return;
-    const now = Date.now();
-    const fresh = reactions.filter(
-      (r) => !seenReactionIdsRef.current.has(r.id) && now - r.timestamp < 4000
-    );
-    if (fresh.length === 0) return;
+  // Toggle reaction on specific message
+  const toggleMessageReaction = (emoji: string, targetMessageId?: string) => {
+    const targetId = targetMessageId || nonSystemMessages[nonSystemMessages.length - 1]?.id;
+    if (!targetId) return;
 
-    fresh.forEach((r) => seenReactionIdsRef.current.add(r.id));
+    setMessageReactions((prev) => {
+      const next = { ...prev };
+      const msgMap = { ...(next[targetId] || {}) };
+      const existingUsers = msgMap[emoji] || [];
 
-    const newBursts: LocalDrawerBurst[] = fresh.map((r) => ({
-      id: r.id,
-      emoji: r.emoji,
-      userName: r.userName || 'Kullanıcı',
-      timestamp: Date.now(),
-    }));
-
-    setDrawerBursts((prev) => [...prev.slice(-6), ...newBursts]);
-
-    // Also attach reaction badge to the most recent user message bubble if one exists
-    const latestMsg = userMessages[userMessages.length - 1];
-    if (latestMsg) {
-      setMessageReactions((prev) => {
-        const next = { ...prev };
-        const msgMap = { ...(next[latestMsg.id] || {}) };
-        fresh.forEach((r) => {
-          const existingUsers = msgMap[r.emoji] || [];
-          const sender = r.userName || 'Kullanıcı';
-          if (!existingUsers.includes(sender)) {
-            msgMap[r.emoji] = [...existingUsers, sender];
-          }
-        });
-        next[latestMsg.id] = msgMap;
-        return next;
-      });
-    }
-  }, [reactions, userMessages]);
-
-  // Periodically prune expired top-left drawer bursts
-  useEffect(() => {
-    if (drawerBursts.length === 0) return;
-    const timer = setInterval(() => {
-      const now = Date.now();
-      setDrawerBursts((prev) => prev.filter((b) => now - b.timestamp < 3200));
-    }, 400);
-    return () => clearInterval(timer);
-  }, [drawerBursts.length]);
-
-  const triggerQuickReaction = (emoji: string, targetMessageId?: string) => {
-    const targetId = targetMessageId || userMessages[userMessages.length - 1]?.id;
-    if (targetId) {
-      setMessageReactions((prev) => {
-        const next = { ...prev };
-        const msgMap = { ...(next[targetId] || {}) };
-        const existingUsers = msgMap[emoji] || [];
-        if (!existingUsers.includes(currentUserName)) {
-          msgMap[emoji] = [...existingUsers, currentUserName];
+      if (existingUsers.includes(currentUserName)) {
+        // Toggle OFF (remove user reaction)
+        const updatedUsers = existingUsers.filter((u) => u !== currentUserName);
+        if (updatedUsers.length > 0) {
+          msgMap[emoji] = updatedUsers;
+        } else {
+          delete msgMap[emoji];
         }
-        next[targetId] = msgMap;
-        return next;
-      });
-    }
-    onSendReaction(emoji);
+      } else {
+        // Toggle ON (add user reaction)
+        msgMap[emoji] = [...existingUsers, currentUserName];
+      }
+
+      next[targetId] = msgMap;
+      return next;
+    });
   };
 
   const handleSend = (e: React.FormEvent) => {
@@ -400,22 +377,6 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
   return (
     <div className="fixed top-16 right-4 bottom-6 w-[420px] max-w-[calc(100vw-32px)] z-30 bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none">
-      {/* Top-Left Edge Quick Reaction Floating Overlay */}
-      {drawerBursts.length > 0 && (
-        <div className="absolute top-14 left-3 z-50 pointer-events-none flex flex-col items-start gap-1.5 max-w-[260px]">
-          {drawerBursts.map((burst) => (
-            <div
-              key={burst.id}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/90 text-white shadow-xl border border-white/15 backdrop-blur-md animate-bounce"
-            >
-              <span className="text-lg leading-none">{burst.emoji}</span>
-              <span className="text-[11px] font-semibold truncate">
-                {burst.userName} tepki verdi
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Header with Only User Messages Count */}
       <div className="h-12 bg-slate-50 border-b border-slate-200 px-4 flex items-center justify-between text-xs shrink-0">
@@ -439,30 +400,28 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
       {/* Messages Feed */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
-        {messages.length === 0 ? (
+        {/* Render Single System Welcome Message at Top Once */}
+        {firstSystemMsg && (
+          <div
+            key={firstSystemMsg.id}
+            className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-100/90 text-xs text-blue-900 leading-relaxed flex items-center gap-2 mb-3"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <span className="font-normal">{firstSystemMsg.text}</span>
+          </div>
+        )}
+
+        {nonSystemMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 py-12">
             <MessageSquare className="w-10 h-10 stroke-1 mb-2 text-slate-300" />
-            <p className="text-xs font-semibold text-slate-600">Henüz mesaj yok</p>
+            <p className="text-xs font-semibold text-slate-600">Henüz sohbet mesajı yok</p>
             <p className="text-[11px] text-slate-400 mt-1 max-w-[200px]">
               Odadaki üyelerle sohbet edin, emojiler ve animasyonlu GIF&apos;ler gönderin!
             </p>
           </div>
         ) : (
-          messages.map((msg) => {
+          nonSystemMessages.map((msg) => {
             const isSelf = msg.userId === currentUserId;
-            const isSystem = msg.userId === 'system' || msg.userColor === 'system';
-
-            if (isSystem) {
-              return (
-                <div
-                  key={msg.id}
-                  className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-100/90 text-xs text-blue-900 leading-relaxed flex items-center gap-2"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                  <span className="font-normal">{msg.text}</span>
-                </div>
-              );
-            }
 
             const hasGifOrImageAttachment =
               msg.fileAttachment?.url &&
@@ -474,6 +433,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
             const reactionEntries = Object.entries(msgReactions).filter(
               ([, users]) => users.length > 0
             );
+
+            const isEmojiMsg = isEmojiOnly(msg.text);
 
             return (
               <div
@@ -507,43 +468,49 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                       <button
                         key={emoji}
                         type="button"
-                        onClick={() => triggerQuickReaction(emoji, msg.id)}
+                        onClick={() => toggleMessageReaction(emoji, msg.id)}
                         className="w-5 h-5 rounded-full hover:bg-slate-100 flex items-center justify-center text-xs transition-transform hover:scale-125 cursor-pointer"
-                        title={`${emoji} tepkisi ekle`}
+                        title={`${emoji} tepkisi ekle / kaldır`}
                       >
                         {emoji}
                       </button>
                     ))}
                   </div>
 
-                  <div
-                    className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed select-text shadow-2xs ${
-                      isSelf
-                        ? 'bg-blue-600 text-white rounded-tr-xs'
-                        : 'bg-slate-100 text-slate-800 rounded-tl-xs'
-                    }`}
-                  >
-                    {/* Text content */}
-                    {msg.text && (
-                      <div className="break-words">
-                        {msg.text.startsWith('[GIF') && hasGifOrImageAttachment
-                          ? ''
-                          : msg.text}
-                      </div>
-                    )}
+                  {isEmojiMsg ? (
+                    <div className="text-4xl sm:text-5xl py-1 my-0.5 leading-none select-text transition-transform hover:scale-110">
+                      {msg.text}
+                    </div>
+                  ) : (
+                    <div
+                      className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed select-text shadow-2xs ${
+                        isSelf
+                          ? 'bg-blue-600 text-white rounded-tr-xs'
+                          : 'bg-slate-100 text-slate-800 rounded-tl-xs'
+                      }`}
+                    >
+                      {/* Text content */}
+                      {msg.text && (
+                        <div className="break-words">
+                          {msg.text.startsWith('[GIF') && hasGifOrImageAttachment
+                            ? ''
+                            : msg.text}
+                        </div>
+                      )}
 
-                    {/* Animated GIF / Image Attachment */}
-                    {hasGifOrImageAttachment && (
-                      <div className="mt-1.5 rounded-xl overflow-hidden border border-black/10 bg-black/5">
-                        <img
-                          src={msg.fileAttachment!.url}
-                          alt="GIF / Görsel"
-                          className="max-h-52 w-full object-contain rounded-lg"
-                          loading="lazy"
-                        />
-                      </div>
-                    )}
-                  </div>
+                      {/* Animated GIF / Image Attachment */}
+                      {hasGifOrImageAttachment && (
+                        <div className="mt-1.5 rounded-xl overflow-hidden border border-black/10 bg-black/5">
+                          <img
+                            src={msg.fileAttachment!.url}
+                            alt="GIF / Görsel"
+                            className="max-h-52 w-full object-contain rounded-lg"
+                            loading="lazy"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Reaction Badges on Message Bubble */}
                   {reactionEntries.length > 0 && (
@@ -552,18 +519,25 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                         isSelf ? 'justify-end' : 'justify-start'
                       }`}
                     >
-                      {reactionEntries.map(([emoji, users]) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          onClick={() => triggerQuickReaction(emoji, msg.id)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100 border border-blue-200 text-[11px] font-semibold text-blue-700 shadow-2xs transition-transform active:scale-95 cursor-pointer"
-                          title={users.join(', ')}
-                        >
-                          <span>{emoji}</span>
-                          <span>{users.length}</span>
-                        </button>
-                      ))}
+                      {reactionEntries.map(([emoji, users]) => {
+                        const hasReacted = users.includes(currentUserName);
+                        return (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => toggleMessageReaction(emoji, msg.id)}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold shadow-2xs transition-transform active:scale-95 cursor-pointer border ${
+                              hasReacted
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700'
+                            }`}
+                            title={`${users.join(', ')} (Kaldırmak için tekrar tıklayın)`}
+                          >
+                            <span>{emoji}</span>
+                            <span>{users.length}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -576,15 +550,15 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
       {/* Quick Reactions Bar */}
       <div className="px-3 py-1.5 bg-slate-50/90 border-t border-slate-100 flex items-center justify-between shrink-0">
-        <span className="text-[11px] text-slate-400 font-medium">Hızlı Tepki:</span>
+        <span className="text-[11px] text-slate-400 font-medium">Son Mesaja Tepki:</span>
         <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
           {QUICK_REACTIONS.map((emoji) => (
             <button
               key={emoji}
               type="button"
-              onClick={() => triggerQuickReaction(emoji)}
+              onClick={() => toggleMessageReaction(emoji)}
               className="w-7 h-7 rounded-lg hover:bg-slate-200/80 flex items-center justify-center text-sm transition-transform active:scale-90 cursor-pointer"
-              title={`${emoji} hızlı tepki gönder`}
+              title={`${emoji} tepkisini aç / kapat`}
             >
               {emoji}
             </button>

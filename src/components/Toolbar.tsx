@@ -267,6 +267,8 @@ interface ToolbarProps {
   isHidden?: boolean;
   onToggleHidden?: () => void;
   layoutResetCounter?: number;
+  zIndex?: number;
+  onFocus?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -288,6 +290,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isHidden,
   onToggleHidden,
   layoutResetCounter = 0,
+  zIndex,
+  onFocus,
 }) => {
   const [shapesMenuOpen, setShapesMenuOpen] = useState(false);
   const [eraserMenuOpen, setEraserMenuOpen] = useState(false);
@@ -557,20 +561,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return (
       <div
         ref={toolbarRef}
-        onPointerDown={(e) => e.stopPropagation()}
-        style={
-          position
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onFocus?.();
+        }}
+        style={{
+          zIndex: zIndex ?? (position ? 30 : 20),
+          ...(position
             ? {
                 position: 'absolute',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
                 transform: 'none',
               }
-            : undefined
-        }
-        className={`${
-          position ? 'absolute z-30' : 'relative z-20'
-        } pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+            : {}),
+        }}
+        className={`absolute top-3 left-4 pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
           isDraggingBar
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
@@ -603,21 +609,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     <div
       ref={toolbarRef}
       data-tour="toolbar"
-      onPointerDown={(e) => e.stopPropagation()}
-      style={
-        position
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        onFocus?.();
+      }}
+      style={{
+        zIndex: zIndex ?? (position ? 30 : 20),
+        ...(position
           ? {
               position: 'absolute',
               left: `${position.x}px`,
               top: `${position.y}px`,
               transform: 'none',
             }
-          : undefined
-      }
-      className={`${position ? 'absolute z-30' : 'relative z-20'} pointer-events-auto flex ${
+          : {}),
+      }}
+      className={`absolute ${!position ? 'top-3 left-4' : ''} pointer-events-auto flex ${
         isVertical
           ? 'flex-col w-[98px] p-2 gap-1.5'
-          : 'flex-row flex-wrap max-w-[96vw] items-center gap-1 p-1.5'
+          : 'flex-row flex-wrap w-auto max-w-max items-center gap-1 p-1.5'
       } bg-white/95 backdrop-blur-md border ${
         isDraggingBar
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
@@ -637,16 +647,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onDoubleClick={handleResetPosition}
           className={`rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 active:bg-blue-50 cursor-grab active:cursor-grabbing transition-colors flex items-center justify-center touch-none ${
             isVertical
-              ? 'w-full py-1 px-1.5 bg-slate-100/80 border border-slate-200/80 gap-1 text-[10px] font-bold uppercase tracking-wider'
+              ? 'w-full py-1 px-1.5 bg-slate-100/80 border border-slate-200/80 text-slate-600'
               : 'p-1.5'
           }`}
           title="Araç Çubuğunu Sürükle & Serbest Taşı (Kenetlemek için çift tıkla)"
         >
           {isVertical ? (
-            <>
-              <GripHorizontal className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-              <span>Taşı</span>
-            </>
+            <GripHorizontal className="w-4 h-4 text-blue-600 shrink-0" />
           ) : (
             <GripVertical className="w-4 h-4" />
           )}
@@ -1087,7 +1094,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button
           onClick={() => {
             onSelectTool('ping');
-            onPingClick();
           }}
           className={`p-2 rounded-lg transition-all flex items-center justify-center ${
             isVertical ? 'w-full' : ''

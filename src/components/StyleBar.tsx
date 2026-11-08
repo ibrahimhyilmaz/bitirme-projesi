@@ -25,6 +25,8 @@ import {
   ArrowDown,
   PaintBucket,
   Palette,
+  Circle,
+  Square,
 } from 'lucide-react';
 import {
   ALL_SHAPE_TYPES,
@@ -54,6 +56,8 @@ interface StyleBarProps {
   fontStyle?: 'normal' | 'italic';
   textAlign?: 'left' | 'center' | 'right';
   opacity: number;
+  eraserShape?: 'circle' | 'square';
+  onChangeEraserShape?: (shape: 'circle' | 'square') => void;
   onChangeStrokeColor: (color: string) => void;
   onChangeFillColor: (color: string) => void;
   onChangeStrokeWidth: (width: number) => void;
@@ -84,13 +88,13 @@ interface StyleBarProps {
 
 const STROKE_COLORS = [
   '#0f172a', // Slate 900
+  '#ffffff', // White
   '#2563eb', // Blue 600
-  '#059669', // Emerald 600
-  '#d97706', // Amber 600
+  '#eab308', // Yellow 500
   '#dc2626', // Red 600
+  '#059669', // Emerald 600
   '#7c3aed', // Violet 600
-  '#0891b2', // Cyan 600
-  '#db2777', // Pink 600
+  '#d97706', // Amber 600
 ];
 
 const STICKY_FILL_COLORS = [
@@ -127,6 +131,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   fontStyle = 'normal',
   textAlign = 'left',
   opacity,
+  eraserShape = 'circle',
+  onChangeEraserShape,
   onChangeStrokeColor,
   onChangeFillColor,
   onChangeStrokeWidth,
@@ -164,28 +170,35 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   const sizeMenuRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
-  // Recently used stroke colors (persisted)
-  const [recentColors, setRecentColors] = useState<string[]>(() => {
+  // Active color slot index (0 to 7)
+  const [activeSlotIndex, setActiveSlotIndex] = useState<number>(0);
+
+  // Color slots state (persisted)
+  const [colorSlots, setColorSlots] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem('collab_recent_stroke_colors');
+      const saved = localStorage.getItem('collab_color_slots');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length === 8) return parsed;
       }
     } catch {}
     return STROKE_COLORS;
   });
 
-  const handleChooseStrokeColor = (color: string) => {
+  const handleSelectSlot = (index: number, color: string) => {
+    setActiveSlotIndex(index);
     onChangeStrokeColor(color);
-    setRecentColors((prev) => {
-      const normalized = color.toLowerCase();
-      const filtered = prev.filter((c) => c.toLowerCase() !== normalized);
-      const updated = [color, ...filtered].slice(0, 8);
+  };
+
+  const handleCustomColorPickerChange = (newColor: string) => {
+    onChangeStrokeColor(newColor);
+    setColorSlots((prev) => {
+      const next = [...prev];
+      next[activeSlotIndex] = newColor;
       try {
-        localStorage.setItem('collab_recent_stroke_colors', JSON.stringify(updated));
+        localStorage.setItem('collab_color_slots', JSON.stringify(next));
       } catch {}
-      return updated;
+      return next;
     });
   };
 
@@ -415,7 +428,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             : 'border-slate-200/90 shadow-lg'
         } rounded-xl select-none ${
           !position
-            ? 'bottom-16 left-3 right-3 md:bottom-3 md:left-[268px] md:right-4 mx-auto w-fit'
+            ? 'bottom-3 right-3 w-fit'
             : ''
         }`}
       >
@@ -473,7 +486,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           : 'border-slate-200/90 shadow-lg'
       } rounded-xl select-none ${
         !position
-          ? 'bottom-16 left-3 right-3 md:bottom-3 md:left-[268px] md:right-4 mx-auto w-fit max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-288px)]'
+          ? 'bottom-3 right-3 w-fit max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-48px)]'
           : 'max-w-[95vw]'
       }`}
     >
@@ -493,7 +506,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => setPosition(null)}
           className="p-1 rounded-lg text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
-          title="Alt Merkeze Kenetle (Sabit Düzen)"
+          title="Sağ Alta Kenetle (Sabit Düzen)"
         >
           <RotateCcw className="w-3.5 h-3.5" />
         </button>
@@ -510,42 +523,81 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         <EyeOff className="w-4 h-4" />
       </button>
 
+      {/* Eraser Shape Selector (Square / Circle) */}
+      {(activeTool === 'eraser' || activeTool === 'point-eraser') && (
+        <div className="flex items-center gap-1.5 border-r border-slate-200 pr-2">
+          <span className="text-[11px] font-semibold text-slate-600 hidden sm:inline">Silgi Alanı:</span>
+          <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => onChangeEraserShape?.('circle')}
+              className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md transition-colors ${
+                (eraserShape || 'circle') === 'circle'
+                  ? 'bg-white text-blue-600 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Yuvarlak Silme Alanı"
+            >
+              <Circle className="w-3.5 h-3.5 text-blue-500" />
+              <span>Yuvarlak</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeEraserShape?.('square')}
+              className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md transition-colors ${
+                eraserShape === 'square'
+                  ? 'bg-white text-blue-600 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Kare Silme Alanı"
+            >
+              <Square className="w-3.5 h-3.5 text-blue-500" />
+              <span>Kare</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Stroke Colors & Color Scheme / Spectrum Picker */}
       {!isImage && (
         <div className="flex items-center gap-1.5 border-r border-slate-200 pr-2">
           {/* Custom Color Scheme / Rainbow Spectrum Picker */}
           <label
-            className="relative w-5 h-5 rounded-full cursor-pointer flex items-center justify-center transition-transform hover:scale-110 shadow-xs border border-slate-300 overflow-hidden shrink-0"
+            className="relative w-5.5 h-5.5 rounded-full cursor-pointer flex items-center justify-center transition-transform hover:scale-110 shadow-xs border border-slate-300 overflow-hidden shrink-0"
             style={{
               background:
                 'conic-gradient(from 90deg, #ff0000, #ff8000, #ffff00, #00ff00, #00ffff, #0000ff, #8000ff, #ff0080, #ff0000)',
             }}
-            title="Renk Şemasından Özel Renk Seç (Tüm Renkler)"
+            title="Renk Şemasından Seçilen Yuvanın Rengini Değiştir"
           >
             <input
               type="color"
               value={
-                activeStrokeColor.startsWith('#') && activeStrokeColor.length === 7
-                  ? activeStrokeColor
+                colorSlots[activeSlotIndex] &&
+                colorSlots[activeSlotIndex].startsWith('#') &&
+                colorSlots[activeSlotIndex].length === 7
+                  ? colorSlots[activeSlotIndex]
                   : '#2563eb'
               }
-              onChange={(e) => handleChooseStrokeColor(e.target.value)}
+              onChange={(e) => handleCustomColorPickerChange(e.target.value)}
               className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
             />
           </label>
 
-          {/* Dynamic Recent / Selected Colors */}
-          {recentColors.map((c) => (
+          {/* Color Slots (Indexed Slot Replacement) */}
+          {colorSlots.map((c, idx) => (
             <button
-              key={c}
-              onClick={() => handleChooseStrokeColor(c)}
-              className={`w-5 h-5 rounded-full transition-transform ${
-                activeStrokeColor.toLowerCase() === c.toLowerCase()
-                  ? 'scale-125 ring-2 ring-blue-500 ring-offset-1'
+              key={`${idx}-${c}`}
+              onClick={() => handleSelectSlot(idx, c)}
+              className={`w-5 h-5 rounded-full border border-slate-200/80 transition-all ${
+                activeSlotIndex === idx
+                  ? 'scale-125 ring-2 ring-blue-500 ring-offset-1 z-10'
+                  : activeStrokeColor.toLowerCase() === c.toLowerCase()
+                  ? 'scale-110 ring-1 ring-slate-400'
                   : 'hover:scale-110'
               }`}
               style={{ backgroundColor: c }}
-              title={`Çizgi / Metin Rengi: ${c}`}
+              title={`Renk Yuvası ${idx + 1}: ${c} ${activeSlotIndex === idx ? '(Şu An Seçili Yuva)' : ''}`}
             />
           ))}
         </div>
@@ -690,9 +742,9 @@ export const StyleBar: React.FC<StyleBarProps> = ({
                     <input
                       type="range"
                       min="1"
-                      max="40"
+                      max="30"
                       step="1"
-                      value={activeStrokeWidth}
+                      value={Math.min(30, activeStrokeWidth)}
                       onChange={(e) => onChangeStrokeWidth(Number(e.target.value))}
                       className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />

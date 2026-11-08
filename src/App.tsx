@@ -372,6 +372,7 @@ export default function App() {
   const [fontStyle, setFontStyle] = useState<'normal' | 'italic'>('normal');
   const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('left');
   const [opacity, setOpacity] = useState<number>(1);
+  const [eraserShape, setEraserShape] = useState<'circle' | 'square'>('circle');
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
@@ -1270,6 +1271,8 @@ export default function App() {
             fontStyle={fontStyle}
             textAlign={textAlign}
             opacity={opacity}
+            eraserShape={eraserShape}
+            onChangeEraserShape={setEraserShape}
             onChangeStrokeColor={(color) => {
               setStrokeColor(color);
               if (selectedElementIds.length > 0) {
@@ -1408,6 +1411,7 @@ export default function App() {
           onChangeFillColor={setFillColor}
           onOpenAIPrompt={() => setIsAIPromptOpen(true)}
           opacity={opacity}
+          eraserShape={eraserShape}
           pings={pings}
           reactions={reactions}
           remoteLaserPoints={remoteLaserPoints}
