@@ -2,8 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   auth,
   db,
+  firebaseConfig,
   googleProvider,
+  GoogleAuthProvider,
   signInWithPopup,
+  signInWithCredential,
   signOut,
   onAuthStateChanged,
   doc,
@@ -21,6 +24,17 @@ import {
   User,
 } from '../firebase';
 import { CanvasElement, RoomSettings } from '../types';
+
+const AUTHORIZED_CLOUD_HANDLER_URL =
+  'https://ais-dev-pgawidvphgkvicx3jrz4eo-969030572827.europe-west2.run.app/__/auth/handler';
+
+interface OAuthPopupResult {
+  type?: string;
+  idToken?: string;
+  accessToken?: string;
+  error?: string;
+  errorDescription?: string;
+}
 
 interface UseFirebaseSyncOptions {
   roomId: string;
@@ -48,16 +62,9 @@ export function useFirebaseSync({
   elements,
   onCloudStateLoaded,
 }: UseFirebaseSyncOptions) {
-  const [firebaseUser, setFirebaseUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem('collab_google_fallback_user');
-      if (saved) {
-        return JSON.parse(saved) as User;
-      }
-    } catch {}
-    return null;
-  });
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(() => auth.currentUser);
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
   const [lastCloudSyncAt, setLastCloudSyncAt] = useState<number | null>(null);
   const loadedRoomRef = useRef<string | null>(null);
@@ -70,31 +77,178 @@ export function useFirebaseSync({
       .replace(/[^a-zA-Z0-9_-]/g, '-')
       .slice(0, 128) || 'ana-oda';
 
+  // Purge any legacy fake fallback user from localStorage on mount and subscribe to real Firebase Auth
   useEffect(() => {
+    try {
+      localStorage.removeItem('collab_google_fallback_user');
+      localStorage.removeItem('collab_google_oauth_result');
+    } catch {}
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      if (u) {
-        setFirebaseUser(u);
-        try {
-          localStorage.removeItem('collab_google_fallback_user');
-        } catch {}
-      } else {
-        try {
-          const saved = localStorage.getItem('collab_google_fallback_user');
-          if (saved) {
-            setFirebaseUser(JSON.parse(saved) as User);
-          } else {
-            setFirebaseUser(null);
-          }
-        } catch {
-          setFirebaseUser(null);
-        }
-      }
+      setFirebaseUser(u || null);
       setIsAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
 
-  const signInWithGoogle = useCallback(async (preferredName?: string) => {
+  const clearAuthError = useCallback(() => {
+    setAuthError(null);
+  }, []);
+
+  const signInWithGoogle = useCallback(async (_preferredName?: string): Promise<User | null> => {
+    setAuthError(null);
+    try {
+      localStorage.removeItem('collab_google_fallback_user');
+      localStorage.removeItem('collab_google_oauth_result');
+    } catch {}
+
+    const oauthClientId = (
+      firebaseConfig as { oAuthClientId?: string }
+    )?.oAuthClientId;
+
+    // Primary path: Direct Google OAuth 2.0 Popup -> Firebase signInWithCredential
+    // Works reliably inside AI Studio (ais-dev), Shared App URL (ais-pre), browsers blocking
+    // third-party firebaseapp.com iframes, AND localhost without closing prematurely after 200ms.
+    if (oauthClientId && typeof window !== 'undefined') {
+      try {
+        const hostname = window.location.hostname;
+        const isAuthorizedRunApp =
+          hostname.endsWith('.run.app') ||
+          hostname.endsWith('.firebaseapp.com') ||
+          hostname.endsWith('.web.app');
+
+        const redirectUri = isAuthorizedRunApp
+          ? `${window.location.origin}/__/auth/handler`
+          : AUTHORIZED_CLOUD_HANDLER_URL;
+
+        const nonce = `${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 10)}`;
+        const statePayload = JSON.stringify({
+          origin: window.location.origin,
+          nonce,
+        });
+
+        const params = new URLSearchParams({
+          client_id: oauthClientId,
+          redirect_uri: redirectUri,
+          response_type: 'token id_token',
+          scope: 'openid email profile',
+          prompt: 'select_account',
+          nonce,
+          state: statePayload,
+        });
+
+        const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+        const width = 500;
+        const height = 620;
+        const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+        const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+
+        const popup = window.open(
+          oauthUrl,
+          'CollabBoardGoogleAuth',
+          `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes`
+        );
+
+        if (popup) {
+          const oauthResult = await new Promise<OAuthPopupResult | null>((resolve) => {
+            let settled = false;
+            let bc: BroadcastChannel | null = null;
+
+            const finish = (val: OAuthPopupResult | null) => {
+              if (settled) return;
+              settled = true;
+              window.removeEventListener('message', onMessage);
+              window.removeEventListener('storage', onStorage);
+              if (bc) {
+                try {
+                  bc.close();
+                } catch {}
+              }
+              clearInterval(closeWatchTimer);
+              clearTimeout(timeoutTimer);
+              resolve(val);
+            };
+
+            const handleIncomingPayload = (data: unknown) => {
+              if (!data || typeof data !== 'object') return;
+              const msg = data as OAuthPopupResult;
+              if (msg.type !== 'COLLAB_GOOGLE_OAUTH_RESULT') return;
+              finish(msg);
+            };
+
+            const onMessage = (event: MessageEvent) => {
+              handleIncomingPayload(event.data);
+            };
+
+            const onStorage = (event: StorageEvent) => {
+              if (event.key === 'collab_google_oauth_result' && event.newValue) {
+                try {
+                  handleIncomingPayload(JSON.parse(event.newValue));
+                } catch {}
+              }
+            };
+
+            window.addEventListener('message', onMessage);
+            window.addEventListener('storage', onStorage);
+
+            try {
+              bc = new BroadcastChannel('collab_google_oauth_channel');
+              bc.onmessage = (event) => handleIncomingPayload(event.data);
+            } catch {}
+
+            const closeWatchTimer = setInterval(() => {
+              try {
+                if (popup.closed) {
+                  // Wait briefly in case postMessage/storage event is arriving right as popup closes
+                  setTimeout(() => finish(null), 350);
+                }
+              } catch {}
+            }, 400);
+
+            const timeoutTimer = setTimeout(() => {
+              finish({ error: 'timeout', errorDescription: 'Google giriş işlemi zaman aşımına uğradı.' });
+            }, 180000);
+          });
+
+          if (!oauthResult) {
+            // User closed the popup manually
+            return null;
+          }
+
+          if (oauthResult.error) {
+            if (oauthResult.error === 'access_denied') {
+              return null;
+            }
+            setAuthError(
+              oauthResult.errorDescription ||
+                `Google ile giriş yapılamadı (${oauthResult.error}).`
+            );
+            return null;
+          }
+
+          if (oauthResult.idToken || oauthResult.accessToken) {
+            const credential = GoogleAuthProvider.credential(
+              oauthResult.idToken || null,
+              oauthResult.accessToken || null
+            );
+            const userCredential = await signInWithCredential(auth, credential);
+            if (userCredential?.user) {
+              setFirebaseUser(userCredential.user);
+              return userCredential.user;
+            }
+          }
+        }
+      } catch (oauthErr: unknown) {
+        const msg =
+          (oauthErr as { message?: string })?.message ||
+          'Google kimlik doğrulaması sırasında bir hata oluştu.';
+        console.error('Google OAuth credential sign-in error:', oauthErr);
+        setAuthError(msg);
+        return null;
+      }
+    }
+
+    // Standard Firebase signInWithPopup fallback (if oAuthClientId is absent or popup was blocked)
     try {
       googleProvider.setCustomParameters({ prompt: 'select_account' });
       const result = await signInWithPopup(auth, googleProvider);
@@ -104,34 +258,21 @@ export function useFirebaseSync({
       }
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code || '';
-      if (code === 'auth/popup-closed-by-user') {
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         return null;
       }
-      console.warn('Firebase Google popup fallback activated for preview environment:', code);
-      // In Cloud Run preview iframes where popup or domain authorization is restricted,
-      // provide a seamless persistent Google account session so the user is never blocked.
-      const savedName =
-        (preferredName && preferredName.trim()) ||
-        localStorage.getItem('collab_username') ||
-        'Google Kullanıcısı';
-      const cleanEmailSlug = savedName
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '')
-        .slice(0, 18) || 'kullanici';
-      const fallbackUser = {
-        uid: `google-${Date.now().toString(36)}`,
-        displayName: savedName,
-        email: `${cleanEmailSlug}@gmail.com`,
-        photoURL: null,
-        emailVerified: true,
-        isAnonymous: false,
-      } as unknown as User;
-
-      try {
-        localStorage.setItem('collab_google_fallback_user', JSON.stringify(fallbackUser));
-      } catch {}
-      setFirebaseUser(fallbackUser);
-      return fallbackUser;
+      console.error('Firebase Google Sign-In error:', err);
+      if (code === 'auth/unauthorized-domain') {
+        setAuthError(
+          `Bu alan adı (${window.location.hostname}) Firebase Auth yetkili alan adları listesinde bulunmuyor.`
+        );
+      } else if (code === 'auth/popup-blocked') {
+        setAuthError(
+          'Tarayıcınız açılır pencereyi (pop-up) engelledi. Lütfen pop-up izni verip tekrar deneyin.'
+        );
+      } else {
+        setAuthError('Google ile giriş yapılırken bir hata oluştu. Lütfen tekrar deneyin.');
+      }
     }
     return null;
   }, []);
@@ -139,8 +280,10 @@ export function useFirebaseSync({
   const signOutFirebase = useCallback(async () => {
     try {
       localStorage.removeItem('collab_google_fallback_user');
+      localStorage.removeItem('collab_google_oauth_result');
     } catch {}
     setFirebaseUser(null);
+    setAuthError(null);
     try {
       await signOut(auth);
     } catch (err) {
@@ -370,6 +513,8 @@ export function useFirebaseSync({
   return {
     firebaseUser,
     isAuthReady,
+    authError,
+    clearAuthError,
     isSyncingCloud,
     lastCloudSyncAt,
     signInWithGoogle,

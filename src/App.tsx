@@ -130,6 +130,14 @@ export default function App() {
 
   // User Identity (Unique per browser tab via sessionStorage so multi-tab testing enforces maxUsers accurately)
   const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      if (localStorage.getItem('collab_google_fallback_user')) {
+        localStorage.removeItem('collab_google_fallback_user');
+        if (localStorage.getItem('collab_username') === 'Ahmet Yılmaz') {
+          localStorage.removeItem('collab_username');
+        }
+      }
+    } catch {}
     const savedName = localStorage.getItem('collab_username');
     const savedColor = localStorage.getItem('collab_usercolor');
     const colors = ['#2563eb', '#7c3aed', '#059669', '#ea580c', '#db2777', '#0891b2'];
@@ -540,6 +548,8 @@ export default function App() {
   // Firebase Cloud Firestore Persistence & Google Auth
   const {
     firebaseUser,
+    authError,
+    clearAuthError,
     isSyncingCloud,
     lastCloudSyncAt,
     signInWithGoogle,
@@ -1276,9 +1286,10 @@ export default function App() {
         initialRoomName={customRoomName}
         hasUrlRoomParam={initialRoomInfo.hasUrlRoomParam}
         isInitialSetup={true}
-        joinError={joinGateError || roomError?.message || null}
+        joinError={joinGateError || authError || roomError?.message || null}
         onClearJoinError={() => {
           setJoinGateError(null);
+          clearAuthError();
           clearRoomError();
         }}
         roomsList={roomsList}
@@ -1845,9 +1856,10 @@ export default function App() {
           initialRoomName={effectiveRoomName}
           hasUrlRoomParam={true}
           isInitialSetup={isInitialSetup}
-          joinError={joinGateError || roomError?.message || null}
+          joinError={joinGateError || authError || roomError?.message || null}
           onClearJoinError={() => {
             setJoinGateError(null);
+            clearAuthError();
             clearRoomError();
           }}
           roomsList={roomsList}

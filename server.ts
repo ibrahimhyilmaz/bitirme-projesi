@@ -39,11 +39,12 @@ const MAX_USERS_PER_ROOM = 30;
 const MAX_ROOMS_PER_USER = 3;
 const DEFAULT_ROOM_MAX_USERS = 12;
 
-// Permissive CORS middleware so shared/invited clients never get blocked by application CORS
+// Permissive CORS & COOP middleware so shared/invited clients and OAuth popups never get blocked
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
   if (req.method === 'OPTIONS') {
     res.status(204).end();
     return;
@@ -2117,6 +2118,138 @@ app.post('/api/rooms/:roomId/sync', (req, res) => {
     notes: room.notes,
     messages: room.messages,
   });
+});
+
+// Google OAuth 2.0 Popup Callback Handler for Firebase signInWithCredential across all environments
+app.get('/__/auth/handler', (_req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+  res.send(`<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <title>Google Hesabı Doğrulanıyor...</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .card {
+      text-align: center;
+      padding: 28px 32px;
+      border-radius: 16px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      box-shadow: 0 20px 45px rgba(0,0,0,0.4);
+      max-width: 340px;
+    }
+    .spinner {
+      width: 34px;
+      height: 34px;
+      margin: 0 auto 14px;
+      border: 3px solid rgba(59, 130, 246, 0.25);
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    h2 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+    p { margin: 0; font-size: 12px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h2 id="title">Google Hesabı Bağlanıyor...</h2>
+    <p id="desc">Lütfen bekleyin, pencere otomatik kapanacak.</p>
+  </div>
+  <script>
+    (function () {
+      try {
+        var hashParams = new URLSearchParams(window.location.hash ? window.location.hash.substring(1) : '');
+        var queryParams = new URLSearchParams(window.location.search || '');
+        var idToken = hashParams.get('id_token') || queryParams.get('id_token') || '';
+        var accessToken = hashParams.get('access_token') || queryParams.get('access_token') || '';
+        var error = hashParams.get('error') || queryParams.get('error') || '';
+        var errorDescription = hashParams.get('error_description') || queryParams.get('error_description') || '';
+        var rawState = hashParams.get('state') || queryParams.get('state') || '';
+        var parsedState = null;
+        if (rawState) {
+          try {
+            parsedState = JSON.parse(rawState);
+          } catch (e) {}
+        }
+
+        var payload = {
+          type: 'COLLAB_GOOGLE_OAUTH_RESULT',
+          idToken: idToken,
+          accessToken: accessToken,
+          error: error,
+          errorDescription: errorDescription,
+          state: parsedState,
+          timestamp: Date.now()
+        };
+
+        // 1. Send directly to window.opener (works across any origin including localhost)
+        if (window.opener && !window.opener.closed) {
+          try {
+            window.opener.postMessage(payload, '*');
+          } catch (e) {}
+        }
+
+        // 2. BroadcastChannel & localStorage for same-origin tabs
+        try {
+          var bc = new BroadcastChannel('collab_google_oauth_channel');
+          bc.postMessage(payload);
+          bc.close();
+        } catch (e) {}
+
+        try {
+          localStorage.setItem('collab_google_oauth_result', JSON.stringify(payload));
+        } catch (e) {}
+
+        // 3. If initiated from a different origin (e.g. localhost) and not yet relayed,
+        // also relay to the initiator origin's /__/auth/handler so localStorage/BroadcastChannel fire there too
+        var targetOrigin = parsedState && parsedState.origin ? String(parsedState.origin) : '';
+        var alreadyRelayed = queryParams.get('relayed') === '1';
+        if (targetOrigin && targetOrigin !== window.location.origin && !alreadyRelayed) {
+          setTimeout(function () {
+            try {
+              window.location.replace(
+                targetOrigin.replace(/\\/$/, '') +
+                  '/__/auth/handler?relayed=1' +
+                  (window.location.hash || '')
+              );
+            } catch (e) {
+              window.close();
+            }
+          }, 120);
+          return;
+        }
+
+        setTimeout(function () {
+          try {
+            window.close();
+          } catch (e) {}
+        }, 150);
+      } catch (err) {
+        var titleEl = document.getElementById('title');
+        var descEl = document.getElementById('desc');
+        if (titleEl) titleEl.textContent = 'Giriş Tamamlandı';
+        if (descEl) descEl.textContent = 'Bu pencereyi kapatabilirsiniz.';
+      }
+    })();
+  </script>
+</body>
+</html>`);
 });
 
 // Vite dev server middleware or production static files
