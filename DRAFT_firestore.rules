@@ -176,6 +176,31 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(adminId);
     }
 
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'avatarColor', 'language', 'lastRoomId', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid == request.auth.uid &&
+        data.displayName is string && data.displayName.size() <= 120 &&
+        data.email is string && data.email.size() <= 254 &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048)) &&
+        (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 16)) &&
+        (!('language' in data) || (data.language is string && data.language.size() <= 8)) &&
+        (!('lastRoomId' in data) || (data.lastRoomId is string && data.lastRoomId.size() <= 128)) &&
+        (!('createdAt' in data) || data.createdAt is timestamp) &&
+        data.updatedAt == request.time;
+    }
+
+    // Per-user profile (Google account info + preferences). Only the owner can read or write it.
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+      allow create: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId &&
+        isValidUserProfile(incoming()) && incoming().createdAt == request.time;
+      allow update: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId &&
+        isValidUserProfile(incoming()) && incoming().createdAt == existing().createdAt;
+      allow delete: if false;
+    }
+
     match /rooms/{roomId} {
       allow get: if isValidId(roomId) && (resource == null || existing().isPublic == true || (isVerifiedUser() && (existing().ownerId == request.auth.uid || isAdmin())));
       allow list: if resource.data.isPublic == true || (isVerifiedUser() && resource.data.ownerId == request.auth.uid);

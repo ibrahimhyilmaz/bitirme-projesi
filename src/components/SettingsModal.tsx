@@ -16,23 +16,32 @@ import {
   Grid,
   Volume2,
   Sliders,
+  Globe,
+  Terminal,
+  EyeClosed,
+  Maximize,
 } from 'lucide-react';
 import { AppSettings, ThemeMode } from '../types';
+import { LANGUAGES, LanguageCode, useT } from '../i18n';
+import { CodeEditorSettings } from './CodeEditorSettings';
 
 interface SettingsModalProps {
   settings: AppSettings;
+  showMinimap: boolean;
+  uiFullyHidden: boolean;
   onUpdateSettings: (partial: Partial<AppSettings>) => void;
+  onSetMinimap: (visible: boolean) => void;
+  onSetUiFullyHidden: (hidden: boolean) => void;
   onResetFloatingPositions: () => void;
   onResetAllSettings: () => void;
   onClose: () => void;
 }
 
-type SettingsTab = 'appearance' | 'panels' | 'drawing' | 'shortcuts';
+type SettingsTab = 'appearance' | 'language' | 'panels' | 'code' | 'drawing' | 'shortcuts';
 
 const THEME_OPTIONS: {
   id: ThemeMode;
-  name: string;
-  subtitle: string;
+  key: string;
   previewBg: string;
   previewCard: string;
   previewAccent: string;
@@ -40,8 +49,7 @@ const THEME_OPTIONS: {
 }[] = [
   {
     id: 'light',
-    name: 'Açık Tema (Varsayılan)',
-    subtitle: 'Ferah beyaz yüzeyler ve net kontrastlı noktalı tuval',
+    key: 'light',
     previewBg: 'bg-slate-100 border-slate-300',
     previewCard: 'bg-white border-slate-200 text-slate-900',
     previewAccent: 'bg-blue-600',
@@ -49,8 +57,7 @@ const THEME_OPTIONS: {
   },
   {
     id: 'dark',
-    name: 'Koyu Tema (Dark)',
-    subtitle: 'Göz yormayan koyu arduvaz arayüz ve karanlık çalışma alanı',
+    key: 'dark',
     previewBg: 'bg-slate-900 border-slate-700',
     previewCard: 'bg-slate-800 border-slate-700 text-slate-100',
     previewAccent: 'bg-blue-500',
@@ -58,8 +65,7 @@ const THEME_OPTIONS: {
   },
   {
     id: 'midnight',
-    name: 'Gece Mavisi (Midnight)',
-    subtitle: 'Derin uzay mavisi kontrastı, kodlama ve gece çalışmaları için ideal',
+    key: 'midnight',
     previewBg: 'bg-[#090d16] border-indigo-900/60',
     previewCard: 'bg-[#111827] border-indigo-800/50 text-indigo-100',
     previewAccent: 'bg-indigo-500',
@@ -67,8 +73,7 @@ const THEME_OPTIONS: {
   },
   {
     id: 'sepia',
-    name: 'Sıcak Kağıt / Mimarlık',
-    subtitle: 'Eskiz defteri dokusunda sıcak krem tuval ve yumuşak kontrast',
+    key: 'sepia',
     previewBg: 'bg-[#fdf6e3] border-[#d6c7b2]',
     previewCard: 'bg-[#faf0d7] border-[#e2d5be] text-stone-800',
     previewAccent: 'bg-amber-700',
@@ -78,21 +83,113 @@ const THEME_OPTIONS: {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
+  showMinimap,
+  uiFullyHidden,
   onUpdateSettings,
+  onSetMinimap,
+  onSetUiFullyHidden,
   onResetFloatingPositions,
   onResetAllSettings,
   onClose,
 }) => {
+  const { t } = useT();
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const [positionsResetFeedback, setPositionsResetFeedback] = useState(false);
 
   const isDark = settings.theme === 'dark' || settings.theme === 'midnight';
+  const muted = isDark ? 'text-slate-400' : 'text-slate-500';
+  const card = isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50/60';
 
   const handleResetPositions = () => {
     onResetFloatingPositions();
     setPositionsResetFeedback(true);
     setTimeout(() => setPositionsResetFeedback(false), 2000);
   };
+
+  const tabs: { id: SettingsTab; icon: React.ReactNode; label: string }[] = [
+    { id: 'appearance', icon: <Palette className="w-4 h-4" />, label: t('settings.tab.appearance') },
+    { id: 'language', icon: <Globe className="w-4 h-4" />, label: t('settings.tab.language') },
+    { id: 'panels', icon: <Layout className="w-4 h-4" />, label: t('settings.tab.panels') },
+    { id: 'code', icon: <Terminal className="w-4 h-4" />, label: t('settings.tab.code') },
+    { id: 'drawing', icon: <MousePointerClick className="w-4 h-4" />, label: t('settings.tab.drawing') },
+    { id: 'shortcuts', icon: <Keyboard className="w-4 h-4" />, label: t('settings.tab.shortcuts') },
+  ];
+
+  // One row per floating box: show / hide toggle (hidden boxes stay reachable as a small chip, except in "fully hidden")
+  const widgetRows: { title: string; desc: string; visible: boolean; set: (v: boolean) => void }[] = [
+    {
+      title: t('settings.widget.toolbar'),
+      desc: t('settings.widget.toolbar.desc'),
+      visible: settings.showToolbar,
+      set: (v) => onUpdateSettings({ showToolbar: v }),
+    },
+    {
+      title: t('settings.widget.style'),
+      desc: t('settings.widget.style.desc'),
+      visible: settings.showStyleBar,
+      set: (v) => onUpdateSettings({ showStyleBar: v }),
+    },
+    {
+      title: t('settings.widget.voice'),
+      desc: t('settings.widget.voice.desc'),
+      visible: settings.showVoiceBar,
+      set: (v) => onUpdateSettings({ showVoiceBar: v }),
+    },
+    {
+      title: t('settings.widget.minimap'),
+      desc: t('settings.widget.minimap.desc'),
+      visible: showMinimap,
+      set: onSetMinimap,
+    },
+    {
+      title: t('settings.widget.clock'),
+      desc: t('settings.widget.clock.desc'),
+      visible: settings.showClock,
+      set: (v) => onUpdateSettings({ showClock: v }),
+    },
+    {
+      title: t('settings.widget.folder'),
+      desc: t('settings.widget.folder.desc'),
+      visible: settings.showFolder,
+      set: (v) => onUpdateSettings({ showFolder: v }),
+    },
+  ];
+
+  const showEverything = () => {
+    onSetUiFullyHidden(false);
+    onUpdateSettings({
+      showToolbar: true,
+      showStyleBar: true,
+      showVoiceBar: true,
+      showClock: true,
+      showFolder: true,
+    });
+    onSetMinimap(true);
+  };
+
+  const hideEverything = () => {
+    onUpdateSettings({
+      showToolbar: false,
+      showStyleBar: false,
+      showVoiceBar: false,
+      showClock: false,
+      showFolder: false,
+    });
+    onSetMinimap(false);
+  };
+
+  const tabBtn = (active: boolean) =>
+    `flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+      active
+        ? 'border-blue-600 text-blue-600'
+        : isDark
+        ? 'border-transparent text-slate-400 hover:text-slate-200'
+        : 'border-transparent text-slate-600 hover:text-slate-900'
+    }`;
+
+  const secondaryBtn = `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+    isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+  }`;
 
   return (
     <div
@@ -102,12 +199,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       <div
         onClick={(e) => e.stopPropagation()}
         className={`w-full max-w-2xl rounded-2xl shadow-2xl border overflow-hidden flex flex-col max-h-[88vh] transition-colors ${
-          isDark
-            ? 'bg-slate-900 border-slate-700 text-slate-100'
-            : 'bg-white border-slate-200 text-slate-900'
+          isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
         }`}
       >
-        {/* Modal Header */}
+        {/* Header */}
         <div
           className={`px-6 py-4 border-b flex items-center justify-between ${
             isDark ? 'border-slate-800 bg-slate-900/90' : 'border-slate-200 bg-slate-50/70'
@@ -118,10 +213,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold tracking-tight">Uygulama & Çalışma Alanı Ayarları</h2>
-              <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Tema, yüzen araç kutucukları (Gizle/Göster), çoklu seçim alanı ve çizim tercihleri
-              </p>
+              <h2 className="text-base font-bold tracking-tight">{t('settings.title')}</h2>
+              <p className={`text-xs ${muted}`}>{t('settings.subtitle')}</p>
             </div>
           </div>
           <button
@@ -129,92 +222,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             className={`p-1.5 rounded-lg transition-colors ${
               isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-white' : 'text-slate-500 hover:bg-slate-200/70'
             }`}
-            title="Kapat"
+            title={t('common.close')}
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Navigation Tabs */}
+        {/* Tabs */}
         <div
           className={`px-6 pt-2 border-b flex items-center gap-1 overflow-x-auto ${
             isDark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'
           }`}
         >
-          <button
-            onClick={() => setActiveTab('appearance')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'appearance'
-                ? 'border-blue-600 text-blue-600'
-                : isDark
-                ? 'border-transparent text-slate-400 hover:text-slate-200'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Palette className="w-4 h-4" />
-            <span>Görünüm & Tema</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('panels')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'panels'
-                ? 'border-blue-600 text-blue-600'
-                : isDark
-                ? 'border-transparent text-slate-400 hover:text-slate-200'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Layout className="w-4 h-4" />
-            <span>Kutucuklar (Gizle / Göster)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('drawing')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'drawing'
-                ? 'border-blue-600 text-blue-600'
-                : isDark
-                ? 'border-transparent text-slate-400 hover:text-slate-200'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <MousePointerClick className="w-4 h-4" />
-            <span>Çoklu Seçim & Çizim</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('shortcuts')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'shortcuts'
-                ? 'border-blue-600 text-blue-600'
-                : isDark
-                ? 'border-transparent text-slate-400 hover:text-slate-200'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Keyboard className="w-4 h-4" />
-            <span>Ses & Kısayollar</span>
-          </button>
+          {tabs.map((tab) => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={tabBtn(activeTab === tab.id)}>
+              {tab.icon}
+              <span>{tab.label}</span>
+            </button>
+          ))}
         </div>
 
-        {/* Tab Content Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
           {activeTab === 'appearance' && (
             <>
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-3">
-                  Renk Teması Seçimi
+                  {t('settings.theme.heading')}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {THEME_OPTIONS.map((t) => {
-                    const isSelected = settings.theme === t.id;
+                  {THEME_OPTIONS.map((th) => {
+                    const isSelected = settings.theme === th.id;
                     return (
                       <button
-                        key={t.id}
+                        key={th.id}
                         type="button"
-                        onClick={() => onUpdateSettings({ theme: t.id })}
-                        className={`text-left p-3.5 rounded-xl border-2 transition-all flex flex-col gap-2.5 ${
+                        onClick={() => onUpdateSettings({ theme: th.id })}
+                        className={`text-start p-3.5 rounded-xl border-2 transition-all flex flex-col gap-2.5 ${
                           isSelected
                             ? 'border-blue-600 ring-2 ring-blue-500/20'
                             : isDark
@@ -224,8 +267,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            {t.icon}
-                            <span className="text-xs font-bold">{t.name}</span>
+                            {th.icon}
+                            <span className="text-xs font-bold">{t(`settings.theme.${th.key}`)}</span>
                           </div>
                           {isSelected && (
                             <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center">
@@ -233,16 +276,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </span>
                           )}
                         </div>
-                        <p className={`text-[11px] leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                          {t.subtitle}
-                        </p>
-                        {/* Mini theme preview bar */}
-                        <div className={`h-8 rounded-lg border p-1.5 flex items-center justify-between ${t.previewBg}`}>
-                          <div className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${t.previewCard}`}>
+                        <p className={`text-[11px] leading-relaxed ${muted}`}>{t(`settings.theme.${th.key}.desc`)}</p>
+                        <div dir="ltr" className={`h-8 rounded-lg border p-1.5 flex items-center justify-between ${th.previewBg}`}>
+                          <div className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${th.previewCard}`}>
                             CollabBoard
                           </div>
                           <div className="flex items-center gap-1">
-                            <span className={`w-3 h-3 rounded-full ${t.previewAccent}`} />
+                            <span className={`w-3 h-3 rounded-full ${th.previewAccent}`} />
                             <span className="w-3 h-3 rounded-full bg-emerald-500" />
                             <span className="w-3 h-3 rounded-full bg-amber-500" />
                           </div>
@@ -256,32 +296,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className={`pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-3 flex items-center gap-1.5">
                   <Grid className="w-3.5 h-3.5" />
-                  <span>Beyaz Tahta Zemin Deseni</span>
+                  <span>{t('settings.grid.heading')}</span>
                 </h3>
                 <div className="grid grid-cols-3 gap-2.5">
-                  {(
-                    [
-                      { id: 'dots', label: 'Noktalı Tuval', desc: 'Klasik mimari nokta ızgarası' },
-                      { id: 'grid', label: 'Kareli Izgara', desc: 'Teknik çizim ve hizalama' },
-                      { id: 'none', label: 'Düz Zemin', desc: 'Çizgisiz saf çalışma alanı' },
-                    ] as const
-                  ).map((g) => (
+                  {(['dots', 'grid', 'none'] as const).map((g) => (
                     <button
-                      key={g.id}
+                      key={g}
                       type="button"
-                      onClick={() => onUpdateSettings({ gridStyle: g.id })}
-                      className={`p-3 rounded-xl border text-left transition-all ${
-                        settings.gridStyle === g.id
+                      onClick={() => onUpdateSettings({ gridStyle: g })}
+                      className={`p-3 rounded-xl border text-start transition-all ${
+                        settings.gridStyle === g
                           ? 'border-blue-600 bg-blue-600/10 text-blue-600 font-semibold'
                           : isDark
                           ? 'border-slate-800 hover:bg-slate-800/60'
                           : 'border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      <div className="text-xs font-bold">{g.label}</div>
-                      <div className={`text-[11px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {g.desc}
-                      </div>
+                      <div className="text-xs font-bold">{t(`settings.grid.${g}`)}</div>
+                      <div className={`text-[11px] mt-0.5 ${muted}`}>{t(`settings.grid.${g}.desc`)}</div>
                     </button>
                   ))}
                 </div>
@@ -289,168 +321,118 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </>
           )}
 
+          {activeTab === 'language' && (
+            <div className="space-y-3">
+              <p className={`text-xs ${muted}`}>{t('settings.language.desc')}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {LANGUAGES.map((l) => {
+                  const active = settings.language === l.code;
+                  return (
+                    <button
+                      key={l.code}
+                      type="button"
+                      onClick={() => onUpdateSettings({ language: l.code as LanguageCode })}
+                      className={`flex items-center justify-between p-3 rounded-xl border-2 text-start transition-all ${
+                        active
+                          ? 'border-blue-600 bg-blue-600/10'
+                          : isDark
+                          ? 'border-slate-800 hover:border-slate-700'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div>
+                        <div className="text-sm font-bold">{l.native}</div>
+                        <div className={`text-[11px] ${muted}`}>
+                          {l.label} · {l.code.toUpperCase()}
+                          {l.rtl ? ' · RTL' : ''}
+                        </div>
+                      </div>
+                      {active && <Check className="w-4 h-4 text-blue-600" />}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className={`text-[11px] ${muted}`}>{t('settings.language.note')}</p>
+            </div>
+          )}
+
           {activeTab === 'panels' && (
             <div className="space-y-4">
               <div
                 className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
-                  isDark
-                    ? 'bg-blue-950/30 border-blue-800/50 text-blue-200'
-                    : 'bg-blue-50/80 border-blue-200 text-blue-900'
+                  isDark ? 'bg-blue-950/30 border-blue-800/50 text-blue-200' : 'bg-blue-50/80 border-blue-200 text-blue-900'
                 }`}
               >
-                Çalışma alanındaki <strong>3 yüzen kutucuğu</strong> buradan veya doğrudan her kutucuğun sağındaki{' '}
-                <strong>Göz (Gizle/Göster)</strong> ikonuna tıklayarak istediğiniz an gizleyip açabilirsiniz.
+                {t('settings.panels.info')}
               </div>
 
-              {/* 1. Ana Araç Çubuğu */}
-              <div
-                className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
-                  isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50/60'
-                }`}
-              >
+              {/* Fully hide / fully show */}
+              <div className={`p-4 rounded-xl border space-y-3 ${card}`}>
                 <div>
-                  <div className="text-sm font-bold flex items-center gap-2">
-                    <span>1. Ana Araç Çubuğu (Seç, Kaydır, AI Çizim, Şekiller)</span>
-                  </div>
-                  <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Seçim imleci, kalem, silgi, şekiller ve yakınlaştırma araçlarını içeren ana bar.
-                  </p>
+                  <div className="text-sm font-bold">{t('settings.full.title')}</div>
+                  <p className={`text-xs mt-0.5 ${muted}`}>{t('settings.full.desc')}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onUpdateSettings({ showToolbar: !settings.showToolbar })}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
-                    settings.showToolbar
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : isDark
-                      ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                  }`}
-                >
-                  {settings.showToolbar ? (
-                    <>
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Açık (Gösteriliyor)</span>
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-3.5 h-3.5" />
-                      <span>Gizli (Göster)</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSetUiFullyHidden(true)}
+                    disabled={uiFullyHidden}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 text-white text-xs font-semibold hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                  >
+                    <EyeClosed className="w-3.5 h-3.5" />
+                    <span>{t('settings.full.hide')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={showEverything}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
+                  >
+                    <Maximize className="w-3.5 h-3.5" />
+                    <span>{t('settings.full.show')}</span>
+                  </button>
+                </div>
+                {uiFullyHidden && (
+                  <p className="text-[11px] font-semibold text-amber-600">{t('settings.full.hiddenNow')}</p>
+                )}
               </div>
 
-              {/* 2. Stil & Renk Çubuğu */}
-              <div
-                className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
-                  isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50/60'
-                }`}
-              >
-                <div>
-                  <div className="text-sm font-bold flex items-center gap-2">
-                    <span>2. Stil, Renk & Döndürme Çubuğu</span>
+              {widgetRows.map((w) => (
+                <div key={w.title} className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${card}`}>
+                  <div>
+                    <div className="text-sm font-bold">{w.title}</div>
+                    <p className={`text-xs mt-0.5 ${muted}`}>{w.desc}</p>
                   </div>
-                  <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Çizgi rengi, iç dolgu rengi, kalınlık, döndürme ve aynalama ayarlarını içeren alt kutucuk.
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => w.set(!w.visible)}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
+                      w.visible
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        : isDark
+                        ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    }`}
+                  >
+                    {w.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                    <span>{w.visible ? t('settings.state.shown') : t('settings.state.hidden')}</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onUpdateSettings({ showStyleBar: !settings.showStyleBar })}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
-                    settings.showStyleBar
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : isDark
-                      ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                  }`}
-                >
-                  {settings.showStyleBar ? (
-                    <>
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Açık (Gösteriliyor)</span>
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-3.5 h-3.5" />
-                      <span>Gizli (Göster)</span>
-                    </>
-                  )}
-                </button>
-              </div>
+              ))}
 
-              {/* 3. Sesli Kanal Kutusu */}
-              <div
-                className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
-                  isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50/60'
-                }`}
-              >
-                <div>
-                  <div className="text-sm font-bold flex items-center gap-2">
-                    <span>3. Sesli Kanal & Katılımcı Kutucuğu</span>
-                  </div>
-                  <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Sağ üstteki Sesli Kanal durumu, mikrofon/hoparlör ve kişi ses düzeyi kutucuğu.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onUpdateSettings({ showVoiceBar: !settings.showVoiceBar })}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
-                    settings.showVoiceBar
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : isDark
-                      ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                  }`}
-                >
-                  {settings.showVoiceBar ? (
-                    <>
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Açık (Gösteriliyor)</span>
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-3.5 h-3.5" />
-                      <span>Gizli (Göster)</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Quick Show All / Hide All & Reset Positions */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() =>
-                      onUpdateSettings({
-                        showToolbar: true,
-                        showStyleBar: true,
-                        showVoiceBar: true,
-                      })
-                    }
+                    onClick={() => {
+                      onSetUiFullyHidden(false);
+                      showEverything();
+                    }}
                     className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
                   >
-                    3 Kutucuğu da Göster
+                    {t('settings.panels.showAll')}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onUpdateSettings({
-                        showToolbar: false,
-                        showStyleBar: false,
-                        showVoiceBar: false,
-                      })
-                    }
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                      isDark
-                        ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
-                        : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    3 Kutucuğu da Gizle (Tam Ekran Tuval)
+                  <button type="button" onClick={hideEverything} className={secondaryBtn}>
+                    {t('settings.panels.hideAll')}
                   </button>
                 </div>
 
@@ -465,19 +447,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       : 'border-slate-200 text-slate-600 hover:bg-slate-100'
                   }`}
                 >
-                  {positionsResetFeedback ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Konumlar Sıfırlandı</span>
-                    </>
-                  ) : (
-                    <>
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Sürüklenen Konumları Sıfırla</span>
-                    </>
-                  )}
+                  {positionsResetFeedback ? <Check className="w-3.5 h-3.5" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  <span>{positionsResetFeedback ? t('settings.positions.done') : t('settings.positions.reset')}</span>
                 </button>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'code' && (
+            <div className="space-y-3">
+              <p className={`text-xs ${muted}`}>{t('settings.code.desc')}</p>
+              <CodeEditorSettings isDark={isDark} />
             </div>
           )}
 
@@ -485,65 +465,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="space-y-4">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-2">
-                  Seç İmleci Çoklu Seçim Alanı (Marquee Box) Davranışı
+                  {t('settings.selection.heading')}
                 </h3>
-                <p className={`text-xs mb-3 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Seç aracındayken boş alana basılı tutup sürüklediğinizde oluşan mavi seçim alanının hangi şekil ve parçaları seçeceğini belirleyin:
-                </p>
+                <p className={`text-xs mb-3 ${muted}`}>{t('settings.selection.desc')}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => onUpdateSettings({ selectionMode: 'intersect' })}
-                    className={`p-3.5 rounded-xl border-2 text-left transition-all ${
-                      settings.selectionMode === 'intersect'
-                        ? 'border-blue-600 bg-blue-600/10'
-                        : isDark
-                        ? 'border-slate-800 hover:border-slate-700'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="text-xs font-bold flex items-center justify-between">
-                      <span>Temas Eden Tüm Parçaları Seç (Önerilen)</span>
-                      {settings.selectionMode === 'intersect' && (
-                        <Check className="w-4 h-4 text-blue-600" />
-                      )}
-                    </div>
-                    <p className={`text-[11px] mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Seçim alanının değdiği veya kesiştiği tüm şekilleri ve çok parçalı AI çizimlerini anında seçer.
-                    </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onUpdateSettings({ selectionMode: 'contain' })}
-                    className={`p-3.5 rounded-xl border-2 text-left transition-all ${
-                      settings.selectionMode === 'contain'
-                        ? 'border-blue-600 bg-blue-600/10'
-                        : isDark
-                        ? 'border-slate-800 hover:border-slate-700'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="text-xs font-bold flex items-center justify-between">
-                      <span>Yalnızca Tamamen İçindekileri Seç</span>
-                      {settings.selectionMode === 'contain' && (
-                        <Check className="w-4 h-4 text-blue-600" />
-                      )}
-                    </div>
-                    <p className={`text-[11px] mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Sadece sınırları tamamen seçim dikdörtgeninin içinde kalan şekil parçalarını seçer.
-                    </p>
-                  </button>
+                  {(['intersect', 'contain'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => onUpdateSettings({ selectionMode: mode })}
+                      className={`p-3.5 rounded-xl border-2 text-start transition-all ${
+                        settings.selectionMode === mode
+                          ? 'border-blue-600 bg-blue-600/10'
+                          : isDark
+                          ? 'border-slate-800 hover:border-slate-700'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-between">
+                        <span>{t(`settings.selection.${mode}`)}</span>
+                        {settings.selectionMode === mode && <Check className="w-4 h-4 text-blue-600" />}
+                      </div>
+                      <p className={`text-[11px] mt-1 ${muted}`}>{t(`settings.selection.${mode}.desc`)}</p>
+                    </button>
+                  ))}
                 </div>
               </div>
 
               <div className={`pt-4 border-t space-y-3 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
                 <label className="flex items-center justify-between gap-4 cursor-pointer">
                   <div>
-                    <div className="text-xs font-bold">Serbest Kalem Çizimlerini Otomatik Yumuşat</div>
-                    <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Kalem ve fosforlu kalemle çizilen eğrileri Chaikin algoritması ile pürüzsüzleştirir.
-                    </div>
+                    <div className="text-xs font-bold">{t('settings.smooth')}</div>
+                    <div className={`text-[11px] ${muted}`}>{t('settings.smooth.desc')}</div>
                   </div>
                   <input
                     type="checkbox"
@@ -552,13 +505,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="w-4 h-4 accent-blue-600 rounded cursor-pointer"
                   />
                 </label>
-
                 <label className="flex items-center justify-between gap-4 cursor-pointer">
                   <div>
-                    <div className="text-xs font-bold">Diğer Kullanıcıların Canlı İmleçlerini Göster</div>
-                    <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Odadaki diğer katılımcıların fare hareketlerini ve isim etiketlerini tuvalde gösterir.
-                    </div>
+                    <div className="text-xs font-bold">{t('settings.cursors')}</div>
+                    <div className={`text-[11px] ${muted}`}>{t('settings.cursors.desc')}</div>
                   </div>
                   <input
                     type="checkbox"
@@ -573,18 +523,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {activeTab === 'shortcuts' && (
             <div className="space-y-4">
-              <div
-                className={`p-3.5 rounded-xl border flex items-center justify-between ${
-                  isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50'
-                }`}
-              >
+              <div className={`p-3.5 rounded-xl border flex items-center justify-between ${card}`}>
                 <div className="flex items-center gap-2.5">
                   <Volume2 className="w-4 h-4 text-blue-600" />
                   <div>
-                    <div className="text-xs font-bold">Arayüz & Bildirim Sesleri</div>
-                    <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Kullanıcı katılımı ve işaret (Ping) ses bildirimleri
-                    </div>
+                    <div className="text-xs font-bold">{t('settings.sound')}</div>
+                    <div className={`text-[11px] ${muted}`}>{t('settings.sound.desc')}</div>
                   </div>
                 </div>
                 <input
@@ -597,35 +541,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-2.5">
-                  Klavye Kısayolları Rehberi
+                  {t('settings.shortcuts.heading')}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  {[
-                    ['Seç & Çoklu Seçim Alanı', 'V'],
-                    ['Tuvali Kaydır (El Aracı)', 'H veya Boşluk'],
-                    ['Kalem / Çizim', 'P'],
-                    ['Silgi / Hassas Silgi', 'E / Shift+E'],
-                    ['Dikdörtgen / Daire', 'R / O'],
-                    ['Ok / Çizgi', 'A / L'],
-                    ['Yapışkan Not / Metin', 'N / T'],
-                    ['Seçili Nesneleri Çoğalt', 'Ctrl + D'],
-                    ['Geri Al / İleri Al', 'Ctrl + Z / Ctrl + Y'],
-                    ['Seçili Nesneleri Sil', 'Delete / Backspace'],
-                    ['Yatay / Dikey Aynala', 'Shift + H / Shift + V'],
-                    ['Mikrofon Aç/Kapat', 'M'],
-                  ].map(([label, key]) => (
+                  {(
+                    [
+                      ['settings.shortcut.select', 'V'],
+                      ['settings.shortcut.pan', 'H / Space'],
+                      ['settings.shortcut.pen', 'P'],
+                      ['settings.shortcut.eraser', 'E / Shift+E'],
+                      ['settings.shortcut.shapes', 'R / O'],
+                      ['settings.shortcut.arrow', 'A / L'],
+                      ['settings.shortcut.note', 'N / T'],
+                      ['settings.shortcut.duplicate', 'Ctrl + D'],
+                      ['settings.shortcut.undo', 'Ctrl + Z / Ctrl + Y'],
+                      ['settings.shortcut.delete', 'Delete / Backspace'],
+                      ['settings.shortcut.flip', 'Shift + H / Shift + V'],
+                      ['settings.shortcut.mic', 'M'],
+                    ] as const
+                  ).map(([labelKey, key]) => (
                     <div
-                      key={label}
+                      key={labelKey}
                       className={`px-3 py-2 rounded-lg border flex items-center justify-between ${
                         isDark ? 'border-slate-800 bg-slate-800/30' : 'border-slate-200 bg-slate-50/70'
                       }`}
                     >
-                      <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>{label}</span>
+                      <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>{t(labelKey)}</span>
                       <kbd
+                        dir="ltr"
                         className={`px-2 py-0.5 rounded text-[11px] font-mono font-semibold border ${
-                          isDark
-                            ? 'bg-slate-800 border-slate-700 text-blue-300'
-                            : 'bg-white border-slate-300 text-slate-800'
+                          isDark ? 'bg-slate-800 border-slate-700 text-blue-300' : 'bg-white border-slate-300 text-slate-800'
                         }`}
                       >
                         {key}
@@ -642,28 +587,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-500/10 transition-colors"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Tüm Ayarları Varsayılana Sıfırla</span>
+                  <span>{t('settings.resetAll')}</span>
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Footer */}
         <div
           className={`px-6 py-3.5 border-t flex items-center justify-between ${
             isDark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-slate-50'
           }`}
         >
-          <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-            Ayarlarınız tarayıcı belleğine otomatik kaydedilir.
-          </span>
+          <span className={`text-[11px] ${muted}`}>{t('settings.autosave')}</span>
           <button
             type="button"
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
           >
-            Tamam
+            {t('common.ok')}
           </button>
         </div>
       </div>

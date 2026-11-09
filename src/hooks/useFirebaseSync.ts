@@ -24,9 +24,8 @@ import {
   User,
 } from '../firebase';
 import { CanvasElement, RoomSettings } from '../types';
-
-const AUTHORIZED_CLOUD_HANDLER_URL =
-  'https://ais-dev-pgawidvphgkvicx3jrz4eo-969030572827.europe-west2.run.app/__/auth/handler';
+import { startIdentityTracking } from '../utils/identity';
+import { getLanguage, setLanguage, LANGUAGES, LanguageCode } from '../i18n';
 
 interface OAuthPopupResult {
   type?: string;
@@ -36,7 +35,14 @@ interface OAuthPopupResult {
   errorDescription?: string;
 }
 
+interface ProfileExtras {
+  avatarColor?: string;
+  language?: string;
+  lastRoomId?: string;
+}
+
 interface UseFirebaseSyncOptions {
+  profileExtras?: ProfileExtras;
   roomId: string;
   roomName: string;
   enabled?: boolean;
@@ -53,6 +59,7 @@ interface UseFirebaseSyncOptions {
 }
 
 export function useFirebaseSync({
+  profileExtras,
   roomId,
   roomName,
   enabled = true,
@@ -84,6 +91,8 @@ export function useFirebaseSync({
       localStorage.removeItem('collab_google_oauth_result');
     } catch {}
 
+    startIdentityTracking();
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setFirebaseUser(u || null);
       setIsAuthReady(true);
@@ -94,6 +103,70 @@ export function useFirebaseSync({
   const clearAuthError = useCallback(() => {
     setAuthError(null);
   }, []);
+
+  // Keep the signed-in user's Google profile + preferences in Firestore (users/{uid}).
+  const profileLoadedForRef = useRef<string | null>(null);
+  const extrasRef = useRef(profileExtras);
+  extrasRef.current = profileExtras;
+  const extrasKey = `${profileExtras?.avatarColor || ''}|${profileExtras?.language || ''}|${profileExtras?.lastRoomId || ''}`;
+
+  useEffect(() => {
+    const u = firebaseUser;
+    if (!u || !isAuthReady) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      const profilePath = `users/${u.uid}`;
+      try {
+        const ref = doc(db, 'users', u.uid);
+        const snap = await getDoc(ref);
+        if (cancelled) return;
+        const extras = extrasRef.current || {};
+
+        // First load after login: adopt the saved language if this browser has no explicit choice yet
+        if (profileLoadedForRef.current !== u.uid) {
+          profileLoadedForRef.current = u.uid;
+          const saved = snap.exists() ? snap.data().language : undefined;
+          let hasLocalChoice = false;
+          try {
+            hasLocalChoice = Boolean(localStorage.getItem('collab_language'));
+          } catch {}
+          if (
+            !hasLocalChoice &&
+            typeof saved === 'string' &&
+            LANGUAGES.some((l) => l.code === saved) &&
+            saved !== getLanguage()
+          ) {
+            setLanguage(saved as LanguageCode);
+          }
+        }
+
+        const base = {
+          uid: u.uid,
+          displayName: (u.displayName || u.email || 'Kullanıcı').slice(0, 120),
+          email: (u.email || '').slice(0, 254),
+          ...(u.photoURL ? { photoURL: u.photoURL.slice(0, 2048) } : {}),
+          ...(extras.avatarColor ? { avatarColor: extras.avatarColor.slice(0, 16) } : {}),
+          language: (extras.language || getLanguage()).slice(0, 8),
+          ...(extras.lastRoomId ? { lastRoomId: extras.lastRoomId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 128) } : {}),
+          updatedAt: serverTimestamp(),
+        };
+        if (snap.exists()) {
+          await updateDoc(ref, base);
+        } else {
+          await setDoc(ref, { ...base, createdAt: serverTimestamp() });
+        }
+        setLastCloudSyncAt(Date.now());
+      } catch (err) {
+        try {
+          handleFirestoreError(err, OperationType.WRITE, profilePath);
+        } catch {}
+      }
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [firebaseUser, isAuthReady, extrasKey]);
 
   const signInWithGoogle = useCallback(async (_preferredName?: string): Promise<User | null> => {
     setAuthError(null);
@@ -106,20 +179,15 @@ export function useFirebaseSync({
       firebaseConfig as { oAuthClientId?: string }
     )?.oAuthClientId;
 
-    // Primary path: Direct Google OAuth 2.0 Popup -> Firebase signInWithCredential
-    // Works reliably inside AI Studio (ais-dev), Shared App URL (ais-pre), browsers blocking
-    // third-party firebaseapp.com iframes, AND localhost without closing prematurely after 200ms.
-    if (oauthClientId && typeof window !== 'undefined') {
+    // Inside AI Studio / Cloud Run previews (*.run.app) the app serves its own /__/auth/handler, so a direct
+    // Google OAuth popup -> Firebase signInWithCredential works even where third-party iframes are blocked.
+    // Everywhere else (localhost, your own domain, firebaseapp.com / web.app) the standard Firebase Auth popup
+    // of THIS Firebase project is used, so Google never redirects through another app's (AI Studio) handler.
+    const isCloudRunPreview =
+      typeof window !== 'undefined' && window.location.hostname.endsWith('.run.app');
+    if (oauthClientId && isCloudRunPreview) {
       try {
-        const hostname = window.location.hostname;
-        const isAuthorizedRunApp =
-          hostname.endsWith('.run.app') ||
-          hostname.endsWith('.firebaseapp.com') ||
-          hostname.endsWith('.web.app');
-
-        const redirectUri = isAuthorizedRunApp
-          ? `${window.location.origin}/__/auth/handler`
-          : AUTHORIZED_CLOUD_HANDLER_URL;
+        const redirectUri = `${window.location.origin}/__/auth/handler`;
 
         const nonce = `${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 10)}`;
         const statePayload = JSON.stringify({

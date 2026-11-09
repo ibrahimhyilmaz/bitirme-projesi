@@ -21,6 +21,61 @@ import { OnboardingTour } from './components/OnboardingTour';
 import { SettingsModal } from './components/SettingsModal';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
+import { ClockWidget } from './components/ClockWidget';
+import { FolderTool } from './components/FolderTool';
+import { useT, setLanguage, getLanguage, translate, LanguageCode } from './i18n';
+import { useIdentity } from './utils/identity';
+import { DRAG_FILE_MIME } from './utils/fileIngest';
+import {
+  createDocumentCardSvgDataUrl,
+  createMarkdownCardSvgDataUrl,
+  extractTextFromDataUrl,
+} from './utils/fileValidation';
+import { SharedFile } from './types';
+
+// ---- Session persistence: a refresh keeps you in the room; 1 hour without any action ends the session ----
+const SESSION_KEY = 'collab_active_session';
+const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
+
+interface SavedSession {
+  roomId: string;
+  roomName: string;
+  lastActivityAt: number;
+}
+
+function readSavedSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (typeof p?.roomId === 'string' && p.roomId && typeof p.lastActivityAt === 'number') {
+      return { roomId: p.roomId, roomName: String(p.roomName || ''), lastActivityAt: p.lastActivityAt };
+    }
+  } catch {}
+  return null;
+}
+
+function writeSavedSession(session: SavedSession | null) {
+  try {
+    if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {}
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'light',
+  gridStyle: 'dots',
+  selectionMode: 'intersect',
+  showToolbar: true,
+  showStyleBar: true,
+  showVoiceBar: true,
+  soundEffectsEnabled: true,
+  showRemoteCursors: true,
+  autoSmoothFreehand: true,
+  language: 'tr',
+  showClock: true,
+  showFolder: true,
+};
 
 function extractRoomInfoFromLocation(): {
   roomId: string;
@@ -105,13 +160,48 @@ function extractRoomInfoFromLocation(): {
 }
 
 export default function App() {
-  const initialRoomInfo = useMemo(() => extractRoomInfoFromLocation(), []);
+  const { t } = useT();
+  const { ready: identityReady } = useIdentity();
+  const startup = useMemo(() => {
+    const info = extractRoomInfoFromLocation();
+    const saved = readSavedSession();
+    const fresh = saved && Date.now() - saved.lastActivityAt < IDLE_TIMEOUT_MS;
+    // A shared link to another room wins over the remembered session
+    const urlWins = info.hasUrlRoomParam && (!saved || info.roomId !== saved.roomId);
+    if (saved && fresh && !urlWins) {
+      return {
+        ...info,
+        roomId: saved.roomId,
+        roomName: saved.roomName || info.roomName,
+        hasUrlRoomParam: true,
+        resume: true,
+        expiredRoomId: null as string | null,
+      };
+    }
+    if (saved && !fresh && !urlWins) {
+      // Timed out while the tab was closed: offer the same code again
+      return {
+        ...info,
+        roomId: saved.roomId,
+        roomName: saved.roomName || info.roomName,
+        hasUrlRoomParam: true,
+        resume: false,
+        expiredRoomId: saved.roomId,
+      };
+    }
+    return { ...info, resume: false, expiredRoomId: null as string | null };
+  }, []);
+  const initialRoomInfo = startup;
   const [roomId, setRoomId] = useState<string>(initialRoomInfo.roomId);
   const [customRoomName, setCustomRoomName] = useState<string>(initialRoomInfo.roomName);
   const [customMaxUsers, setCustomMaxUsers] = useState<number | undefined>(undefined);
   const [isCreatingRoom, setIsCreatingRoom] = useState<boolean>(false);
-  const [hasEnteredWorkspace, setHasEnteredWorkspace] = useState<boolean>(false);
-  const [joinGateError, setJoinGateError] = useState<string | null>(null);
+  const [hasEnteredWorkspace, setHasEnteredWorkspace] = useState<boolean>(startup.resume);
+  const [joinGateError, setJoinGateError] = useState<string | null>(() =>
+    startup.expiredRoomId
+      ? translate('session.timeoutNotice', { code: startup.expiredRoomId.toUpperCase() })
+      : null
+  );
   const lastValidRoomRef = useRef<{
     roomId: string;
     roomName: string;
@@ -162,8 +252,10 @@ export default function App() {
     };
   });
 
-  const [isUserSetupOpen, setIsUserSetupOpen] = useState<boolean>(true);
-  const [isInitialSetup, setIsInitialSetup] = useState<boolean>(true);
+  const [prefillGateRoom, setPrefillGateRoom] = useState<boolean>(false);
+  const handleIdleTimeoutRef = useRef<((timedOutRoomId: string, notifyServer: boolean) => void) | null>(null);
+  const [isUserSetupOpen, setIsUserSetupOpen] = useState<boolean>(!startup.resume);
+  const [isInitialSetup, setIsInitialSetup] = useState<boolean>(!startup.resume);
 
   // Sync user profile to localStorage
   useEffect(() => {
@@ -264,20 +356,34 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('collab_app_settings');
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved), language: getLanguage() };
     } catch {}
     return {
+      ...DEFAULT_SETTINGS,
       theme: (localStorage.getItem('collab_theme') as ThemeMode) || 'light',
-      gridStyle: 'dots',
-      selectionMode: 'intersect',
-      showToolbar: true,
-      showStyleBar: true,
-      showVoiceBar: true,
-      soundEffectsEnabled: true,
-      showRemoteCursors: true,
-      autoSmoothFreehand: true,
+      language: getLanguage(),
     };
   });
+
+  // The language lives in the i18n store (also used outside React); keep settings in sync with it
+  useEffect(() => {
+    setLanguage(settings.language as LanguageCode);
+  }, [settings.language]);
+
+  // "Fully hidden" removes every floating box including the small restore chips
+  const [uiFullyHidden, setUiFullyHidden] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('collab_ui_fully_hidden') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const handleSetUiFullyHidden = useCallback((hidden: boolean) => {
+    setUiFullyHidden(hidden);
+    try {
+      localStorage.setItem('collab_ui_fully_hidden', String(hidden));
+    } catch {}
+  }, []);
 
   // Sync theme class to document element for Tailwind dark: variants
   useEffect(() => {
@@ -290,15 +396,33 @@ export default function App() {
   }, [settings.theme]);
 
   // Floating widget z-index stacking management (bring-to-front on click/drag)
-  const [widgetZIndexes, setWidgetZIndexes] = useState<{ toolbar: number; voice: number; style: number }>({
+  const [widgetZIndexes, setWidgetZIndexes] = useState<{
+    toolbar: number;
+    voice: number;
+    style: number;
+    clock: number;
+    folder: number;
+  }>({
     toolbar: 22,
     voice: 21,
     style: 20,
+    clock: 19,
+    folder: 19,
   });
 
-  const bringWidgetToFront = useCallback((widget: 'toolbar' | 'voice' | 'style') => {
+  const updateSettingsPartial = useCallback((partial: Partial<AppSettings>) => {
+    setSettings((prev) => {
+      const updated = { ...prev, ...partial };
+      try {
+        localStorage.setItem('collab_app_settings', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, []);
+
+  const bringWidgetToFront = useCallback((widget: 'toolbar' | 'voice' | 'style' | 'clock' | 'folder') => {
     setWidgetZIndexes((prev) => {
-      const maxZ = Math.max(prev.toolbar, prev.voice, prev.style, 22);
+      const maxZ = Math.max(prev.toolbar, prev.voice, prev.style, prev.clock, prev.folder, 22);
       if (prev[widget] === maxZ) return prev;
       return {
         ...prev,
@@ -362,7 +486,18 @@ export default function App() {
     setShowStyleBar(true);
     setShowVoiceBar(true);
     setShowMinimap(true);
-    setWidgetZIndexes({ toolbar: 22, voice: 21, style: 20 });
+    setSettings((prev) => {
+      const updated = { ...prev, showClock: true, showFolder: true };
+      try {
+        localStorage.setItem('collab_app_settings', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    try {
+      localStorage.setItem('collab_ui_fully_hidden', 'false');
+    } catch {}
+    setUiFullyHidden(false);
+    setWidgetZIndexes({ toolbar: 22, voice: 21, style: 20, clock: 19, folder: 19 });
     setLayoutResetCounter((c) => c + 1);
   }, []);
 
@@ -453,6 +588,8 @@ export default function App() {
     clearElements,
     loadTemplate,
     updateCode,
+    updateCodeFiles,
+    notifySessionTimeout,
     sendCodeCursor,
     updateNotes,
     sendChatMessage,
@@ -470,7 +607,8 @@ export default function App() {
   } = useWebSocket({
     roomId,
     roomName: fallbackRoomName,
-    enabled: hasEnteredWorkspace,
+    // wait until Firebase restored the Google login so the right owner key is sent after a refresh
+    enabled: hasEnteredWorkspace && identityReady,
     customMaxUsers,
     isCreatingRoom,
     user: {
@@ -481,6 +619,9 @@ export default function App() {
       if (voiceManagerRef.current) {
         voiceManagerRef.current.handleSignal(fromUserId, signal as { type: string });
       }
+    },
+    onSessionTimeout: (timedOutRoomId) => {
+      handleIdleTimeoutRef.current?.(timedOutRoomId, false);
     },
     onKicked: (_kickedRoomId, kickedRoomName, by) => {
       setJoinGateError(
@@ -524,7 +665,9 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [hasEnteredWorkspace, roomError, roomId, customRoomName, roomSettings.maxUsers]);
 
+  const effectiveRoomNameRef = useRef('');
   const effectiveRoomName = syncedRoomName || fallbackRoomName;
+  effectiveRoomNameRef.current = effectiveRoomName;
 
   const handleSelectOrSwitchRoom = useCallback(
     (
@@ -556,6 +699,11 @@ export default function App() {
     signOutFirebase,
     syncRoomToCloud,
   } = useFirebaseSync({
+    profileExtras: {
+      avatarColor: currentUser.color,
+      language: settings.language,
+      lastRoomId: hasEnteredWorkspace ? roomId : undefined,
+    },
     roomId,
     roomName: effectiveRoomName,
     enabled: hasEnteredWorkspace,
@@ -578,6 +726,108 @@ export default function App() {
       [updateCode, updateNotes, loadTemplate]
     ),
   });
+
+  // Ctrl+Shift+H toggles "fully hidden" (all floating boxes and their restore chips)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        handleSetUiFullyHidden(!uiFullyHidden);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [uiFullyHidden, handleSetUiFullyHidden]);
+
+  // ---------------------------------------------------------------------------
+  // Session persistence + inactivity timeout
+  // ---------------------------------------------------------------------------
+  const lastActivityRef = useRef<number>(Date.now());
+  const lastPersistedAtRef = useRef<number>(0);
+
+  // Remember the room so a page refresh returns to it (and nothing else is lost: the server keeps the room state)
+  useEffect(() => {
+    if (!hasEnteredWorkspace) {
+      writeSavedSession(null);
+      return;
+    }
+    const resumedAt = startup.resume ? readSavedSession()?.lastActivityAt : undefined;
+    if (resumedAt && roomId === startup.roomId) {
+      lastActivityRef.current = Math.max(lastActivityRef.current, resumedAt);
+    } else {
+      lastActivityRef.current = Date.now();
+    }
+    writeSavedSession({
+      roomId,
+      roomName: customRoomName || effectiveRoomNameRef.current,
+      lastActivityAt: lastActivityRef.current,
+    });
+    lastPersistedAtRef.current = Date.now();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasEnteredWorkspace, roomId]);
+
+  const handleIdleTimeout = useCallback(
+    (timedOutRoomId: string, notifyServer: boolean) => {
+      if (notifyServer) notifySessionTimeout();
+      writeSavedSession(null);
+      lastValidRoomRef.current = null;
+      setPrefillGateRoom(true);
+      setJoinGateError(translate('session.timeoutNotice', { code: timedOutRoomId.toUpperCase() }));
+      setHasEnteredWorkspace(false);
+      setIsInitialSetup(true);
+      setIsUserSetupOpen(true);
+    },
+    [notifySessionTimeout]
+  );
+  handleIdleTimeoutRef.current = handleIdleTimeout;
+
+  useEffect(() => {
+    if (!hasEnteredWorkspace) return;
+    const persist = () => {
+      writeSavedSession({
+        roomId,
+        roomName: customRoomName || effectiveRoomNameRef.current,
+        lastActivityAt: lastActivityRef.current,
+      });
+      lastPersistedAtRef.current = Date.now();
+    };
+    const markActive = () => {
+      const now = Date.now();
+      lastActivityRef.current = now;
+      if (now - lastPersistedAtRef.current > 15000) persist();
+    };
+    const events: (keyof WindowEventMap)[] = [
+      'pointerdown',
+      'pointermove',
+      'keydown',
+      'wheel',
+      'touchstart',
+      'dragover',
+    ];
+    events.forEach((ev) => window.addEventListener(ev, markActive, { passive: true }));
+
+    const check = () => {
+      // another tab of the same browser may have been active meanwhile
+      const stored = readSavedSession();
+      const last = Math.max(lastActivityRef.current, stored?.roomId === roomId ? stored.lastActivityAt : 0);
+      if (Date.now() - last >= IDLE_TIMEOUT_MS) {
+        handleIdleTimeout(roomId, true);
+      }
+    };
+    const timer = window.setInterval(check, 20000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') check();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('beforeunload', persist);
+    check();
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, markActive));
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('beforeunload', persist);
+    };
+  }, [hasEnteredWorkspace, roomId, customRoomName, handleIdleTimeout]);
 
   // Restore embedded snapshot from invite URL (?snap=...) if present on initial load
   const appliedUrlSnapRef = useRef(false);
@@ -1132,6 +1382,52 @@ export default function App() {
   };
 
   // Add Image or Document/Markdown Card from File vault or Toolbar directly to canvas center
+  // Canvas position (board coordinates) for the next element added by a file drop; null = viewport centre
+  const dropAtRef = useRef<{ x: number; y: number } | null>(null);
+
+  const addSharedFileToBoard = (file: SharedFile, at?: { x: number; y: number }) => {
+    dropAtRef.current = at || null;
+    const lower = file.name.toLowerCase();
+    if (file.type.startsWith('image/')) {
+      handleAddImageToCanvas(file.dataUrl, file.name);
+    } else if (file.type === 'application/pdf' || lower.endsWith('.pdf')) {
+      void handleAddPdfToCanvas(file.dataUrl, file.name);
+    } else if (file.type.startsWith('video/')) {
+      handleAddVideoToCanvas(file.dataUrl, file.name);
+    } else if (lower.endsWith('.md') || lower.endsWith('.markdown')) {
+      const card = createMarkdownCardSvgDataUrl({
+        name: file.name,
+        size: file.size,
+        markdownContent: extractTextFromDataUrl(file.dataUrl),
+        uploadedBy: file.uploadedBy,
+      });
+      handleAddImageToCanvas(card.dataUrl, file.name, card.width, card.height);
+    } else {
+      const card = createDocumentCardSvgDataUrl({ name: file.name, size: file.size, type: file.type });
+      handleAddImageToCanvas(card.dataUrl, file.name, card.width, card.height);
+    }
+  };
+
+  // Files dragged out of the folder tool and dropped on the board
+  const handleWorkspaceDragOver = (e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer.types).includes(DRAG_FILE_MIME)) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+  const handleWorkspaceDrop = (e: React.DragEvent) => {
+    const fileId = e.dataTransfer.getData(DRAG_FILE_MIME);
+    if (!fileId) return;
+    e.preventDefault();
+    const file = files.find((f) => f.id === fileId);
+    if (!file || !canEdit) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    addSharedFileToBoard(file, {
+      x: (e.clientX - rect.left - pan.x) / zoom,
+      y: (e.clientY - rect.top - pan.y) / zoom,
+    });
+  };
+
   const handleAddImageToCanvas = (
     dataUrl: string,
     widthOrName?: number | string,
@@ -1152,8 +1448,10 @@ export default function App() {
         : 240;
     const fileName = typeof widthOrName === 'string' ? widthOrName : undefined;
 
-    const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - width / 2;
-    const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - height / 2;
+    const dropAt = dropAtRef.current;
+    dropAtRef.current = null;
+    const canvasCenterX = dropAt ? dropAt.x - width / 2 : (window.innerWidth / 2 - pan.x) / zoom - width / 2;
+    const canvasCenterY = dropAt ? dropAt.y - height / 2 : (window.innerHeight / 2 - pan.y) / zoom - height / 2;
 
     recordUndo();
     const imgEl: CanvasElement = {
@@ -1182,12 +1480,14 @@ export default function App() {
 
   // Add PDF from File vault or drop directly to canvas center
   const handleAddPdfToCanvas = async (pdfUrl: string, name?: string) => {
+    const dropAt = dropAtRef.current;
+    dropAtRef.current = null;
     try {
       const { totalPages, defaultWidth, defaultHeight } = await getPdfInfo(pdfUrl);
       const page1ImageUrl = await renderPdfPage(pdfUrl, 1);
 
-      const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - defaultWidth / 2;
-      const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - defaultHeight / 2;
+      const canvasCenterX = dropAt ? dropAt.x - defaultWidth / 2 : (window.innerWidth / 2 - pan.x) / zoom - defaultWidth / 2;
+      const canvasCenterY = dropAt ? dropAt.y - defaultHeight / 2 : (window.innerHeight / 2 - pan.y) / zoom - defaultHeight / 2;
 
       recordUndo();
       const pdfEl: CanvasElement = {
@@ -1224,8 +1524,10 @@ export default function App() {
   const handleAddVideoToCanvas = (videoUrl: string, name?: string) => {
     const defaultW = 480;
     const defaultH = 270;
-    const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - defaultW / 2;
-    const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - defaultH / 2;
+    const dropAt = dropAtRef.current;
+    dropAtRef.current = null;
+    const canvasCenterX = dropAt ? dropAt.x - defaultW / 2 : (window.innerWidth / 2 - pan.x) / zoom - defaultW / 2;
+    const canvasCenterY = dropAt ? dropAt.y - defaultH / 2 : (window.innerHeight / 2 - pan.y) / zoom - defaultH / 2;
 
     recordUndo();
     const videoEl: CanvasElement = {
@@ -1284,7 +1586,7 @@ export default function App() {
         initialColor={currentUser.color}
         initialRoomId={roomId}
         initialRoomName={customRoomName}
-        hasUrlRoomParam={initialRoomInfo.hasUrlRoomParam}
+        hasUrlRoomParam={initialRoomInfo.hasUrlRoomParam || prefillGateRoom}
         isInitialSetup={true}
         joinError={joinGateError || authError || roomError?.message || null}
         onClearJoinError={() => {
@@ -1396,9 +1698,12 @@ export default function App() {
       {/* Main Workspace Body */}
       <div
         data-workspace-root="true"
+        onDragOver={handleWorkspaceDragOver}
+        onDrop={handleWorkspaceDrop}
         className="relative flex-1 w-full h-full overflow-hidden"
       >
         {/* Main Floating Toolbar (Top Center by default, freely draggable anywhere) */}
+        {!uiFullyHidden && (
         <Toolbar
           activeTool={activeTool}
           onSelectTool={(tool) => {
@@ -1427,8 +1732,10 @@ export default function App() {
           zIndex={widgetZIndexes.toolbar}
           onFocus={() => bringWidgetToFront('toolbar')}
         />
+        )}
 
         {/* Voice Chat Floating Bar (Top Right by default, freely draggable anywhere) */}
+        {!uiFullyHidden && (
         <VoiceChatBar
           users={users}
           currentUser={currentUser}
@@ -1445,9 +1752,35 @@ export default function App() {
           zIndex={widgetZIndexes.voice}
           onFocus={() => bringWidgetToFront('voice')}
         />
+        )}
+
+        {/* Floating clock (drag + resize) and folder tool (drop files, drag them onto the board) */}
+        {!uiFullyHidden && settings.showClock && (
+          <ClockWidget
+            isDark={settings.theme === 'dark' || settings.theme === 'midnight'}
+            layoutResetCounter={layoutResetCounter}
+            zIndex={widgetZIndexes.clock}
+            onFocus={() => bringWidgetToFront('clock')}
+            onHide={() => updateSettingsPartial({ showClock: false })}
+          />
+        )}
+        {!uiFullyHidden && settings.showFolder && (
+          <FolderTool
+            files={files}
+            isDark={settings.theme === 'dark' || settings.theme === 'midnight'}
+            canEdit={canEdit}
+            layoutResetCounter={layoutResetCounter}
+            zIndex={widgetZIndexes.folder}
+            onFocus={() => bringWidgetToFront('folder')}
+            onUploadFile={uploadFile}
+            onDeleteFile={deleteFile}
+            onAddToBoard={(f) => addSharedFileToBoard(f)}
+            onHide={() => updateSettingsPartial({ showFolder: false })}
+          />
+        )}
 
         {/* Contextual Style & Transform Bar (Draggable, Bottom Center by default) */}
-        {canEdit && (
+        {canEdit && !uiFullyHidden && (
           <StyleBar
             selectedElement={selectedElement}
             selectedElements={selectedElements}
@@ -1634,6 +1967,7 @@ export default function App() {
           setPan={setPan}
           canEdit={canEdit}
           showMinimap={showMinimap}
+          hideFloatingDock={uiFullyHidden}
           onToggleMinimap={handleToggleMinimap}
           onResetWidgetLayout={handleResetWidgetLayout}
           theme={settings.theme}
@@ -1660,6 +1994,7 @@ export default function App() {
             codeCursors={codeCursors}
             currentUserId={currentUser.id}
             onUpdateCode={updateCode}
+            onUpdateCodeFiles={updateCodeFiles}
             onCursorMove={sendCodeCursor}
             onClose={() => setActivePanel('none')}
           />
@@ -1910,6 +2245,15 @@ export default function App() {
             showStyleBar,
             showVoiceBar,
           }}
+          showMinimap={showMinimap}
+          uiFullyHidden={uiFullyHidden}
+          onSetMinimap={(v) => {
+            setShowMinimap(v);
+            try {
+              localStorage.setItem('collab_hide_minimap', String(!v));
+            } catch {}
+          }}
+          onSetUiFullyHidden={handleSetUiFullyHidden}
           onUpdateSettings={(partial) => {
             setSettings((prev) => {
               const updated = { ...prev, ...partial };
@@ -1927,18 +2271,9 @@ export default function App() {
           }}
           onResetFloatingPositions={handleResetWidgetLayout}
           onResetAllSettings={() => {
-            const defaults: AppSettings = {
-              theme: 'light',
-              gridStyle: 'dots',
-              selectionMode: 'intersect',
-              showToolbar: true,
-              showStyleBar: true,
-              showVoiceBar: true,
-              soundEffectsEnabled: true,
-              showRemoteCursors: true,
-              autoSmoothFreehand: true,
-            };
+            const defaults: AppSettings = { ...DEFAULT_SETTINGS, language: getLanguage() };
             setSettings(defaults);
+            handleSetUiFullyHidden(false);
             try {
               localStorage.setItem('collab_app_settings', JSON.stringify(defaults));
               localStorage.setItem('collab_theme', 'light');

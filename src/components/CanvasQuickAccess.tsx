@@ -38,6 +38,7 @@ interface CanvasQuickAccessProps {
   gridStyle?: 'dots' | 'grid' | 'none';
   onChangeGridStyle?: (style: 'dots' | 'grid' | 'none') => void;
   showMinimap?: boolean;
+  hideFloatingDock?: boolean;
   onToggleMinimap?: () => void;
   onResetWidgetLayout?: () => void;
 }
@@ -87,6 +88,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
   gridStyle = 'dots',
   onChangeGridStyle,
   showMinimap = true,
+  hideFloatingDock = false,
   onToggleMinimap,
   onResetWidgetLayout,
 }) => {
@@ -259,6 +261,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
         data-floating-bar="true"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
+        style={hideFloatingDock ? { display: 'none' } : undefined}
         className="fixed bottom-3 left-3 z-20 pointer-events-none flex flex-col items-start gap-2 select-none max-w-[calc(100vw-24px)]"
       >
         {/* Minimap Widget or Compact Restore Pill */}

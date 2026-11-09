@@ -16,6 +16,21 @@ import {
   UserRole,
 } from '../types';
 import { soundEffects } from '../utils/audio';
+import { getOwnerKey, getIdToken, authHeaders } from '../utils/identity';
+
+export interface CodeFile {
+  id: string;
+  name: string;
+  language: string;
+  content: string;
+}
+
+export interface CodeState {
+  content: string;
+  language: string;
+  lastUpdatedBy: string;
+  files?: CodeFile[];
+}
 
 interface UseWebSocketOptions {
   roomId: string;
@@ -31,6 +46,7 @@ interface UseWebSocketOptions {
   };
   onWebRTCSignal?: (fromUserId: string, signal: unknown) => void;
   onKicked?: (roomId: string, roomName: string, by: string) => void;
+  onSessionTimeout?: (roomId: string, roomName: string) => void;
   onRoomRejected?: (error: { code: string; message: string; roomId?: string }) => void;
 }
 
@@ -77,18 +93,7 @@ function getDefaultNotesForRoom(roomId: string, displayRoomName: string) {
 `;
 }
 
-export function getOrCreateOwnerKey(): string {
-  try {
-    let key = localStorage.getItem('collab_owner_key');
-    if (!key) {
-      key = `owner-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      localStorage.setItem('collab_owner_key', key);
-    }
-    return key;
-  } catch {
-    return 'owner-fallback';
-  }
-}
+export const getOrCreateOwnerKey = getOwnerKey;
 
 export function useWebSocket({
   roomId,
@@ -99,6 +104,7 @@ export function useWebSocket({
   user,
   onWebRTCSignal,
   onKicked,
+  onSessionTimeout,
   onRoomRejected,
 }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -136,7 +142,7 @@ export function useWebSocket({
     roomId?: string;
   } | null>(null);
 
-  const [code, setCode] = useState<{ content: string; language: string; lastUpdatedBy: string }>(() => ({
+  const [code, setCode] = useState<CodeState>(() => ({
     content: getDefaultCodeForRoom(roomId, roomName),
     language: 'javascript',
     lastUpdatedBy: 'Sistem',
@@ -189,6 +195,10 @@ export function useWebSocket({
   onWebRTCSignalRef.current = onWebRTCSignal;
   const onKickedRef = useRef(onKicked);
   onKickedRef.current = onKicked;
+  const onSessionTimeoutRef = useRef(onSessionTimeout);
+  onSessionTimeoutRef.current = onSessionTimeout;
+  // True once the server confirmed the room: reconnects must never try to "create" it again
+  const hasInitializedRoomRef = useRef(false);
   const onRoomRejectedRef = useRef(onRoomRejected);
   onRoomRejectedRef.current = onRoomRejected;
   const customMaxUsersRef = useRef(customMaxUsers);
@@ -553,6 +563,7 @@ export function useWebSocket({
 
           // --- Standard Room & Workspace Events ---
           case 'init-room': {
+            hasInitializedRoomRef.current = true;
             setRoomError(null);
             setSyncedRoomName(msg.roomName || roomNameRef.current);
             if (msg.settings) {
@@ -629,6 +640,7 @@ export function useWebSocket({
               errObj.code === 'MAX_ROOMS_REACHED' ||
               errObj.code === 'ROOM_NOT_FOUND' ||
               errObj.code === 'USER_MAX_ROOMS_REACHED' ||
+              errObj.code === 'ROOM_CODE_TAKEN' ||
               errObj.code === 'INVALID_ROOM_CODE'
             ) {
               rejectedRoomRef.current = true;
@@ -663,6 +675,16 @@ export function useWebSocket({
             if (targetId && nextRole) {
               setUsers((prev) =>
                 prev.map((u) => (u.id === targetId ? { ...u, role: nextRole } : u))
+              );
+            }
+            break;
+          }
+
+          case 'session-timeout': {
+            if (onSessionTimeoutRef.current) {
+              onSessionTimeoutRef.current(
+                msg.roomId || roomId,
+                msg.roomName || syncedRoomNameRef.current
               );
             }
             break;
@@ -846,10 +868,13 @@ export function useWebSocket({
               setCode(msg.code);
             } else if (typeof msg.content === 'string') {
               setCode((prev) => ({
+                ...prev,
                 content: msg.content,
                 language: msg.language || prev.language,
                 lastUpdatedBy: msg.userName || 'Kullanıcı',
               }));
+            } else if (Array.isArray(msg.files)) {
+              setCode((prev) => ({ ...prev, files: msg.files }));
             }
             break;
           }
@@ -1067,6 +1092,7 @@ export function useWebSocket({
 
     let isCancelled = false;
     rejectedRoomRef.current = false;
+    hasInitializedRoomRef.current = false;
     isWsConnectedRef.current = false;
     isMeshModeRef.current = false;
     joinedAtRef.current = Date.now();
@@ -1322,8 +1348,9 @@ export function useWebSocket({
             roomId: roomId.trim().toLowerCase(),
             roomName: roomNameRef.current,
             maxUsers: targetMaxUsers,
-            isCreatingRoom: isCreatingRoomRef.current,
+            isCreatingRoom: isCreatingRoomRef.current && !hasInitializedRoomRef.current,
             ownerKey: getOrCreateOwnerKey(),
+            idToken: getIdToken(),
             user: userRef.current,
           })
         );
@@ -1439,7 +1466,7 @@ export function useWebSocket({
         createdAt: joinedAtRef.current,
         ownerName:
           users.find((u) => u.role === 'owner')?.name || userRef.current.name,
-        ownerKey: getOrCreateOwnerKey(),
+        isMine: true,
       },
     ]);
   }, [roomId, syncedRoomName, users, roomSettings.maxUsers, roomSettings.isLocked, elements.length]);
@@ -1475,10 +1502,14 @@ export function useWebSocket({
   const requestRoomsList = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
-        wsRef.current.send(JSON.stringify({ type: 'get-rooms' }));
+        wsRef.current.send(
+          JSON.stringify({ type: 'get-rooms', ownerKey: getOrCreateOwnerKey(), idToken: getIdToken() })
+        );
       } catch {}
     }
-    fetch('/api/rooms')
+    fetch(`/api/rooms?ownerKey=${encodeURIComponent(getOrCreateOwnerKey())}`, {
+      headers: authHeaders(),
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data && Array.isArray(data.rooms)) {
@@ -1502,15 +1533,15 @@ export function useWebSocket({
             type: 'delete-room',
             roomId: cleanTarget,
             ownerKey,
-            userId: userRef.current.id,
+            idToken: getIdToken(),
           })
         );
       } catch {}
     }
     try {
       const res = await fetch(
-        `/api/rooms/${encodeURIComponent(cleanTarget)}?ownerKey=${encodeURIComponent(ownerKey)}&userId=${encodeURIComponent(userRef.current.id)}`,
-        { method: 'DELETE' }
+        `/api/rooms/${encodeURIComponent(cleanTarget)}?ownerKey=${encodeURIComponent(ownerKey)}`,
+        { method: 'DELETE', headers: authHeaders() }
       );
       if (res.ok) {
         const data = await res.json();
@@ -1712,11 +1743,12 @@ export function useWebSocket({
     (newContent: string, newLanguage?: string) => {
       if (!canEdit) return;
       const nextLang = newLanguage || code.language;
-      setCode({
+      setCode((prev) => ({
+        ...prev,
         content: newContent,
         language: nextLang,
         lastUpdatedBy: userRef.current.name,
-      });
+      }));
       sendMessage({
         type: 'code-change',
         content: newContent,
@@ -1726,6 +1758,29 @@ export function useWebSocket({
     },
     [sendMessage, code.language, canEdit]
   );
+
+  // Replace the whole list of extra editor files (the main file stays in code.content)
+  const updateCodeFiles = useCallback(
+    (files: CodeFile[]) => {
+      if (!canEdit) return;
+      setCode((prev) => ({ ...prev, files, lastUpdatedBy: userRef.current.name }));
+      sendMessage({
+        type: 'code-change',
+        files,
+        userName: userRef.current.name,
+      });
+    },
+    [sendMessage, canEdit]
+  );
+
+  // Tell the server this session timed out from inactivity (it removes us and locks the room if we own it)
+  const notifySessionTimeout = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'session-timeout' }));
+      } catch {}
+    }
+  }, []);
 
   const sendCodeCursor = useCallback(
     (cursor: { line: number; column: number; selectionStart: number; selectionEnd: number }) => {
@@ -1993,6 +2048,8 @@ export function useWebSocket({
     clearElements,
     loadTemplate,
     updateCode,
+    updateCodeFiles,
+    notifySessionTimeout,
     sendCodeCursor,
     updateNotes,
     sendChatMessage,

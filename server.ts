@@ -4,6 +4,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import vm from 'vm';
+import fs from 'fs';
+import crypto from 'crypto';
 import { spawn } from 'child_process';
 import esbuild from 'esbuild';
 import {
@@ -34,10 +36,12 @@ function getPort(): number {
 const PORT = getPort();
 
 // Server-wide capacity limits
-const MAX_ROOMS = 20;
+const MAX_ROOMS = 100;
 const MAX_USERS_PER_ROOM = 30;
 const MAX_ROOMS_PER_USER = 3;
 const DEFAULT_ROOM_MAX_USERS = 12;
+// A room (or its owner) that stays completely idle this long is locked until the owner returns
+const IDLE_TIMEOUT_MS = Number(process.env.COLLAB_IDLE_MS) || 60 * 60 * 1000;
 
 // Permissive CORS & COOP middleware so shared/invited clients and OAuth popups never get blocked
 app.use((req, res, next) => {
@@ -134,6 +138,8 @@ interface RoomState {
   createdAt: number;
   ownerName: string;
   ownerKey?: string;
+  lastActivityAt: number;
+  idleLocked: boolean;
   settings: RoomSettings;
   roleAssignments: Map<string, UserRole>;
   elements: Map<string, CanvasElement>;
@@ -142,6 +148,7 @@ interface RoomState {
     content: string;
     language: string;
     lastUpdatedBy: string;
+    files?: CodeFile[];
   };
   notes: {
     content: string;
@@ -150,6 +157,119 @@ interface RoomState {
   files: SharedFile[];
   messages: ChatMessage[];
   users: Map<string, { ws: WebSocket; presence: UserPresence }>;
+}
+
+interface CodeFile {
+  id: string;
+  name: string;
+  language: string;
+  content: string;
+}
+
+function sanitizeCodeFiles(raw: unknown): CodeFile[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: CodeFile[] = [];
+  for (const f of raw.slice(0, 20)) {
+    if (!f || typeof f !== 'object') continue;
+    const o = f as Record<string, unknown>;
+    if (typeof o.id !== 'string' || typeof o.content !== 'string') continue;
+    out.push({
+      id: o.id.slice(0, 64),
+      name: String(o.name || 'dosya').slice(0, 120),
+      language: String(o.language || 'javascript').slice(0, 32),
+      content: o.content.slice(0, 200000),
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Identity: a verified Firebase (Google) uid is the strongest owner key. Without a valid ID token
+// we fall back to the private per-browser key; keys that look like Google keys are never trusted
+// unless the token was verified.
+// ---------------------------------------------------------------------------
+const FIREBASE_PROJECT_ID: string = (() => {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'firebase-applet-config.json'), 'utf-8'));
+    return String(cfg.projectId || '');
+  } catch {
+    return '';
+  }
+})();
+
+let jwksCache: { keys: crypto.JsonWebKey[] & { kid?: string }[]; expiresAt: number } | null = null;
+const verifiedTokenCache = new Map<string, { uid: string; exp: number }>();
+
+async function loadFirebaseJwks() {
+  if (jwksCache && jwksCache.expiresAt > Date.now()) return jwksCache.keys;
+  const resp = await fetch(
+    'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'
+  );
+  const json = (await resp.json()) as { keys: any[] };
+  jwksCache = { keys: json.keys || [], expiresAt: Date.now() + 60 * 60 * 1000 };
+  return jwksCache.keys;
+}
+
+async function verifyFirebaseIdToken(token: unknown): Promise<string | null> {
+  if (typeof token !== 'string' || token.length < 50 || token.length > 4096 || !FIREBASE_PROJECT_ID) {
+    return null;
+  }
+  const cached = verifiedTokenCache.get(token);
+  if (cached && cached.exp * 1000 > Date.now()) return cached.uid;
+  try {
+    const [h, p, sig] = token.split('.');
+    if (!h || !p || !sig) return null;
+    const header = JSON.parse(Buffer.from(h, 'base64url').toString('utf-8'));
+    const payload = JSON.parse(Buffer.from(p, 'base64url').toString('utf-8'));
+    if (header.alg !== 'RS256') return null;
+    const keys = await loadFirebaseJwks();
+    const jwk = keys.find((k: any) => k.kid === header.kid);
+    if (!jwk) return null;
+    const publicKey = crypto.createPublicKey({ key: jwk as crypto.JsonWebKey, format: 'jwk' });
+    const ok = crypto.verify(
+      'RSA-SHA256',
+      Buffer.from(`${h}.${p}`),
+      publicKey,
+      Buffer.from(sig, 'base64url')
+    );
+    if (!ok) return null;
+    if (payload.aud !== FIREBASE_PROJECT_ID) return null;
+    if (payload.iss !== `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`) return null;
+    if (typeof payload.exp !== 'number' || payload.exp * 1000 <= Date.now()) return null;
+    if (typeof payload.sub !== 'string' || !payload.sub) return null;
+    verifiedTokenCache.set(token, { uid: payload.sub, exp: payload.exp });
+    if (verifiedTokenCache.size > 500) {
+      const first = verifiedTokenCache.keys().next().value;
+      if (first) verifiedTokenCache.delete(first);
+    }
+    return payload.sub;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveOwnerKey(
+  clientKey: unknown,
+  idToken: unknown,
+  fallbackId: string
+): Promise<string> {
+  const uid = await verifyFirebaseIdToken(idToken);
+  if (uid) return `g:${uid}`;
+  if (
+    typeof clientKey === 'string' &&
+    clientKey &&
+    clientKey !== 'system' &&
+    !clientKey.startsWith('g:') &&
+    clientKey.length <= 128
+  ) {
+    return clientKey;
+  }
+  return fallbackId;
+}
+
+function bearerToken(req: express.Request): string | undefined {
+  const h = req.headers.authorization;
+  return typeof h === 'string' && h.startsWith('Bearer ') ? h.slice(7) : undefined;
 }
 
 // Global rooms map
@@ -176,35 +296,55 @@ function sanitizeRoomDisplayName(rawName: string | undefined, roomId: string): s
   return cleaned || (roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : 'Çalışma Odası');
 }
 
-function getRoomSummaries() {
+interface Viewer {
+  ownerKey?: string;
+  userId?: string;
+}
+
+// Owner keys / user ids are never sent to clients; each viewer only learns which rooms are theirs.
+function getRoomSummaries(viewer?: Viewer) {
   return Array.from(rooms.values()).map((r) => ({
     id: r.id,
     name: r.name,
     userCount: r.users.size,
     maxUsers: r.settings.maxUsers,
     isLocked: r.settings.isLocked,
+    idleLocked: r.idleLocked,
+    lastActivityAt: r.lastActivityAt,
     elementCount: r.elements.size,
     createdAt: r.createdAt,
     ownerName: r.ownerName,
-    ownerId: r.settings.ownerId,
-    ownerKey: r.ownerKey,
+    isMine:
+      r.id !== 'ana-oda' &&
+      Boolean(
+        (viewer?.ownerKey && r.ownerKey === viewer.ownerKey) ||
+          (viewer?.userId && r.settings.ownerId === viewer.userId)
+      ),
   }));
 }
 
+const socketViewers = new WeakMap<WebSocket, Viewer>();
+
+function roomLimits() {
+  return {
+    maxRooms: MAX_ROOMS,
+    maxUsersPerRoom: MAX_USERS_PER_ROOM,
+    maxRoomsPerUser: MAX_ROOMS_PER_USER,
+    currentRoomsCount: rooms.size,
+  };
+}
+
 function broadcastGlobalRoomsList() {
-  const payload = JSON.stringify({
-    type: 'rooms-list-updated',
-    rooms: getRoomSummaries(),
-    limits: {
-      maxRooms: MAX_ROOMS,
-      maxUsersPerRoom: MAX_USERS_PER_ROOM,
-      maxRoomsPerUser: MAX_ROOMS_PER_USER,
-      currentRoomsCount: rooms.size,
-    },
-  });
+  const limits = roomLimits();
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(payload);
+      client.send(
+        JSON.stringify({
+          type: 'rooms-list-updated',
+          rooms: getRoomSummaries(socketViewers.get(client)),
+          limits,
+        })
+      );
     }
   });
 }
@@ -333,6 +473,8 @@ calculateSprintMetrics(sampleTasks);
       createdAt: Date.now(),
       ownerName: creatorName || 'Sistem',
       ownerKey: ownerKey || creatorId || 'system',
+      lastActivityAt: Date.now(),
+      idleLocked: false,
       settings: {
         isLocked: false,
         maxUsers: clampedMax,
@@ -368,6 +510,89 @@ calculateSprintMetrics(sampleTasks);
   }
   return { room: rooms.get(roomId)! };
 }
+
+// ---------------------------------------------------------------------------
+// Persistence: rooms survive server restarts and empty periods ("resume where you left off")
+// ---------------------------------------------------------------------------
+const DATA_DIR = process.env.COLLAB_DATA_DIR || path.resolve(__dirname, '.data');
+const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
+let roomsDirty = false;
+
+function markDirty() {
+  roomsDirty = true;
+}
+
+function saveRoomsToDisk() {
+  if (!roomsDirty) return;
+  roomsDirty = false;
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const data = Array.from(rooms.values()).map((r) => ({
+      id: r.id,
+      name: r.name,
+      createdAt: r.createdAt,
+      ownerName: r.ownerName,
+      ownerKey: r.ownerKey,
+      lastActivityAt: r.lastActivityAt,
+      idleLocked: r.idleLocked,
+      settings: r.settings,
+      roleAssignments: Array.from(r.roleAssignments.entries()),
+      elements: r.elementOrder.map((id) => r.elements.get(id)).filter(Boolean),
+      code: r.code,
+      notes: r.notes,
+      files: r.files,
+      messages: r.messages.slice(-300),
+    }));
+    const tmp = `${ROOMS_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, rooms: data }));
+    fs.renameSync(tmp, ROOMS_FILE);
+  } catch (err) {
+    roomsDirty = true;
+    console.warn('Rooms could not be persisted:', (err as Error).message);
+  }
+}
+
+function loadRoomsFromDisk() {
+  try {
+    if (!fs.existsSync(ROOMS_FILE)) return;
+    const parsed = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf-8'));
+    for (const r of parsed.rooms || []) {
+      if (!r || typeof r.id !== 'string' || rooms.has(r.id)) continue;
+      const elementList: CanvasElement[] = Array.isArray(r.elements) ? r.elements : [];
+      rooms.set(r.id, {
+        id: r.id,
+        name: r.name,
+        createdAt: r.createdAt || Date.now(),
+        ownerName: r.ownerName || 'Sistem',
+        ownerKey: r.ownerKey,
+        lastActivityAt: r.lastActivityAt || Date.now(),
+        idleLocked: Boolean(r.idleLocked),
+        settings: r.settings,
+        roleAssignments: new Map(r.roleAssignments || []),
+        elements: new Map(elementList.map((el) => [el.id, el])),
+        elementOrder: elementList.map((el) => el.id),
+        code: r.code,
+        notes: r.notes,
+        files: r.files || [],
+        messages: r.messages || [],
+        users: new Map(),
+      });
+    }
+    console.log(`Restored ${rooms.size} room(s) from disk.`);
+  } catch (err) {
+    console.warn('Rooms could not be restored:', (err as Error).message);
+  }
+}
+
+setInterval(saveRoomsToDisk, 10000).unref();
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    saveRoomsToDisk();
+    process.exit(0);
+  });
+}
+
+loadRoomsFromDisk();
 
 // Initialize default main room
 getOrCreateRoom('ana-oda', 'Genel Çalışma Alanı', 'system', 'Sistem', 15, true, 'system');
@@ -415,9 +640,28 @@ wss.on('connection', (ws: WebSocket) => {
   let currentRoomId: string | null = null;
   let currentUserId: string | null = null;
 
+  // Messages are processed strictly in order (identity verification is asynchronous)
+  let messageQueue: Promise<void> = Promise.resolve();
   ws.on('message', (data: string) => {
+    messageQueue = messageQueue.then(() => handleSocketMessage(data)).catch(() => {});
+  });
+
+  async function handleSocketMessage(data: string) {
     try {
       const msg = JSON.parse(data.toString());
+
+      if (msg && typeof msg.type === 'string') {
+        if (!/^(ping-keepalive|get-rooms)$/.test(msg.type)) {
+          // any real action counts as activity for the idle timeout and triggers persistence
+          const activeRoom = currentRoomId ? rooms.get(currentRoomId) : undefined;
+          if (activeRoom && currentUserId && activeRoom.users.has(currentUserId)) {
+            activeRoom.lastActivityAt = Date.now();
+          }
+          if (!/cursor|laser|ping|voice|speak|webrtc|typing|presence/i.test(msg.type)) {
+            markDirty();
+          }
+        }
+      }
 
       switch (msg.type) {
         case 'ping-keepalive': {
@@ -428,18 +672,47 @@ wss.on('connection', (ws: WebSocket) => {
         }
 
         case 'get-rooms': {
+          const viewerKey = await resolveOwnerKey(msg.ownerKey, msg.idToken, '');
+          socketViewers.set(ws, {
+            ownerKey: viewerKey || undefined,
+            userId: currentUserId || undefined,
+          });
           ws.send(
             JSON.stringify({
               type: 'rooms-list-updated',
-              rooms: getRoomSummaries(),
-              limits: {
-                maxRooms: MAX_ROOMS,
-                maxUsersPerRoom: MAX_USERS_PER_ROOM,
-                maxRoomsPerUser: MAX_ROOMS_PER_USER,
-                currentRoomsCount: rooms.size,
-              },
+              rooms: getRoomSummaries(socketViewers.get(ws)),
+              limits: roomLimits(),
             })
           );
+          break;
+        }
+
+        case 'session-timeout': {
+          // The client was idle for the timeout period. Remove them; if the owner timed out, lock the room.
+          if (!currentRoomId || !currentUserId) break;
+          const r = rooms.get(currentRoomId);
+          if (!r) break;
+          const me = r.users.get(currentUserId);
+          const wasOwner =
+            r.settings.ownerId === currentUserId ||
+            (me && (me.presence.role === 'owner' || me.presence.role === 'admin'));
+          if (me && me.ws === ws) {
+            r.users.delete(currentUserId);
+            broadcastToRoom(r.id, { type: 'user-left', userId: currentUserId });
+          }
+          if (wasOwner && r.id !== 'ana-oda') {
+            r.settings.isLocked = true;
+            r.idleLocked = true;
+            markDirty();
+            broadcastToRoom(r.id, {
+              type: 'room-settings-updated',
+              roomName: r.name,
+              settings: r.settings,
+              updatedBy: 'Sistem (Zaman Aşımı)',
+            });
+          }
+          currentRoomId = null;
+          broadcastGlobalRoomsList();
           break;
         }
 
@@ -465,8 +738,8 @@ wss.on('connection', (ws: WebSocket) => {
 
         case 'delete-room': {
           const targetRoomId = String(msg.roomId || '').trim().toLowerCase();
-          const reqOwnerKey = String(msg.ownerKey || '');
-          const reqUserId = String(msg.userId || currentUserId || '');
+          const reqOwnerKey = await resolveOwnerKey(msg.ownerKey, msg.idToken, '');
+          const reqUserId = String(currentUserId || '');
           if (!targetRoomId || targetRoomId === 'ana-oda') {
             ws.send(
               JSON.stringify({
@@ -510,13 +783,17 @@ wss.on('connection', (ws: WebSocket) => {
             }
           }
           rooms.delete(targetRoomId);
+          markDirty();
+          saveRoomsToDisk();
           broadcastGlobalRoomsList();
           break;
         }
 
         case 'join-room': {
-          const { roomId: rawJoinRoomId, roomName, user, maxUsers, isCreatingRoom, ownerKey } = msg;
+          const { roomId: rawJoinRoomId, roomName, user, maxUsers, isCreatingRoom } = msg;
           if (!rawJoinRoomId || !user || !user.id) return;
+          const ownerKey = await resolveOwnerKey(msg.ownerKey, msg.idToken, String(user.id));
+          socketViewers.set(ws, { ownerKey, userId: String(user.id) });
 
           const normalizedRoomId = String(rawJoinRoomId)
             .trim()
@@ -535,6 +812,19 @@ wss.on('connection', (ws: WebSocket) => {
             return;
           }
 
+          // Creating a room with a code that is already taken is never allowed
+          if (isCreatingRoom && rooms.has(normalizedRoomId)) {
+            ws.send(
+              JSON.stringify({
+                type: 'room-error',
+                code: 'ROOM_CODE_TAKEN',
+                roomId: normalizedRoomId,
+                message: `#${normalizedRoomId.toUpperCase()} oda kodu zaten kullanımda. Lütfen farklı bir oda kodu seçin.`,
+              })
+            );
+            return;
+          }
+
           const { room, error, code } = getOrCreateRoom(
             normalizedRoomId,
             roomName,
@@ -542,7 +832,7 @@ wss.on('connection', (ws: WebSocket) => {
             user.name,
             maxUsers,
             Boolean(isCreatingRoom),
-            typeof ownerKey === 'string' && ownerKey ? ownerKey : user.id
+            ownerKey
           );
 
           if (!room || error) {
@@ -573,6 +863,13 @@ wss.on('connection', (ws: WebSocket) => {
             }
           }
 
+          // Drop stale connections (closed sockets that were not cleaned up yet) so they cannot fill the room
+          for (const [staleId, staleUser] of room.users.entries()) {
+            if (staleUser.ws.readyState !== WebSocket.OPEN && staleId !== user.id) {
+              room.users.delete(staleId);
+            }
+          }
+
           const isAlreadyInRoom = room.users.has(user.id);
           const savedRole = room.roleAssignments.get(user.id);
           const isOwnerOrAdmin =
@@ -581,6 +878,12 @@ wss.on('connection', (ws: WebSocket) => {
             savedRole === 'owner' ||
             savedRole === 'admin';
 
+          // The owner returning to a room that was locked by the idle timeout resumes where they left off
+          if (room.idleLocked && isOwnerOrAdmin) {
+            room.idleLocked = false;
+            room.settings.isLocked = false;
+          }
+
           // Check if room is locked
           if (room.settings.isLocked && !isAlreadyInRoom && !isOwnerOrAdmin) {
             ws.send(
@@ -588,14 +891,16 @@ wss.on('connection', (ws: WebSocket) => {
                 type: 'room-error',
                 code: 'ROOM_LOCKED',
                 roomId: room.id,
-                message: `"${room.name}" (#${room.id.toUpperCase()}) odası şu anda kilitli. Oda yöneticisi yeni katılımları kapattı.`,
+                message: room.idleLocked
+                  ? `"${room.name}" (#${room.id.toUpperCase()}) odası uzun süre işlem yapılmadığı için kilitlendi. Oda kurucusu aynı kodla girdiğinde oda yeniden açılır.`
+                  : `"${room.name}" (#${room.id.toUpperCase()}) odası şu anda kilitli. Oda yöneticisi yeni katılımları kapattı.`,
               })
             );
             return;
           }
 
           // Strictly enforce room user capacity limit for all new participants
-          if (!isAlreadyInRoom && room.users.size >= room.settings.maxUsers) {
+          if (!isAlreadyInRoom && !isOwnerOrAdmin && room.users.size >= room.settings.maxUsers) {
             ws.send(
               JSON.stringify({
                 type: 'room-error',
@@ -636,6 +941,8 @@ wss.on('connection', (ws: WebSocket) => {
 
           currentRoomId = room.id;
           currentUserId = user.id;
+          room.lastActivityAt = Date.now();
+          socketViewers.set(ws, { ownerKey, userId: String(user.id) });
 
           // Determine user's role in the room
           let assignedRole: UserRole = savedRole || room.settings.defaultRole;
@@ -695,13 +1002,8 @@ wss.on('connection', (ws: WebSocket) => {
               files: room.files,
               messages: room.messages,
               users: activeUsers,
-              rooms: getRoomSummaries(),
-              limits: {
-                maxRooms: MAX_ROOMS,
-                maxUsersPerRoom: MAX_USERS_PER_ROOM,
-                maxRoomsPerUser: MAX_ROOMS_PER_USER,
-                currentRoomsCount: rooms.size,
-              },
+              rooms: getRoomSummaries(socketViewers.get(ws)),
+              limits: roomLimits(),
             })
           );
 
@@ -740,6 +1042,7 @@ wss.on('connection', (ws: WebSocket) => {
           if (changes) {
             if (typeof changes.isLocked === 'boolean') {
               room.settings.isLocked = changes.isLocked;
+              room.idleLocked = false;
             }
             if (typeof changes.maxUsers === 'number') {
               room.settings.maxUsers = Math.min(
@@ -1121,9 +1424,10 @@ wss.on('connection', (ws: WebSocket) => {
           if (sender && !canEditWorkspace(sender.presence.role)) return;
 
           room.code = {
-            content: msg.content,
+            content: typeof msg.content === 'string' ? msg.content : room.code.content,
             language: msg.language || room.code.language,
             lastUpdatedBy: msg.userName || 'Kullanıcı',
+            files: sanitizeCodeFiles(msg.files) ?? room.code.files,
           };
 
           broadcastToRoom(
@@ -1374,7 +1678,7 @@ wss.on('connection', (ws: WebSocket) => {
     } catch (err) {
       console.error('WebSocket message parsing error:', err);
     }
-  });
+  }
 
   ws.on('close', () => {
     if (currentRoomId && currentUserId) {
@@ -1415,20 +1719,38 @@ wss.on('connection', (ws: WebSocket) => {
           broadcastGlobalRoomsList();
         }
 
-        if (room.users.size === 0 && currentRoomId !== 'ana-oda') {
-          const targetRoomId = currentRoomId;
-          setTimeout(() => {
-            const r = rooms.get(targetRoomId);
-            if (r && r.users.size === 0 && targetRoomId !== 'ana-oda') {
-              rooms.delete(targetRoomId);
-              broadcastGlobalRoomsList();
-            }
-          }, 30 * 60 * 1000);
-        }
+        // Empty rooms are kept (and persisted) so the owner can resume with the same code.
+        // They are only removed when the owner deletes them explicitly.
+        markDirty();
       }
     }
   });
 });
+
+// Idle watchdog: a room with no activity for IDLE_TIMEOUT_MS is locked; its members are signed out.
+setInterval(() => {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    if (room.id === 'ana-oda' || room.idleLocked) continue;
+    if (now - room.lastActivityAt < IDLE_TIMEOUT_MS) continue;
+    room.settings.isLocked = true;
+    room.idleLocked = true;
+    for (const [uid, u] of room.users.entries()) {
+      if (u.ws.readyState === WebSocket.OPEN) {
+        u.ws.send(
+          JSON.stringify({
+            type: 'session-timeout',
+            roomId: room.id,
+            roomName: room.name,
+          })
+        );
+      }
+      room.users.delete(uid);
+    }
+    markDirty();
+    broadcastGlobalRoomsList();
+  }
+}, Math.min(60 * 1000, Math.max(500, IDLE_TIMEOUT_MS / 4))).unref();
 
 
 // Gemini AI Quota Status & API Key Source Inspector Endpoint
@@ -1923,22 +2245,21 @@ app.get('/api/rtc-config', (_req, res) => {
   });
 });
 
-app.get('/api/rooms', (_req, res) => {
+app.get('/api/rooms', async (req, res) => {
+  const ownerKey = await resolveOwnerKey(req.query.ownerKey, bearerToken(req), '');
   res.json({
-    rooms: getRoomSummaries(),
-    limits: {
-      maxRooms: MAX_ROOMS,
-      maxUsersPerRoom: MAX_USERS_PER_ROOM,
-      maxRoomsPerUser: MAX_ROOMS_PER_USER,
-      currentRoomsCount: rooms.size,
-    },
+    rooms: getRoomSummaries({ ownerKey: ownerKey || undefined }),
+    limits: roomLimits(),
   });
 });
 
-app.delete('/api/rooms/:roomId', (req, res) => {
+app.delete('/api/rooms/:roomId', async (req, res) => {
   const targetRoomId = String(req.params.roomId || '').trim().toLowerCase();
-  const ownerKey = String(req.query.ownerKey || req.body?.ownerKey || '');
-  const userId = String(req.query.userId || req.body?.userId || '');
+  const ownerKey = await resolveOwnerKey(
+    req.query.ownerKey || req.body?.ownerKey,
+    bearerToken(req),
+    ''
+  );
 
   if (!targetRoomId || targetRoomId === 'ana-oda') {
     res.status(403).json({ error: 'Genel çalışma alanı silinemez.' });
@@ -1947,13 +2268,12 @@ app.delete('/api/rooms/:roomId', (req, res) => {
 
   const targetRoom = rooms.get(targetRoomId);
   if (!targetRoom) {
-    res.json({ ok: true, rooms: getRoomSummaries() });
+    res.json({ ok: true, rooms: getRoomSummaries({ ownerKey }) });
     return;
   }
 
-  const isOwner =
-    (ownerKey && targetRoom.ownerKey === ownerKey) ||
-    (userId && targetRoom.settings.ownerId === userId);
+  // Ownership is proven by the private owner key / verified Google uid only (user ids are visible to all members)
+  const isOwner = Boolean(ownerKey && targetRoom.ownerKey === ownerKey);
   if (!isOwner) {
     res.status(403).json({ error: 'Yalnızca odanın kurucusu bu odayı kapatabilir veya silebilir.' });
     return;
@@ -1972,61 +2292,50 @@ app.delete('/api/rooms/:roomId', (req, res) => {
     }
   }
   rooms.delete(targetRoomId);
+  markDirty();
+  saveRoomsToDisk();
   broadcastGlobalRoomsList();
   res.json({
     ok: true,
-    rooms: getRoomSummaries(),
-    limits: {
-      maxRooms: MAX_ROOMS,
-      maxUsersPerRoom: MAX_USERS_PER_ROOM,
-      maxRoomsPerUser: MAX_ROOMS_PER_USER,
-      currentRoomsCount: rooms.size,
-    },
+    rooms: getRoomSummaries({ ownerKey }),
+    limits: roomLimits(),
   });
 });
 
-app.get('/api/rooms/:roomId', (req, res) => {
-  const roomId = (req.params.roomId || 'ana-oda').trim().toLowerCase();
-  const roomName = typeof req.query.roomName === 'string' ? req.query.roomName : undefined;
-  const allowCreate = req.query.create === 'true' || roomId === 'ana-oda';
-  const ownerKey = typeof req.query.ownerKey === 'string' ? req.query.ownerKey : undefined;
-  const { room, error, code } = getOrCreateRoom(
-    roomId,
-    roomName,
-    undefined,
-    undefined,
-    undefined,
-    allowCreate,
-    ownerKey
-  );
-  if (!room || error) {
-    res.status(404).json({ error: error || 'Böyle bir oda bulunamadı.', code: code || 'ROOM_NOT_FOUND' });
+// Lightweight room lookup used by the join / create screens. Never returns room content.
+app.get('/api/rooms/:roomId', async (req, res) => {
+  const roomId = (req.params.roomId || 'ana-oda').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  const room = rooms.get(roomId);
+  if (!room) {
+    res.status(404).json({
+      exists: false,
+      error: `"${roomId.toUpperCase()}" kodlu bir çalışma odası bulunamadı. Lütfen oda kodunu kontrol edin veya yeni bir oda oluşturun.`,
+      code: 'ROOM_NOT_FOUND',
+    });
     return;
   }
-  const elementsArray = room.elementOrder
-    .map((id) => room.elements.get(id))
-    .filter((el): el is CanvasElement => el !== undefined);
-  const activeUsers = Array.from(room.users.values()).map((u) => u.presence);
-
+  const viewerKey = await resolveOwnerKey(req.query.ownerKey, bearerToken(req), '');
+  const isMine = Boolean(room.id !== 'ana-oda' && viewerKey && room.ownerKey === viewerKey);
   res.json({
+    exists: true,
     id: room.id,
     name: room.name,
     createdAt: room.createdAt,
-    settings: room.settings,
-    elementCount: elementsArray.length,
+    settings: {
+      isLocked: room.settings.isLocked,
+      maxUsers: room.settings.maxUsers,
+      defaultRole: room.settings.defaultRole,
+    },
+    idleLocked: room.idleLocked,
+    isMine,
     userCount: room.users.size,
-    elements: elementsArray,
-    code: room.code,
-    notes: room.notes,
-    files: room.files,
-    messages: room.messages,
-    users: activeUsers,
-    rooms: getRoomSummaries(),
-    limits: {
-      maxRooms: MAX_ROOMS,
-      maxUsersPerRoom: MAX_USERS_PER_ROOM,
-      maxRoomsPerUser: MAX_ROOMS_PER_USER,
-      currentRoomsCount: rooms.size,
+    elementCount: room.elements.size,
+    room: {
+      name: room.name,
+      isLocked: room.settings.isLocked,
+      idleLocked: room.idleLocked,
+      userCount: room.users.size,
+      maxUsers: room.settings.maxUsers,
     },
   });
 });
@@ -2041,6 +2350,7 @@ app.post('/api/rooms/:roomId/sync', (req, res) => {
     chatMessage?: { text: string; userName: string; userColor: string; userId?: string };
   };
 
+  markDirty();
   const { room, error } = getOrCreateRoom(roomId, roomName, undefined, undefined, undefined, false);
   if (!room || error) {
     res.status(404).json({ error: error || 'Room not found' });

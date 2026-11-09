@@ -36,6 +36,7 @@ import {
 } from '../types';
 import { generateRoomCodeSeed } from './UserSetupModal';
 import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
+import { authHeaders } from '../utils/identity';
 
 export type ShareLinkTargetMode = 'shared' | 'custom' | 'current';
 
@@ -252,13 +253,12 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   const ownerKey = useMemo(() => getOrCreateOwnerKey(), []);
   const maxRoomsPerUser = serverLimits.maxRoomsPerUser || 3;
 
-  const myOwnedRooms = useMemo(() => {
-    return roomsList.filter(
-      (r) =>
-        (r.ownerKey && r.ownerKey === ownerKey) ||
-        (r.ownerId && currentUserId && r.ownerId === currentUserId)
-    );
-  }, [roomsList, ownerKey, currentUserId]);
+  // The server marks which rooms belong to the requesting user; "my rooms" are listed first
+  const myOwnedRooms = useMemo(() => roomsList.filter((r) => r.isMine), [roomsList]);
+  const sortedRooms = useMemo(
+    () => [...roomsList].sort((a, b) => Number(Boolean(b.isMine)) - Number(Boolean(a.isMine))),
+    [roomsList]
+  );
 
   const hasReachedUserRoomLimit = myOwnedRooms.length >= maxRoomsPerUser;
 
@@ -285,24 +285,35 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
     setIsCheckingRoom(true);
     try {
-      const res = await fetch(`/api/rooms/${encodeURIComponent(cleanCode)}`);
+      const res = await fetch(
+        `/api/rooms/${encodeURIComponent(cleanCode)}?ownerKey=${encodeURIComponent(ownerKey)}`,
+        { headers: authHeaders() }
+      );
+      if (res.status === 404) {
+        setModalError(
+          `#${cleanCode.toUpperCase()} koduna sahip bir oda bulunamadı. Lütfen oda kodunu kontrol edin veya yeni bir oda oluşturun.`
+        );
+        setIsCheckingRoom(false);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
-        if (!data.exists) {
+        // The owner can always re-enter, which also re-opens a room locked by the idle timeout
+        if (data.room?.isLocked && !data.isMine) {
           setModalError(
-            `#${cleanCode.toUpperCase()} koduna sahip aktif bir oda bulunamadı. Lütfen oda kodunu kontrol edin veya yeni bir oda oluşturun.`
+            data.room.idleLocked
+              ? `"${data.room.name}" (#${cleanCode.toUpperCase()}) odası uzun süre işlem yapılmadığı için kilitlendi. Oda kurucusu aynı kodla girince yeniden açılır.`
+              : `"${data.room.name}" (#${cleanCode.toUpperCase()}) odası kurucu tarafından kilitlenmiş.`
           );
           setIsCheckingRoom(false);
           return;
         }
-        if (data.room?.isLocked) {
-          setModalError(
-            `"${data.room.name}" (#${cleanCode.toUpperCase()}) odası kurucu tarafından kilitlenmiş.`
-          );
-          setIsCheckingRoom(false);
-          return;
-        }
-        if (data.room && data.room.userCount >= data.room.maxUsers && cleanCode !== currentRoomId) {
+        if (
+          data.room &&
+          !data.isMine &&
+          data.room.userCount >= data.room.maxUsers &&
+          cleanCode !== currentRoomId
+        ) {
           setModalError(
             `"${data.room.name}" (#${cleanCode.toUpperCase()}) odasının maksimum kişi kapasitesi (${data.room.userCount}/${data.room.maxUsers}) dolmuş.`
           );
@@ -320,7 +331,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
     onClose();
   };
 
-  const handleCreateRoom = (e: React.FormEvent) => {
+  const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     setModalError(null);
 
@@ -349,6 +360,20 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         .replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
         .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
         .trim() || 'Yeni Çalışma Odası';
+
+    // A code that already exists can never be used to create a room
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(cleanCode)}`);
+      if (res.ok) {
+        setNewRoomCode(generateRoomCodeSeed(5));
+        setModalError(
+          `#${cleanCode.toUpperCase()} oda kodu zaten kullanımda. Yeni bir kod önerildi, lütfen tekrar deneyin.`
+        );
+        return;
+      }
+    } catch {
+      // offline: the server re-checks when joining
+    }
 
     const clampedMax = Math.min(
       serverLimits.maxUsersPerRoom || 30,
@@ -650,12 +675,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
 
               <div className="space-y-2">
-                {roomsList.map((r) => {
+                {sortedRooms.map((r) => {
                   const isCurrent = r.id === currentRoomId;
                   const isFull = r.userCount >= r.maxUsers;
-                  const isOwnedByMe =
-                    (r.ownerKey && r.ownerKey === ownerKey) ||
-                    (r.ownerId && currentUserId && r.ownerId === currentUserId);
+                  const isOwnedByMe = Boolean(r.isMine);
                   const cleanRName =
                     r.name
                       .replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
@@ -704,7 +727,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                           <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
                             {r.userCount}/{r.maxUsers} kullanıcı · {r.elementCount} nesne · Kurucu:{' '}
                             {r.ownerName}
-                            {r.isLocked && ' · Kilitli'}
+                            {r.isLocked && (r.idleLocked ? ' · Zaman aşımı (kilitli)' : ' · Kilitli')}
                           </div>
                         </div>
                       </div>
@@ -728,15 +751,17 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                           </span>
                         ) : (
                           <button
-                            disabled={r.isLocked || isFull}
+                            disabled={!isOwnedByMe && (r.isLocked || isFull)}
                             onClick={() => {
                               onSelectRoom(r.id, cleanRName, r.maxUsers, false);
                               onClose();
                             }}
                             className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold transition-colors flex items-center gap-1"
                           >
-                            <span>{r.isLocked ? 'Kilitli' : isFull ? 'Dolu' : 'Katıl'}</span>
-                            {!r.isLocked && !isFull && <ArrowRight className="w-3.5 h-3.5" />}
+                            <span>
+                              {isOwnedByMe ? 'Gir' : r.isLocked ? 'Kilitli' : isFull ? 'Dolu' : 'Katıl'}
+                            </span>
+                            {(isOwnedByMe || (!r.isLocked && !isFull)) && <ArrowRight className="w-3.5 h-3.5" />}
                           </button>
                         )}
                       </div>

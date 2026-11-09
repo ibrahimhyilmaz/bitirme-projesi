@@ -16,8 +16,15 @@ import {
   Keyboard,
   Layout,
   Users,
+  Plus,
+  FileUp,
+  Settings2,
 } from 'lucide-react';
 import { CodeCursorPresence } from '../types';
+import { CodeFile } from '../hooks/useWebSocket';
+import { useT } from '../i18n';
+import { CodeEditorSettings } from './CodeEditorSettings';
+import { updateCodePrefs, useCodePrefs } from '../utils/codePrefs';
 
 interface CodeEditorPanelProps {
   roomName: string;
@@ -27,10 +34,12 @@ interface CodeEditorPanelProps {
     content: string;
     language: string;
     lastUpdatedBy: string;
+    files?: CodeFile[];
   };
   codeCursors?: CodeCursorPresence[];
   currentUserId?: string;
   onUpdateCode: (content: string, language?: string) => void;
+  onUpdateCodeFiles?: (files: CodeFile[]) => void;
   onCursorMove?: (cursor: {
     line: number;
     column: number;
@@ -194,13 +203,115 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   roomName,
   roomId,
   canEdit = true,
-  code,
+  code: sharedCode,
   codeCursors = [],
   currentUserId,
-  onUpdateCode,
+  onUpdateCode: onUpdateMainCode,
+  onUpdateCodeFiles,
   onCursorMove,
   onClose,
 }) => {
+  const { t } = useT();
+  const prefs = useCodePrefs();
+  const [showCodeSettings, setShowCodeSettings] = useState<boolean>(false);
+
+  // ---- Multiple files: "main" is the room's primary code, the rest live in sharedCode.files ----
+  const extraFiles = sharedCode.files ?? [];
+  const [activeFileId, setActiveFileId] = useState<string>('main');
+  const activeExtra = activeFileId !== 'main' ? extraFiles.find((f) => f.id === activeFileId) : undefined;
+  const code = activeExtra
+    ? { content: activeExtra.content, language: activeExtra.language, lastUpdatedBy: sharedCode.lastUpdatedBy }
+    : sharedCode;
+  const onUpdateCode = (content: string, language?: string) => {
+    if (activeExtra) {
+      onUpdateCodeFiles?.(
+        extraFiles.map((f) =>
+          f.id === activeExtra.id ? { ...f, content, language: language || f.language } : f
+        )
+      );
+    } else {
+      onUpdateMainCode(content, language);
+    }
+  };
+  const mainExt = LANGUAGES.find((l) => l.id === sharedCode.language)?.ext || 'txt';
+  const fileUploadRef = useRef<HTMLInputElement>(null);
+  const MAX_EXTRA_FILES = 19;
+
+  const languageFromName = (name: string): string => {
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    return LANGUAGES.find((l) => l.ext === ext)?.id || (ext === 'htm' ? 'html' : ext === 'mjs' || ext === 'jsx' ? 'javascript' : ext === 'tsx' ? 'typescript' : ext === 'h' || ext === 'hpp' ? 'cpp' : 'javascript');
+  };
+  const newFileId = () => `f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+  const handleAddEmptyFile = () => {
+    if (!canEdit || !onUpdateCodeFiles || extraFiles.length >= MAX_EXTRA_FILES) return;
+    const ext = LANGUAGES.find((l) => l.id === code.language)?.ext || 'txt';
+    let n = extraFiles.length + 1;
+    let name = `dosya${n}.${ext}`;
+    while (extraFiles.some((f) => f.name === name)) name = `dosya${++n}.${ext}`;
+    const file: CodeFile = { id: newFileId(), name, language: code.language, content: '' };
+    onUpdateCodeFiles([...extraFiles, file]);
+    setActiveFileId(file.id);
+  };
+
+  const handleUploadFiles = async (list: FileList | null) => {
+    if (!list || !canEdit || !onUpdateCodeFiles) return;
+    const added: CodeFile[] = [];
+    for (const f of Array.from(list)) {
+      if (extraFiles.length + added.length >= MAX_EXTRA_FILES) break;
+      if (f.size > 200000) continue;
+      try {
+        const text = await f.text();
+        if (text.includes('\u0000')) continue; // binary file
+        added.push({ id: newFileId(), name: f.name, language: languageFromName(f.name), content: text });
+      } catch {}
+    }
+    if (added.length > 0) {
+      onUpdateCodeFiles([...extraFiles, ...added]);
+      setActiveFileId(added[added.length - 1].id);
+    }
+  };
+
+  const handleCloseFile = (id: string) => {
+    if (!canEdit || !onUpdateCodeFiles) return;
+    const target = extraFiles.find((f) => f.id === id);
+    if (!target) return;
+    if (target.content.trim() && !window.confirm(t('code.files.confirmClose', { name: target.name }))) return;
+    onUpdateCodeFiles(extraFiles.filter((f) => f.id !== id));
+    if (activeFileId === id) setActiveFileId('main');
+  };
+
+  const handleRenameFile = (id: string) => {
+    if (!canEdit || !onUpdateCodeFiles) return;
+    const target = extraFiles.find((f) => f.id === id);
+    if (!target) return;
+    const next = window.prompt(t('code.files.rename'), target.name)?.trim();
+    if (!next || next === target.name) return;
+    onUpdateCodeFiles(
+      extraFiles.map((f) =>
+        f.id === id ? { ...f, name: next.slice(0, 120), language: languageFromName(next) } : f
+      )
+    );
+  };
+
+  // ---- Resizable terminal (drag the bar above it up / down) ----
+  const startTerminalResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = prefs.terminalHeight;
+    const maxH = Math.max(120, window.innerHeight - 260);
+    const move = (ev: PointerEvent) => {
+      const next = Math.min(maxH, Math.max(80, startH + (startY - ev.clientY)));
+      updateCodePrefs({ terminalHeight: Math.round(next) });
+      setIsTerminalCollapsed(false);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
   const [stdinText, setStdinText] = useState<string>('');
   const [showStdin, setShowStdin] = useState<boolean>(false);
@@ -634,6 +745,17 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             </button>
           )}
 
+          {/* Code editor & console settings */}
+          <button
+            onClick={() => setShowCodeSettings((v) => !v)}
+            className={`p-1.5 rounded-lg transition-colors ${
+              showCodeSettings ? 'bg-blue-600 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800'
+            }`}
+            title={t('code.settings.title')}
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+          </button>
+
           {/* Fullscreen Toggle */}
           <button
             onClick={() => setIsFullscreen(!isFullscreen)}
@@ -666,6 +788,88 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
+      </div>
+
+      {showCodeSettings && (
+        <div className="absolute right-3 top-14 z-40 w-[340px] max-w-[calc(100%-24px)] max-h-[70%] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 text-slate-100 shadow-2xl p-4 cb-anim-scale-in">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <Settings2 className="w-4 h-4 text-blue-400" />
+              {t('code.settings.title')}
+            </h3>
+            <button onClick={() => setShowCodeSettings(false)} className="p-1 rounded hover:bg-slate-800 text-slate-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <CodeEditorSettings isDark />
+        </div>
+      )}
+
+      {/* File tabs: main file + any number of extra files */}
+      <div className="bg-slate-950 border-b border-slate-800 px-2 flex items-center gap-1 overflow-x-auto shrink-0 select-none">
+        {[{ id: 'main', name: `main.${mainExt}` }, ...extraFiles].map((f) => {
+          const isActive = (activeExtra ? activeExtra.id : 'main') === f.id;
+          return (
+            <div
+              key={f.id}
+              onClick={() => setActiveFileId(f.id)}
+              onDoubleClick={() => f.id !== 'main' && handleRenameFile(f.id)}
+              className={`group flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-[11px] font-mono cursor-pointer border-b-2 whitespace-nowrap ${
+                isActive
+                  ? 'border-blue-500 text-slate-100 bg-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+              title={f.id === 'main' ? t('code.files.main') : t('code.files.renameHint')}
+            >
+              <span>{f.name}</span>
+              {f.id !== 'main' && canEdit && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCloseFile(f.id);
+                  }}
+                  className="p-0.5 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800"
+                  title={t('common.close')}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+        {canEdit && onUpdateCodeFiles && (
+          <div className="flex items-center gap-0.5 pl-1 shrink-0">
+            <button
+              type="button"
+              onClick={handleAddEmptyFile}
+              disabled={extraFiles.length >= MAX_EXTRA_FILES}
+              className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40"
+              title={t('code.files.new')}
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => fileUploadRef.current?.click()}
+              disabled={extraFiles.length >= MAX_EXTRA_FILES}
+              className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-40"
+              title={t('code.files.upload')}
+            >
+              <FileUp className="w-3.5 h-3.5" />
+            </button>
+            <input
+              ref={fileUploadRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void handleUploadFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Live Multi-User Collaborator Cursor Bar */}
@@ -722,6 +926,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
         {/* Line Numbers Gutter */}
         <div
           ref={lineGutterRef}
+          style={{ fontSize: prefs.editorFontSize }}
           className="w-14 py-3 bg-slate-950/60 text-slate-600 font-mono text-xs select-none text-right pr-3 shrink-0 overflow-hidden border-r border-slate-800/60"
         >
           {lineNumbers.map((num) => {
@@ -766,7 +971,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
               const lineIdx = Math.max(0, rc.line - 1);
               const colIdx = Math.max(0, rc.column - 1);
               const topPx = 12 + lineIdx * 24 - scrollOffset.top;
-              const leftPx = 12 + colIdx * 7.22 - scrollOffset.left;
+              const leftPx = 12 + colIdx * (prefs.editorFontSize * 0.6017) - scrollOffset.left;
 
               return (
                 <React.Fragment key={rc.userId}>
@@ -825,6 +1030,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             }}
             spellCheck={false}
             wrap="off"
+            style={{ fontSize: prefs.editorFontSize }}
             className="flex-1 p-3 bg-transparent text-emerald-400 font-mono text-xs leading-6 outline-none resize-none overflow-auto selection:bg-blue-600/40 select-text relative z-20"
             placeholder="// Bu odaya özel ortak kod alanına kodunuzu yazın ve Derle & Çalıştır (Ctrl+Enter) butonuna tıklayın..."
           />
@@ -854,17 +1060,31 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
 
       {/* Interactive Terminal & Compiler Console (Always accessible, supports direct stdin typing) */}
       <div
-        className={`${
-          isTerminalCollapsed ? 'h-9' : isFullscreen ? 'h-64' : 'h-52'
-        } bg-slate-950 border-t border-slate-800 flex flex-col shrink-0 transition-all duration-150`}
+        style={{
+          height: isTerminalCollapsed ? 36 : prefs.terminalHeight,
+          backgroundColor: prefs.terminalBg,
+          fontSize: prefs.terminalFontSize,
+        }}
+        className="border-t border-slate-800 flex flex-col shrink-0 relative"
       >
+        {/* Drag this bar up / down to resize the terminal */}
+        <div
+          onPointerDown={startTerminalResize}
+          onDoubleClick={() => updateCodePrefs({ terminalHeight: 208 })}
+          className="absolute -top-1.5 inset-x-0 h-3 cursor-row-resize z-10 flex items-center justify-center group"
+          title={t('code.terminal.resize')}
+        >
+          <span className="w-12 h-1 rounded-full bg-slate-600/70 group-hover:bg-blue-500 transition-colors" />
+        </div>
         <div
           onClick={() => terminalInputRef.current?.focus()}
           className="h-9 px-4 flex items-center justify-between text-xs text-slate-400 border-b border-slate-900 select-none shrink-0"
         >
           <div className="flex items-center gap-2 min-w-0">
             <Terminal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-slate-200">Etkileşimli Terminal & Konsol</span>
+            <span className="font-semibold" style={{ color: prefs.terminalText }}>
+              {t('code.terminal.title')}
+            </span>
             {execResult && (
               <>
                 <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px] flex items-center gap-1 truncate">
@@ -902,7 +1122,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
               title="Terminal Çıktısını ve Girdileri Temizle"
             >
               <RotateCcw className="w-3 h-3" />
-              <span>Temizle</span>
+              <span>{t('code.terminal.clear')}</span>
             </button>
             <button
               type="button"
@@ -912,7 +1132,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
               }}
               className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[10px] font-semibold"
             >
-              {isTerminalCollapsed ? 'Terminali Aç' : 'Küçült'}
+              {isTerminalCollapsed ? t('code.terminal.open') : t('code.terminal.collapse')}
             </button>
           </div>
         </div>
@@ -922,12 +1142,13 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             <div
               ref={terminalOutputRef}
               onClick={() => terminalInputRef.current?.focus()}
-              className="flex-1 px-4 py-2.5 font-mono text-xs overflow-y-auto space-y-1.5 select-text cursor-text"
+              style={{ color: prefs.terminalText }}
+              className="flex-1 px-4 py-2.5 font-mono overflow-y-auto space-y-1.5 select-text cursor-text"
             >
               {terminalInputLines.length > 0 && (
                 <div className="space-y-0.5 pb-1 border-b border-slate-900">
                   {terminalInputLines.map((ln, idx) => (
-                    <div key={idx} className="text-sky-400 flex items-center gap-1.5">
+                    <div key={idx} style={{ color: prefs.terminalInputText }} className="flex items-center gap-1.5">
                       <span className="text-slate-500 select-none">&gt;</span>
                       <span>{ln}</span>
                     </div>
@@ -945,12 +1166,15 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
               {execResult ? (
                 <>
                   {execResult.stdout && (
-                    <pre className="whitespace-pre-wrap text-emerald-300 leading-relaxed">
+                    <pre style={{ color: prefs.terminalText }} className="whitespace-pre-wrap leading-relaxed">
                       {execResult.stdout}
                     </pre>
                   )}
                   {execResult.stderr && (
-                    <pre className="whitespace-pre-wrap text-rose-400 bg-rose-950/30 border border-rose-900/50 rounded-lg p-2.5 leading-relaxed">
+                    <pre
+                      style={{ color: prefs.terminalErrorText }}
+                      className="whitespace-pre-wrap bg-black/20 border border-white/10 rounded-lg p-2.5 leading-relaxed"
+                    >
                       {execResult.stderr}
                     </pre>
                   )}

@@ -140,6 +140,7 @@ interface CanvasBoardProps {
   setPan: React.Dispatch<React.SetStateAction<Point>>;
   canEdit?: boolean;
   showMinimap?: boolean;
+  hideFloatingDock?: boolean;
   onToggleMinimap?: () => void;
   onResetWidgetLayout?: () => void;
   theme?: ThemeMode;
@@ -326,6 +327,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   setPan,
   canEdit = true,
   showMinimap = true,
+  hideFloatingDock = false,
   onToggleMinimap,
   onResetWidgetLayout,
   theme = 'light',
@@ -3535,6 +3537,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         gridStyle={gridStyle}
         onChangeGridStyle={handleGridStyleChange}
         showMinimap={showMinimap}
+        hideFloatingDock={hideFloatingDock}
         onToggleMinimap={onToggleMinimap}
         onResetWidgetLayout={onResetWidgetLayout}
       />

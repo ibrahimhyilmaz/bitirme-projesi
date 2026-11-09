@@ -13,10 +13,27 @@ import {
   Sparkles,
   DoorOpen,
   Trash2,
+  Lock,
+  Clock,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { RoomSummary } from '../types';
 import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
+import { authHeaders, useIdentity } from '../utils/identity';
+import { useT } from '../i18n';
+
+function formatAgo(ts: number | undefined, lang: string): string {
+  if (!ts) return '';
+  const diffMin = Math.round((ts - Date.now()) / 60000);
+  try {
+    const rtf = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' });
+    if (Math.abs(diffMin) < 60) return rtf.format(diffMin, 'minute');
+    if (Math.abs(diffMin) < 60 * 24) return rtf.format(Math.round(diffMin / 60), 'hour');
+    return rtf.format(Math.round(diffMin / 1440), 'day');
+  } catch {
+    return '';
+  }
+}
 
 const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -98,6 +115,8 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   onJoin,
   onClose,
 }) => {
+  const { t, lang } = useT();
+  const { uid: googleUid } = useIdentity();
   const [name, setName] = useState(() => {
     if (firebaseUser?.displayName) return firebaseUser.displayName;
     if (initialName && !initialName.startsWith('Mimar ')) return initialName;
@@ -136,7 +155,9 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
 
   const refreshServerRooms = useCallback(async () => {
     try {
-      const res = await fetch('/api/rooms');
+      const res = await fetch(`/api/rooms?ownerKey=${encodeURIComponent(getOrCreateOwnerKey())}`, {
+        headers: authHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.rooms)) {
@@ -151,13 +172,13 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       setFetchedRooms(propRoomsList);
     }
     void refreshServerRooms();
-  }, [propRoomsList, refreshServerRooms]);
+    // re-fetch when the Google identity (and therefore "my rooms") changes
+  }, [propRoomsList, refreshServerRooms, googleUid]);
 
-  const myOwnedRooms = fetchedRooms.filter(
-    (r) =>
-      r.id !== 'ana-oda' &&
-      ((ownerKey && r.ownerKey === ownerKey) || (currentUserId && r.ownerId === currentUserId))
-  );
+  // The server tells each viewer which rooms are theirs (owner keys are never exposed)
+  const myOwnedRooms = fetchedRooms
+    .filter((r) => r.id !== 'ana-oda' && r.isMine)
+    .sort((a, b) => (b.lastActivityAt || b.createdAt) - (a.lastActivityAt || a.createdAt));
 
   // Sync Google displayName when user signs in with Google
   useEffect(() => {
@@ -216,8 +237,8 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
         await onDeleteRoom(targetRoomId);
       } else {
         await fetch(
-          `/api/rooms/${encodeURIComponent(targetRoomId)}?ownerKey=${encodeURIComponent(ownerKey)}&userId=${encodeURIComponent(currentUserId || '')}`,
-          { method: 'DELETE' }
+          `/api/rooms/${encodeURIComponent(targetRoomId)}?ownerKey=${encodeURIComponent(ownerKey)}`,
+          { method: 'DELETE', headers: authHeaders() }
         );
       }
       await refreshServerRooms();
@@ -257,6 +278,18 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       return;
     }
 
+    // A room code that is already in use can never be used to create another room
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(finalSeed.toLowerCase())}`);
+      if (res.ok) {
+        setCreateRoomSeed(generateRoomCodeSeed(5));
+        setLocalValidationError(t('create.codeTaken', { code: finalSeed }));
+        return;
+      }
+    } catch {
+      // offline / serverless: the server re-checks on join
+    }
+
     const clampedMax = Math.min(30, Math.max(2, Number(createMaxUsers) || 8));
     setIsCreateModalOpen(false);
     onJoin({
@@ -266,6 +299,22 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       roomName: finalRoomName,
       maxUsers: clampedMax,
       isCreatingRoom: true,
+    });
+  };
+
+  const handleEnterOwnedRoom = (r: RoomSummary) => {
+    const finalName = name.trim() || firebaseUser?.displayName || '';
+    if (!finalName) {
+      setLocalValidationError(t('join.needName'));
+      return;
+    }
+    setLocalValidationError(null);
+    onJoin({
+      name: finalName,
+      color,
+      roomId: r.id.toLowerCase(),
+      roomName: undefined,
+      isCreatingRoom: false,
     });
   };
 
@@ -286,7 +335,10 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     setLocalValidationError(null);
     setIsCheckingRoom(true);
     try {
-      const res = await fetch(`/api/rooms/${encodeURIComponent(cleanCode.toLowerCase())}`);
+      const res = await fetch(
+        `/api/rooms/${encodeURIComponent(cleanCode.toLowerCase())}?ownerKey=${encodeURIComponent(getOrCreateOwnerKey())}`,
+        { headers: authHeaders() }
+      );
       if (res.status === 404) {
         const errData = await res.json().catch(() => ({}));
         setLocalValidationError(
@@ -298,14 +350,18 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       }
       if (res.ok) {
         const roomData = await res.json();
-        if (roomData.settings?.isLocked) {
+        // The owner can always re-enter (this also re-opens a room locked by the idle timeout)
+        if (roomData.settings?.isLocked && !roomData.isMine) {
           setLocalValidationError(
-            `"${roomData.name}" (#${cleanCode}) odası şu anda kilitli. Oda yöneticisi yeni katılımları kapattı.`
+            roomData.idleLocked
+              ? t('join.idleLocked', { name: roomData.name, code: cleanCode })
+              : t('join.locked', { name: roomData.name, code: cleanCode })
           );
           setIsCheckingRoom(false);
           return;
         }
         if (
+          !roomData.isMine &&
           typeof roomData.userCount === 'number' &&
           typeof roomData.settings?.maxUsers === 'number' &&
           roomData.userCount >= roomData.settings.maxUsers
@@ -414,10 +470,9 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   <PlusCircle className="w-4 h-4 text-white" />
                 </div>
                 <div className="text-left">
-                  <div className="text-sm font-bold leading-tight">Yeni Çalışma Odası Oluştur</div>
+                  <div className="text-sm font-bold leading-tight">{t('gate.create')}</div>
                   <div className="text-[11px] font-normal text-blue-100 mt-0.5">
-                    5 haneli rastgele kod ve kişi kapasitesi belirleyin ({myOwnedRooms.length}/
-                    {MAX_ROOMS_PER_USER} oda)
+                    {t('gate.createDesc')} ({myOwnedRooms.length}/{MAX_ROOMS_PER_USER})
                   </div>
                 </div>
               </div>
@@ -425,45 +480,71 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             </button>
           </div>
 
-          {/* User's Owned Rooms Quick List (when user has active rooms, so they can rejoin or delete if at 3-room limit) */}
+          {/* My rooms: every room this account / browser created, so they can be re-entered with one click */}
           {myOwnedRooms.length > 0 && (
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="font-bold text-slate-700">
-                  Açtığınız Aktif Odalar ({myOwnedRooms.length}/{MAX_ROOMS_PER_USER})
+                  {t('myRooms.title')} ({myOwnedRooms.length}/{MAX_ROOMS_PER_USER})
                 </span>
                 {myOwnedRooms.length >= MAX_ROOMS_PER_USER && (
                   <span className="text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-semibold">
-                    Limit Dolu (Maks. 3)
+                    {t('myRooms.limit')}
                   </span>
                 )}
               </div>
-              <div className="space-y-1.5 max-h-28 overflow-y-auto pr-0.5">
+              <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
                 {myOwnedRooms.map((r) => (
                   <div
                     key={r.id}
-                    className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs"
+                    className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-white border border-slate-200 text-xs"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="font-bold text-slate-800 truncate">{r.name}</div>
+                      <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
+                        <span className="truncate">{r.name}</span>
+                        {r.isLocked && (
+                          <span
+                            className={`inline-flex items-center gap-0.5 shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              r.idleLocked ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {r.idleLocked ? <Clock className="w-2.5 h-2.5" /> : <Lock className="w-2.5 h-2.5" />}
+                            {r.idleLocked ? t('myRooms.timedOut') : t('myRooms.locked')}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[10px] font-mono text-slate-500">
-                        Kod: #{r.id.toUpperCase()} · {r.userCount}/{r.maxUsers} Kişi
+                        #{r.id.toUpperCase()} · {r.userCount}/{r.maxUsers}
+                        {r.lastActivityAt ? ` · ${formatAgo(r.lastActivityAt, lang)}` : ''}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
-                        onClick={() => setJoinRoomCode(r.id.toUpperCase().slice(0, 5))}
-                        className="px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-[11px] cursor-pointer"
-                        title="Bu odanın kodunu doldur"
+                        onClick={() => handleEnterOwnedRoom(r)}
+                        className="px-2.5 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 font-semibold text-[11px] cursor-pointer flex items-center gap-1"
+                        title={t('myRooms.enter')}
                       >
-                        Kodu Seç
+                        <DoorOpen className="w-3 h-3" />
+                        {t('myRooms.enter')}
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeleteOwnedRoom(r.id)}
+                        onClick={() => setJoinRoomCode(r.id.toUpperCase().slice(0, 5))}
+                        className="px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-[11px] cursor-pointer"
+                        title={t('myRooms.fillCode')}
+                      >
+                        {t('myRooms.code')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(t('myRooms.confirmDelete', { name: r.name }))) {
+                            void handleDeleteOwnedRoom(r.id);
+                          }
+                        }}
                         className="p-1 rounded text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors cursor-pointer"
-                        title="Bu odayı kapat / sil"
+                        title={t('myRooms.delete')}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -541,7 +622,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                     />
                   </svg>
                   <span>
-                    {isGoogleLoading ? 'Google ile Bağlanılıyor...' : 'Google ile Giriş Yap'}
+                    {isGoogleLoading ? t('gate.googleLoading') : t('gate.google')}
                   </span>
                 </button>
               )}
@@ -552,7 +633,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
           <div className="relative flex items-center py-0.5">
             <div className="grow border-t border-slate-200" />
             <span className="shrink-0 mx-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              veya Oda Kodu ile Giriş
+              {t('gate.orCode')}
             </span>
             <div className="grow border-t border-slate-200" />
           </div>
@@ -562,7 +643,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             {/* User Name */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Adınız / Görünür İsminiz
+                {t('gate.yourName')}
               </label>
               <input
                 type="text"
@@ -577,7 +658,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             {/* Avatar Color Picker */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                İmleç ve Avatar Renginiz
+                {t('gate.yourColor')}
               </label>
               <div className="flex items-center gap-2">
                 {AVATAR_COLORS.map((c) => (
@@ -600,7 +681,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  5 Haneli Oda Kodu
+                  {t('gate.roomCode')}
                 </label>
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] font-mono font-semibold text-slate-400">
@@ -634,7 +715,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                 />
               </div>
               <p className="text-[11px] text-slate-400 mt-1">
-                Katılmak istediğiniz mevcut çalışma odasının 5 karakterlik kodunu girin.
+                {t('gate.roomCodeHint')}
               </p>
             </div>
 
@@ -646,10 +727,10 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
               <DoorOpen className="w-4 h-4" />
               <span>
                 {isCheckingRoom
-                  ? 'Oda Kontrol Ediliyor...'
+                  ? t('gate.checking')
                   : isInitialSetup
-                  ? 'Oda Kodu ile Giriş Yap'
-                  : 'Odaya Geç / Bilgileri Kaydet'}
+                  ? t('gate.join')
+                  : t('gate.switch')}
               </span>
             </button>
           </form>

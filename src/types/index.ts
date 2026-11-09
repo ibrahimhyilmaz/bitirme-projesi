@@ -94,6 +94,9 @@ export interface AppSettings {
   soundEffectsEnabled: boolean;
   showRemoteCursors: boolean;
   autoSmoothFreehand: boolean;
+  language: string;
+  showClock: boolean;
+  showFolder: boolean;
 }
 
 export interface RoomSettings {
@@ -115,6 +118,11 @@ export interface RoomSummary {
   ownerName: string;
   ownerId?: string;
   ownerKey?: string;
+  /** True when the requesting user owns this room (computed by the server per viewer). */
+  isMine?: boolean;
+  /** Locked automatically because nobody was active for the idle timeout. */
+  idleLocked?: boolean;
+  lastActivityAt?: number;
 }
 
 export interface ServerLimits {
