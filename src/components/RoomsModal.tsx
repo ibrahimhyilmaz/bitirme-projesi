@@ -24,6 +24,7 @@ import {
   Smartphone,
   ImagePlus,
   Sparkles,
+  KeyRound,
 } from 'lucide-react';
 import {
   CanvasElement,
@@ -33,6 +34,7 @@ import {
   UserPresence,
   UserRole,
 } from '../types';
+import { generateRoomCodeSeed } from './UserSetupModal';
 
 export type ShareLinkTargetMode = 'shared' | 'custom' | 'current';
 
@@ -178,7 +180,12 @@ interface RoomsModalProps {
   onSignOutFirebase?: () => void;
   onSyncToCloud?: () => void;
   onAddQrToCanvas?: (qrDataUrl: string) => void;
-  onSelectRoom: (roomId: string, roomName?: string, maxUsers?: number) => void;
+  onSelectRoom: (
+    roomId: string,
+    roomName?: string,
+    maxUsers?: number,
+    isCreatingRoom?: boolean
+  ) => void;
   onUpdateRoomSettings: (changes: {
     isLocked?: boolean;
     maxUsers?: number;
@@ -219,9 +226,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<'rooms' | 'permissions' | 'invite'>(initialTab);
+  const [joinByCodeInput, setJoinByCodeInput] = useState('');
   const [newRoomName, setNewRoomName] = useState('');
-  const [newRoomCode, setNewRoomCode] = useState('');
-  const [newRoomMaxUsers, setNewRoomMaxUsers] = useState(12);
+  const [newRoomCode, setNewRoomCode] = useState(() => generateRoomCodeSeed(5));
+  const [newRoomMaxUsers, setNewRoomMaxUsers] = useState(8);
   const [editingRoomName, setEditingRoomName] = useState(currentRoomName);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -239,13 +247,25 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
     setEditingRoomName(currentRoomName);
   }, [currentRoomName]);
 
+  const handleJoinByCode = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanCode = joinByCodeInput.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
+    if (!cleanCode) return;
+    onSelectRoom(cleanCode, undefined, undefined, false);
+    onClose();
+  };
+
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCode =
       newRoomCode.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') ||
-      `oda-${Math.random().toString(36).substring(2, 7)}`;
-    const cleanName = newRoomName.trim() || `Oda #${cleanCode}`;
-    onSelectRoom(cleanCode, cleanName, newRoomMaxUsers);
+      generateRoomCodeSeed(5).toLowerCase();
+    const cleanName = newRoomName.trim() || `Oda #${cleanCode.toUpperCase()}`;
+    const clampedMax = Math.min(
+      serverLimits.maxUsersPerRoom || 30,
+      Math.max(2, Number(newRoomMaxUsers) || 8)
+    );
+    onSelectRoom(cleanCode, cleanName, clampedMax, true);
     onClose();
   };
 
@@ -457,6 +477,44 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         {/* Tab 1: Active Rooms & Create Room */}
         {activeTab === 'rooms' && (
           <div className="p-6 space-y-5 max-h-[68vh] overflow-y-auto">
+            {/* Switch Room by 5-Digit Code Card */}
+            <form
+              onSubmit={handleJoinByCode}
+              className="p-4 rounded-xl bg-blue-50/60 border border-blue-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+            >
+              <div>
+                <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <KeyRound className="w-4 h-4 text-blue-600" />
+                  <span>Oda Kodu ile Başka Bir Odaya Geç</span>
+                </div>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Katılmak istediğiniz odanın 5 haneli kodunu girerek doğrudan geçiş yapın.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="text"
+                  maxLength={12}
+                  value={joinByCodeInput}
+                  onChange={(e) =>
+                    setJoinByCodeInput(
+                      e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '')
+                    )
+                  }
+                  placeholder="Örn: K7X9A"
+                  className="w-32 px-3 py-2 bg-white rounded-lg border border-blue-300 text-xs font-mono font-bold tracking-widest uppercase text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600"
+                />
+                <button
+                  type="submit"
+                  disabled={!joinByCodeInput.trim()}
+                  className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0"
+                >
+                  <span>Odaya Geç</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </form>
+
             {/* Active Rooms List */}
             <div>
               <div className="flex items-center justify-between mb-2.5">
@@ -506,7 +564,9 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                             <span className="text-xs font-bold text-slate-900 truncate">
                               {r.name}
                             </span>
-                            <span className="text-[11px] font-mono text-slate-400">#{r.id}</span>
+                            <span className="text-[11px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                              #{r.id.toUpperCase()}
+                            </span>
                           </div>
                           <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
                             {r.userCount}/{r.maxUsers} kullanıcı · {r.elementCount} nesne · Kurucu:{' '}
@@ -525,7 +585,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                           <button
                             disabled={r.isLocked || isFull}
                             onClick={() => {
-                              onSelectRoom(r.id, r.name);
+                              onSelectRoom(r.id, r.name, r.maxUsers, false);
                               onClose();
                             }}
                             className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold transition-colors flex items-center gap-1"
@@ -574,17 +634,30 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Oda Kodu (İsteğe Bağlı)
+                    Oda Kodu (5 Haneli Seed)
                   </label>
-                  <input
-                    type="text"
-                    value={newRoomCode}
-                    onChange={(e) =>
-                      setNewRoomCode(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ''))
-                    }
-                    placeholder="Örn: sprint-42"
-                    className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 text-xs font-mono text-slate-800 focus:outline-hidden focus:border-blue-600"
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      maxLength={5}
+                      value={newRoomCode}
+                      onChange={(e) =>
+                        setNewRoomCode(
+                          e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5)
+                        )
+                      }
+                      placeholder="Örn: K7X9A"
+                      className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 text-xs font-mono font-bold tracking-widest uppercase text-slate-800 focus:outline-hidden focus:border-blue-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setNewRoomCode(generateRoomCodeSeed(5))}
+                      className="p-2 bg-white border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-100"
+                      title="Yeni 5 Haneli Seed Üret"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -596,7 +669,14 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     min={2}
                     max={serverLimits.maxUsersPerRoom}
                     value={newRoomMaxUsers}
-                    onChange={(e) => setNewRoomMaxUsers(Number(e.target.value))}
+                    onChange={(e) =>
+                      setNewRoomMaxUsers(
+                        Math.min(
+                          serverLimits.maxUsersPerRoom || 30,
+                          Math.max(2, Number(e.target.value) || 2)
+                        )
+                      )
+                    }
                     className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 text-xs font-mono tabular-nums text-slate-800 focus:outline-hidden focus:border-blue-600"
                   />
                 </div>

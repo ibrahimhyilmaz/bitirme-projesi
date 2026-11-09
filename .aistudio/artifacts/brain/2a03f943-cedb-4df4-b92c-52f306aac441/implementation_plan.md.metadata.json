@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive architectural and UX implementation plan covering all 14 reported issues: world-space cursor isolation during pan, smooth Bezier freehand pen strokes, visible eraser & pen cursors, reliable sonar ping tool, enhanced AI vector/SVG drawing engine, 2-column draggable vertical toolbar, 3-minute/50MB video validation & memory optimization, chat quick reaction positioning, universal instant file-to-canvas insertion, pointer-capture boundary protection, non-overflowing top navigation bar, true edge-to-edge fullscreen code editor, and direct interactive terminal input.",
-  "updatedAt":  "2026-11-08T11:45:53.156487097Z",
+  "summary":  "Ön karşılama (giriş kapısı) ekranı, 5 haneli rastgele oda kodu üretimi, Google ile giriş entegrasyonu, yeni oda oluşturma ve kapasite sınırı (maxUsers) zorlaması ile oda içerisinden kodla hızlı oda değiştirme özelliklerinin uygulama planı (bozuk görsel çizim hatası düzeltildi).",
+  "updatedAt":  "2026-11-09T08:24:54.738464509Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

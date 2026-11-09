@@ -14,7 +14,7 @@ import { FileShareModal } from './components/FileShareModal';
 import { ChatDrawer } from './components/ChatDrawer';
 import { TemplatesModal } from './components/TemplatesModal';
 import { ExportModal } from './components/ExportModal';
-import { UserSetupModal } from './components/UserSetupModal';
+import { UserSetupModal, generateRoomCodeSeed, RoomJoinPayload } from './components/UserSetupModal';
 import { AIPromptModal } from './components/AIPromptModal';
 import { RoomsModal, decodeRoomSnapshot } from './components/RoomsModal';
 import { OnboardingTour } from './components/OnboardingTour';
@@ -22,7 +22,12 @@ import { SettingsModal } from './components/SettingsModal';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 
-function extractRoomInfoFromLocation(): { roomId: string; roomName: string; snapshot?: string } {
+function extractRoomInfoFromLocation(): {
+  roomId: string;
+  roomName: string;
+  hasUrlRoomParam: boolean;
+  snapshot?: string;
+} {
   try {
     const searchParams = new URLSearchParams(window.location.search);
     let roomId =
@@ -85,12 +90,17 @@ function extractRoomInfoFromLocation(): { roomId: string; roomName: string; snap
     const cleanRoomName = roomName ? decodeURIComponent(roomName).trim() : '';
 
     return {
-      roomId: cleanRoomId || 'ana-oda',
+      roomId: cleanRoomId || generateRoomCodeSeed(5).toLowerCase(),
       roomName: cleanRoomName,
+      hasUrlRoomParam: Boolean(cleanRoomId),
       snapshot: snapshot || undefined,
     };
   } catch {
-    return { roomId: 'ana-oda', roomName: '' };
+    return {
+      roomId: generateRoomCodeSeed(5).toLowerCase(),
+      roomName: '',
+      hasUrlRoomParam: false,
+    };
   }
 }
 
@@ -98,57 +108,78 @@ export default function App() {
   const initialRoomInfo = useMemo(() => extractRoomInfoFromLocation(), []);
   const [roomId, setRoomId] = useState<string>(initialRoomInfo.roomId);
   const [customRoomName, setCustomRoomName] = useState<string>(initialRoomInfo.roomName);
+  const [customMaxUsers, setCustomMaxUsers] = useState<number | undefined>(undefined);
+  const [isCreatingRoom, setIsCreatingRoom] = useState<boolean>(false);
+  const [hasEnteredWorkspace, setHasEnteredWorkspace] = useState<boolean>(false);
+  const [joinGateError, setJoinGateError] = useState<string | null>(null);
+  const lastValidRoomRef = useRef<{
+    roomId: string;
+    roomName: string;
+    maxUsers?: number;
+  } | null>(null);
+
   const fallbackRoomName = useMemo(() => {
     if (customRoomName.trim()) return customRoomName.trim();
-    return roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : `Oda #${roomId}`;
+    return roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : `Oda #${roomId.toUpperCase()}`;
   }, [roomId, customRoomName]);
 
-  // User Identity
+  // User Identity (Unique per browser tab via sessionStorage so multi-tab testing enforces maxUsers accurately)
   const [currentUser, setCurrentUser] = useState(() => {
     const savedName = localStorage.getItem('collab_username');
     const savedColor = localStorage.getItem('collab_usercolor');
-    const randomId = `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
     const colors = ['#2563eb', '#7c3aed', '#059669', '#ea580c', '#db2777', '#0891b2'];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
+    let sessionUserId = '';
+    try {
+      sessionUserId = sessionStorage.getItem('collab_tab_userid') || '';
+      if (!sessionUserId) {
+        sessionUserId = `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
+        sessionStorage.setItem('collab_tab_userid', sessionUserId);
+      }
+    } catch {
+      sessionUserId = `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
+    }
+
     return {
-      id: localStorage.getItem('collab_userid') || randomId,
-      name: savedName || `Mimar ${Math.floor(Math.random() * 900 + 100)}`,
+      id: sessionUserId,
+      name: savedName || '',
       avatar: (savedName || 'M').charAt(0).toUpperCase(),
       color: savedColor || randomColor,
     };
   });
 
-  const [isUserSetupOpen, setIsUserSetupOpen] = useState(() => {
-    return !localStorage.getItem('collab_username');
-  });
-  const [isInitialSetup, setIsInitialSetup] = useState(() => {
-    return !localStorage.getItem('collab_username');
-  });
+  const [isUserSetupOpen, setIsUserSetupOpen] = useState<boolean>(true);
+  const [isInitialSetup, setIsInitialSetup] = useState<boolean>(true);
 
   // Sync user profile to localStorage
   useEffect(() => {
-    localStorage.setItem('collab_userid', currentUser.id);
-    localStorage.setItem('collab_username', currentUser.name);
+    if (currentUser.name) {
+      localStorage.setItem('collab_username', currentUser.name);
+    }
     localStorage.setItem('collab_usercolor', currentUser.color);
   }, [currentUser]);
 
-  // Keep URL search param synced when roomId changes and listen to popstate/hashchange
+  // Keep URL search param synced when roomId changes (only after entering workspace)
   useEffect(() => {
+    if (!hasEnteredWorkspace) return;
     try {
       const url = new URL(window.location.href);
-      url.searchParams.set('room', roomId);
+      url.searchParams.set('room', roomId.toUpperCase());
       if (customRoomName.trim()) {
         url.searchParams.set('rname', customRoomName.trim());
       } else {
         url.searchParams.delete('rname');
       }
-      if (window.location.hash && (window.location.hash.includes('room=') || window.location.hash.includes('/room/'))) {
+      if (
+        window.location.hash &&
+        (window.location.hash.includes('room=') || window.location.hash.includes('/room/'))
+      ) {
         url.hash = '';
       }
       window.history.replaceState({}, '', url.toString());
     } catch {}
-  }, [roomId, customRoomName]);
+  }, [roomId, customRoomName, hasEnteredWorkspace]);
 
   useEffect(() => {
     const handleLocationChange = () => {
@@ -182,11 +213,7 @@ export default function App() {
   const [roomsModalTab, setRoomsModalTab] = useState<'rooms' | 'permissions' | 'invite'>('rooms');
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
   const [unreadChatCount, setUnreadChatCount] = useState<number>(0);
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
-    const hasUsername = !!localStorage.getItem('collab_username');
-    const tourDone = localStorage.getItem('collabboard_onboarding_v2_done') === 'true';
-    return hasUsername && !tourDone;
-  });
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
 
   // Workspace Widget Visibility & Layout States (Synced across TopNav Kutucuklar, Toolbar, StyleBar, VoiceBar, Minimap)
   const [showToolbar, setShowToolbar] = useState<boolean>(() => {
@@ -429,20 +456,80 @@ export default function App() {
   } = useWebSocket({
     roomId,
     roomName: fallbackRoomName,
-    user: currentUser,
+    enabled: hasEnteredWorkspace,
+    customMaxUsers,
+    isCreatingRoom,
+    user: {
+      ...currentUser,
+      name: currentUser.name || 'Misafir Kullanıcı',
+    },
     onWebRTCSignal: (fromUserId, signal) => {
       if (voiceManagerRef.current) {
         voiceManagerRef.current.handleSignal(fromUserId, signal as { type: string });
       }
     },
-    onKicked: () => {
-      if (roomId !== 'ana-oda') {
-        setRoomId('ana-oda');
+    onKicked: (_kickedRoomId, kickedRoomName, by) => {
+      setJoinGateError(
+        `"${kickedRoomName}" odasından ${by} tarafından çıkarıldınız. Lütfen başka bir odaya katılın veya yeni oda oluşturun.`
+      );
+      lastValidRoomRef.current = null;
+      setHasEnteredWorkspace(false);
+      setIsInitialSetup(true);
+      setIsUserSetupOpen(true);
+    },
+    onRoomRejected: (err) => {
+      setJoinGateError(err.message);
+      const prevValid = lastValidRoomRef.current;
+      if (prevValid && prevValid.roomId && prevValid.roomId !== err.roomId) {
+        // Revert to the user's current active room while keeping the warning banner visible
+        setIsCreatingRoom(false);
+        setCustomMaxUsers(prevValid.maxUsers);
+        setCustomRoomName(prevValid.roomName);
+        setRoomId(prevValid.roomId);
+      } else {
+        // Block entry and keep the user on the Pre-Welcome Gate Screen
+        setHasEnteredWorkspace(false);
+        setIsInitialSetup(true);
+        setIsUserSetupOpen(true);
       }
     },
   });
 
+  // Record last valid room after joining without errors so rejected room switches can revert cleanly
+  useEffect(() => {
+    if (!hasEnteredWorkspace || roomError) return;
+    const timer = window.setTimeout(() => {
+      if (hasEnteredWorkspace && !roomError) {
+        lastValidRoomRef.current = {
+          roomId,
+          roomName: customRoomName,
+          maxUsers: roomSettings.maxUsers,
+        };
+      }
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [hasEnteredWorkspace, roomError, roomId, customRoomName, roomSettings.maxUsers]);
+
   const effectiveRoomName = syncedRoomName || fallbackRoomName;
+
+  const handleSelectOrSwitchRoom = useCallback(
+    (
+      targetRoomId: string,
+      targetRoomName?: string,
+      targetMaxUsers?: number,
+      creating?: boolean
+    ) => {
+      const cleanTarget = targetRoomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+      if (!cleanTarget) return;
+      clearRoomError();
+      setJoinGateError(null);
+      setIsCreatingRoom(Boolean(creating));
+      setCustomMaxUsers(targetMaxUsers);
+      setCustomRoomName(targetRoomName || '');
+      setRoomId(cleanTarget);
+    },
+    [clearRoomError]
+  );
 
   // Firebase Cloud Firestore Persistence & Google Auth
   const {
@@ -455,6 +542,7 @@ export default function App() {
   } = useFirebaseSync({
     roomId,
     roomName: effectiveRoomName,
+    enabled: hasEnteredWorkspace,
     roomSettings,
     code,
     notes,
@@ -1128,6 +1216,62 @@ export default function App() {
     }
   };
 
+  const handleWelcomeOrProfileJoin = useCallback(
+    (payload: RoomJoinPayload) => {
+      clearRoomError();
+      setJoinGateError(null);
+      setCurrentUser((prev) => ({
+        ...prev,
+        name: payload.name,
+        color: payload.color,
+        avatar: payload.name.charAt(0).toUpperCase(),
+      }));
+      setIsCreatingRoom(Boolean(payload.isCreatingRoom));
+      setCustomMaxUsers(payload.maxUsers);
+      setCustomRoomName(payload.roomName || '');
+      setRoomId(payload.roomId);
+      setHasEnteredWorkspace(true);
+      setIsUserSetupOpen(false);
+      setIsInitialSetup(false);
+      if (localStorage.getItem('collabboard_onboarding_v2_done') !== 'true') {
+        setIsOnboardingOpen(true);
+      }
+    },
+    [clearRoomError]
+  );
+
+  // Strict Pre-Welcome Gate: Do NOT render the whiteboard or any workspace UI until the user completes the Welcome Screen
+  if (!hasEnteredWorkspace) {
+    return (
+      <UserSetupModal
+        initialName={currentUser.name}
+        initialColor={currentUser.color}
+        initialRoomId={roomId}
+        initialRoomName={customRoomName}
+        hasUrlRoomParam={initialRoomInfo.hasUrlRoomParam}
+        isInitialSetup={true}
+        joinError={joinGateError || roomError?.message || null}
+        onClearJoinError={() => {
+          setJoinGateError(null);
+          clearRoomError();
+        }}
+        firebaseUser={firebaseUser}
+        onSignInGoogle={async () => {
+          const u = await signInWithGoogle();
+          if (u && u.displayName) {
+            setCurrentUser((prev) => ({
+              ...prev,
+              name: u.displayName || prev.name,
+              avatar: (u.displayName || prev.name || 'G').charAt(0).toUpperCase(),
+            }));
+          }
+        }}
+        onSignOutGoogle={signOutFirebase}
+        onJoin={handleWelcomeOrProfileJoin}
+      />
+    );
+  }
+
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden bg-slate-50 select-none font-sans">
       {/* Top Bar Contract */}
@@ -1169,16 +1313,17 @@ export default function App() {
         onResetWidgetLayout={handleResetWidgetLayout}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
+        onSwitchRoomByCode={(codeStr) => handleSelectOrSwitchRoom(codeStr, undefined, undefined, false)}
         theme={settings.theme}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Room Error / Capacity / Lock Banner */}
-      {roomError && (
+      {(roomError || joinGateError) && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between gap-3 text-xs text-amber-900 z-30">
           <div className="flex items-center gap-2 font-medium">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>{roomError.message}</span>
+            <span>{joinGateError || roomError?.message}</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -1192,7 +1337,10 @@ export default function App() {
               <span>Başka Odaya Geç</span>
             </button>
             <button
-              onClick={clearRoomError}
+              onClick={() => {
+                setJoinGateError(null);
+                clearRoomError();
+              }}
               className="p-1 rounded hover:bg-amber-200/60 text-amber-700"
               title="Kapat"
             >
@@ -1614,10 +1762,8 @@ export default function App() {
             handleAddImageToCanvas(qrDataUrl, 220, 220);
           }}
           onRefreshRooms={requestRoomsList}
-          onSelectRoom={(targetRoomId, targetRoomName) => {
-            clearRoomError();
-            if (targetRoomName) setCustomRoomName(targetRoomName);
-            setRoomId(targetRoomId);
+          onSelectRoom={(targetRoomId, targetRoomName, targetMaxUsers, creating) => {
+            handleSelectOrSwitchRoom(targetRoomId, targetRoomName, targetMaxUsers, creating);
           }}
           onUpdateRoomSettings={updateRoomSettings}
           onUpdateUserRole={updateUserRole}
@@ -1654,28 +1800,34 @@ export default function App() {
         />
       )}
 
-      {/* User Onboarding Setup / Room Switcher */}
+      {/* Profile & Room Switcher Modal (when opened from inside the workspace) */}
       {isUserSetupOpen && (
         <UserSetupModal
           initialName={currentUser.name}
           initialColor={currentUser.color}
           initialRoomId={roomId}
+          initialRoomName={effectiveRoomName}
+          hasUrlRoomParam={true}
           isInitialSetup={isInitialSetup}
-          onClose={!isInitialSetup ? () => setIsUserSetupOpen(false) : undefined}
-          onJoin={(name, color, newRoomId) => {
-            setCurrentUser((prev) => ({
-              ...prev,
-              name,
-              color,
-              avatar: name.charAt(0).toUpperCase(),
-            }));
-            setRoomId(newRoomId);
-            setIsUserSetupOpen(false);
-            setIsInitialSetup(false);
-            if (localStorage.getItem('collabboard_onboarding_v2_done') !== 'true') {
-              setIsOnboardingOpen(true);
+          joinError={joinGateError || roomError?.message || null}
+          onClearJoinError={() => {
+            setJoinGateError(null);
+            clearRoomError();
+          }}
+          firebaseUser={firebaseUser}
+          onSignInGoogle={async () => {
+            const u = await signInWithGoogle();
+            if (u && u.displayName) {
+              setCurrentUser((prev) => ({
+                ...prev,
+                name: u.displayName || prev.name,
+                avatar: (u.displayName || prev.name || 'G').charAt(0).toUpperCase(),
+              }));
             }
           }}
+          onSignOutGoogle={signOutFirebase}
+          onClose={!isInitialSetup ? () => setIsUserSetupOpen(false) : undefined}
+          onJoin={handleWelcomeOrProfileJoin}
         />
       )}
 

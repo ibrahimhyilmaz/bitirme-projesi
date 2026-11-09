@@ -13,22 +13,38 @@ export type TransformHandleType =
 
 // Pre-cached image elements to avoid reloading on each render
 const imageCache = new Map<string, HTMLImageElement>();
+const brokenImages = new Set<string>();
 
 export function getCachedImage(url: string, onLoaded?: () => void): HTMLImageElement | null {
-  if (!url) return null;
+  if (!url || brokenImages.has(url)) return null;
   if (imageCache.has(url)) {
     const img = imageCache.get(url)!;
-    return img.complete ? img : null;
+    if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      return img;
+    }
+    return null;
   }
 
   const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.src = url;
+  if (!url.startsWith('data:') && !url.startsWith('blob:')) {
+    img.crossOrigin = 'anonymous';
+  }
   img.onload = () => {
-    imageCache.set(url, img);
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      imageCache.set(url, img);
+      if (onLoaded) onLoaded();
+    } else {
+      brokenImages.add(url);
+      imageCache.delete(url);
+    }
+  };
+  img.onerror = () => {
+    brokenImages.add(url);
+    imageCache.delete(url);
     if (onLoaded) onLoaded();
   };
   imageCache.set(url, img);
+  img.src = url;
   return null;
 }
 
@@ -1041,22 +1057,36 @@ export function drawElement(
 
       if (element.imageUrl) {
         const img = getCachedImage(element.imageUrl, onImageLoadNeedRedraw);
-        if (img) {
-          ctx.drawImage(img, element.x, element.y, w, h);
-          // Only stroke if explicitly configured by the user (strokeWidth > 0 and color is set and not transparent)
-          if (element.strokeWidth && element.strokeWidth > 0 && element.color && element.color !== 'transparent') {
-            ctx.strokeStyle = element.color;
-            ctx.lineWidth = element.strokeWidth;
-            ctx.strokeRect(element.x, element.y, w, h);
+        let drawn = false;
+        if (img && img.complete && img.naturalWidth > 0) {
+          try {
+            ctx.drawImage(img, element.x, element.y, w, h);
+            drawn = true;
+            // Only stroke if explicitly configured by the user (strokeWidth > 0 and color is set and not transparent)
+            if (element.strokeWidth && element.strokeWidth > 0 && element.color && element.color !== 'transparent') {
+              ctx.strokeStyle = element.color;
+              ctx.lineWidth = element.strokeWidth;
+              ctx.strokeRect(element.x, element.y, w, h);
+            }
+          } catch {
+            drawn = false;
           }
-        } else {
+        }
+        if (!drawn) {
           ctx.fillStyle = '#f8fafc';
           ctx.beginPath();
           ctx.roundRect(element.x, element.y, w, h, 8);
           ctx.fill();
+          ctx.strokeStyle = '#e2e8f0';
+          ctx.lineWidth = 1;
+          ctx.stroke();
           ctx.fillStyle = '#94a3b8';
           ctx.font = '12px "Plus Jakarta Sans", sans-serif';
-          ctx.fillText('Görsel yükleniyor...', element.x + 12, element.y + 24);
+          ctx.fillText(
+            brokenImages.has(element.imageUrl) ? 'Görsel yüklenemedi' : 'Görsel yükleniyor...',
+            element.x + 12,
+            element.y + 24
+          );
         }
       }
       break;
@@ -1079,14 +1109,22 @@ export function drawElement(
 
       if (element.imageUrl) {
         const img = getCachedImage(element.imageUrl, onImageLoadNeedRedraw);
-        if (img) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.roundRect(element.x, element.y, w, h, 6);
-          ctx.clip();
-          ctx.drawImage(img, element.x, element.y, w, h);
-          ctx.restore();
-        } else {
+        let drawn = false;
+        if (img && img.complete && img.naturalWidth > 0) {
+          try {
+            ctx.save();
+            ctx.beginPath();
+            ctx.roundRect(element.x, element.y, w, h, 6);
+            ctx.clip();
+            ctx.drawImage(img, element.x, element.y, w, h);
+            ctx.restore();
+            drawn = true;
+          } catch {
+            ctx.restore();
+            drawn = false;
+          }
+        }
+        if (!drawn) {
           ctx.fillStyle = '#f8fafc';
           ctx.beginPath();
           ctx.roundRect(element.x, element.y, w, h, 6);

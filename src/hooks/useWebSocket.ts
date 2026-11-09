@@ -20,6 +20,9 @@ import { soundEffects } from '../utils/audio';
 interface UseWebSocketOptions {
   roomId: string;
   roomName: string;
+  enabled?: boolean;
+  customMaxUsers?: number;
+  isCreatingRoom?: boolean;
   user: {
     id: string;
     name: string;
@@ -28,6 +31,7 @@ interface UseWebSocketOptions {
   };
   onWebRTCSignal?: (fromUserId: string, signal: unknown) => void;
   onKicked?: (roomId: string, roomName: string, by: string) => void;
+  onRoomRejected?: (error: { code: string; message: string; roomId?: string }) => void;
 }
 
 const PUBLIC_WSS_BROKERS = [
@@ -76,9 +80,13 @@ function getDefaultNotesForRoom(roomId: string, displayRoomName: string) {
 export function useWebSocket({
   roomId,
   roomName,
+  enabled = true,
+  customMaxUsers,
+  isCreatingRoom = false,
   user,
   onWebRTCSignal,
   onKicked,
+  onRoomRejected,
 }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const mqttClientsRef = useRef<MqttClient[]>([]);
@@ -87,17 +95,18 @@ export function useWebSocket({
   const peerLastSeenRef = useRef<Map<string, number>>(new Map());
   const seenPacketsRef = useRef<Set<string>>(new Set());
   const packetSeqRef = useRef<number>(0);
+  const rejectedRoomRef = useRef<boolean>(false);
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [users, setUsers] = useState<UserPresence[]>([]);
-  const [roomSettings, setRoomSettings] = useState<RoomSettings>({
+  const [roomSettings, setRoomSettings] = useState<RoomSettings>(() => ({
     isLocked: false,
-    maxUsers: 12,
+    maxUsers: customMaxUsers && customMaxUsers >= 2 ? customMaxUsers : 12,
     defaultRole: 'editor',
     allowGuestDraw: true,
     ownerId: '',
-  });
+  }));
   const [syncedRoomName, setSyncedRoomName] = useState<string>(roomName);
   const [roomsList, setRoomsList] = useState<RoomSummary[]>([]);
   const [serverLimits, setServerLimits] = useState<ServerLimits>({
@@ -164,6 +173,12 @@ export function useWebSocket({
   onWebRTCSignalRef.current = onWebRTCSignal;
   const onKickedRef = useRef(onKicked);
   onKickedRef.current = onKicked;
+  const onRoomRejectedRef = useRef(onRoomRejected);
+  onRoomRejectedRef.current = onRoomRejected;
+  const customMaxUsersRef = useRef(customMaxUsers);
+  customMaxUsersRef.current = customMaxUsers;
+  const isCreatingRoomRef = useRef(isCreatingRoom);
+  isCreatingRoomRef.current = isCreatingRoom;
 
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
   const httpFallbackBaseRef = useRef<string>('');
@@ -298,11 +313,50 @@ export function useWebSocket({
           // --- Serverless Mesh Discovery & State Handshake ---
           case 'mesh-join': {
             if (!msg.user || msg.user.id === userRef.current.id) break;
+            if (rejectedRoomRef.current) break;
             const joiningUser: UserPresence = msg.user;
+
+            const isAlreadyMember = usersRef.current.some((u) => u.id === joiningUser.id);
+            const currentOwnerId = roomSettingsRef.current.ownerId || userRef.current.id;
+            const weJoinedEarlier =
+              typeof joiningUser.joinedAt === 'number'
+                ? joinedAtRef.current <= joiningUser.joinedAt
+                : true;
+
+            // Enforce room lock & maxUsers capacity in mesh mode when we are already in the room
+            if (!isAlreadyMember && weJoinedEarlier) {
+              if (roomSettingsRef.current.isLocked && joiningUser.id !== currentOwnerId) {
+                publishMeshPacket(
+                  {
+                    type: 'room-error',
+                    code: 'ROOM_LOCKED',
+                    roomId,
+                    targetUserId: joiningUser.id,
+                    message: `"${syncedRoomNameRef.current}" (#${roomId.toUpperCase()}) odası şu anda kilitli. Oda yöneticisi yeni katılımları kapattı.`,
+                  },
+                  joiningUser.id
+                );
+                break;
+              }
+
+              if (usersRef.current.length >= roomSettingsRef.current.maxUsers) {
+                publishMeshPacket(
+                  {
+                    type: 'room-error',
+                    code: 'ROOM_FULL',
+                    roomId,
+                    targetUserId: joiningUser.id,
+                    message: `"${syncedRoomNameRef.current}" (#${roomId.toUpperCase()}) odası maksimum kapasiteye ulaştı (${usersRef.current.length}/${roomSettingsRef.current.maxUsers} kişi). Bu odaya giriş yapılamaz.`,
+                  },
+                  joiningUser.id
+                );
+                break;
+              }
+            }
+
             peerLastSeenRef.current.set(joiningUser.id, Date.now());
 
             // Determine role in mesh mode
-            const currentOwnerId = roomSettingsRef.current.ownerId || userRef.current.id;
             const assignedRole: UserRole =
               joiningUser.id === currentOwnerId
                 ? 'owner'
@@ -317,6 +371,9 @@ export function useWebSocket({
 
             setUsers((prev) => {
               const exists = prev.some((u) => u.id === normalizedJoiner.id);
+              if (!exists && prev.length >= roomSettingsRef.current.maxUsers) {
+                return prev;
+              }
               if (!exists) {
                 soundEffects.playJoinSound();
               }
@@ -436,11 +493,22 @@ export function useWebSocket({
 
           case 'mesh-heartbeat': {
             if (!msg.user || msg.user.id === userRef.current.id) break;
+            if (rejectedRoomRef.current) break;
             const hbUser: UserPresence = msg.user;
+            const existsInRoom = usersRef.current.some((u) => u.id === hbUser.id);
+            if (!existsInRoom) {
+              if (
+                roomSettingsRef.current.isLocked ||
+                usersRef.current.length >= roomSettingsRef.current.maxUsers
+              ) {
+                break;
+              }
+            }
             peerLastSeenRef.current.set(hbUser.id, Date.now());
             setUsers((prev) => {
               const exists = prev.some((u) => u.id === hbUser.id);
               if (!exists) {
+                if (prev.length >= roomSettingsRef.current.maxUsers) return prev;
                 soundEffects.playJoinSound();
                 return [...prev, hbUser];
               }
@@ -550,11 +618,43 @@ export function useWebSocket({
           }
 
           case 'room-error': {
-            setRoomError({
+            if (msg.targetUserId && msg.targetUserId !== userRef.current.id) {
+              break;
+            }
+            const errObj = {
               code: msg.code || 'ERROR',
               message: msg.message || 'Oda işlemi sırasında bir hata oluştu.',
-              roomId: msg.roomId,
-            });
+              roomId: msg.roomId || roomId,
+            };
+            setRoomError(errObj);
+
+            if (
+              errObj.code === 'ROOM_FULL' ||
+              errObj.code === 'ROOM_LOCKED' ||
+              errObj.code === 'MAX_ROOMS_REACHED'
+            ) {
+              rejectedRoomRef.current = true;
+              setIsConnected(false);
+              setUsers([]);
+              publishMeshPacket({
+                type: 'mesh-leave',
+                userId: userRef.current.id,
+              });
+              if (wsRef.current) {
+                try {
+                  wsRef.current.close();
+                } catch {}
+              }
+              for (const client of mqttClientsRef.current) {
+                try {
+                  client.end(true);
+                } catch {}
+              }
+              mqttClientsRef.current = [];
+              if (onRoomRejectedRef.current) {
+                onRoomRejectedRef.current(errObj);
+              }
+            }
             break;
           }
 
@@ -588,6 +688,7 @@ export function useWebSocket({
           }
 
           case 'user-joined': {
+            if (rejectedRoomRef.current) break;
             setUsers((prev) => {
               const filtered = prev.filter((u) => u.id !== msg.user.id);
               return [...filtered, msg.user];
@@ -959,9 +1060,29 @@ export function useWebSocket({
 
   // Connect & reconnect logic per roomId
   useEffect(() => {
+    if (!enabled) {
+      setIsConnected(false);
+      setUsers([]);
+      return;
+    }
+
     let isCancelled = false;
+    rejectedRoomRef.current = false;
     joinedAtRef.current = Date.now();
     peerLastSeenRef.current.clear();
+
+    const targetMaxUsers =
+      customMaxUsersRef.current && customMaxUsersRef.current >= 2
+        ? customMaxUsersRef.current
+        : 12;
+
+    setSyncedRoomName(roomName);
+    setRoomSettings((prev) => ({
+      ...prev,
+      isLocked: false,
+      maxUsers: targetMaxUsers,
+      ownerId: isCreatingRoomRef.current ? userRef.current.id : prev.ownerId,
+    }));
 
     // Setup BroadcastChannel for instant local cross-tab/window sync
     if (typeof BroadcastChannel !== 'undefined') {
@@ -969,7 +1090,7 @@ export function useWebSocket({
         const bc = new BroadcastChannel(`collabboard_room_${roomId}`);
         broadcastChannelRef.current = bc;
         bc.onmessage = (ev) => {
-          if (typeof ev.data === 'string') {
+          if (typeof ev.data === 'string' && !rejectedRoomRef.current) {
             handleIncomingPacket(ev.data);
           }
         };
@@ -1020,7 +1141,7 @@ export function useWebSocket({
     let beforeUnloadHandler: (() => void) | null = null;
 
     function initMeshNetwork() {
-      if (isCancelled) return;
+      if (isCancelled || rejectedRoomRef.current) return;
       isMeshModeRef.current = true;
       setIsConnected(true);
 
@@ -1041,6 +1162,7 @@ export function useWebSocket({
 
       setRoomSettings((prev) => ({
         ...prev,
+        maxUsers: targetMaxUsers,
         ownerId: prev.ownerId || userRef.current.id,
       }));
 
@@ -1054,7 +1176,7 @@ export function useWebSocket({
           id: roomId,
           name: roomName,
           userCount: 1,
-          maxUsers: 12,
+          maxUsers: targetMaxUsers,
           isLocked: false,
           elementCount: elementsRef.current.length,
           createdAt: joinedAtRef.current,
@@ -1078,9 +1200,10 @@ export function useWebSocket({
           });
 
           client.on('connect', () => {
-            if (isCancelled) return;
+            if (isCancelled || rejectedRoomRef.current) return;
             setIsConnected(true);
             client.subscribe([eventsTopic, directPeerTopic], { qos: 0 }, () => {
+              if (rejectedRoomRef.current) return;
               // Announce presence to everyone in the room
               const selfNow =
                 usersRef.current.find((u) => u.id === userRef.current.id) || initialSelfPresence;
@@ -1088,13 +1211,15 @@ export function useWebSocket({
                 type: 'mesh-join',
                 roomId,
                 roomName,
+                maxUsers: targetMaxUsers,
+                isCreatingRoom: isCreatingRoomRef.current,
                 user: selfNow,
               });
             });
           });
 
           client.on('message', (_topic, payloadBuffer) => {
-            if (isCancelled) return;
+            if (isCancelled || rejectedRoomRef.current) return;
             handleIncomingPacket(payloadBuffer.toString());
           });
 
@@ -1109,12 +1234,14 @@ export function useWebSocket({
         type: 'mesh-join',
         roomId,
         roomName,
+        maxUsers: targetMaxUsers,
+        isCreatingRoom: isCreatingRoomRef.current,
         user: initialSelfPresence,
       });
 
       // Periodic heartbeat & stale peer cleanup
       meshHeartbeatTimer = window.setInterval(() => {
-        if (isCancelled) return;
+        if (isCancelled || rejectedRoomRef.current) return;
         const me = usersRef.current.find((u) => u.id === userRef.current.id);
         if (me) {
           publishMeshPacket({
@@ -1155,7 +1282,7 @@ export function useWebSocket({
     }
 
     function connectWs() {
-      if (isCancelled) return;
+      if (isCancelled || rejectedRoomRef.current) return;
 
       const wsUrl = resolveWsUrl();
       if (!wsUrl) return;
@@ -1164,7 +1291,7 @@ export function useWebSocket({
       wsRef.current = ws;
 
       ws.onopen = () => {
-        if (isCancelled) return;
+        if (isCancelled || rejectedRoomRef.current) return;
         setIsConnected(true);
 
         ws.send(
@@ -1172,6 +1299,8 @@ export function useWebSocket({
             type: 'join-room',
             roomId,
             roomName,
+            maxUsers: targetMaxUsers,
+            isCreatingRoom: isCreatingRoomRef.current,
             user: userRef.current,
           })
         );
@@ -1198,12 +1327,14 @@ export function useWebSocket({
       };
 
       ws.onclose = () => {
-        if (isCancelled) return;
+        if (isCancelled || rejectedRoomRef.current) return;
         if (keepAliveIntervalRef.current) {
           clearInterval(keepAliveIntervalRef.current);
         }
         reconnectTimeoutRef.current = window.setTimeout(() => {
-          connectWs();
+          if (!rejectedRoomRef.current) {
+            connectWs();
+          }
         }, 2500);
       };
 
@@ -1222,7 +1353,7 @@ export function useWebSocket({
       if (beforeUnloadHandler) {
         window.removeEventListener('beforeunload', beforeUnloadHandler);
       }
-      if (isMeshModeRef.current) {
+      if (isMeshModeRef.current && !rejectedRoomRef.current) {
         publishMeshPacket({
           type: 'mesh-leave',
           userId: userRef.current.id,
@@ -1253,7 +1384,7 @@ export function useWebSocket({
         broadcastChannelRef.current = null;
       }
     };
-  }, [roomId, roomName, handleIncomingPacket, publishMeshPacket]);
+  }, [roomId, roomName, enabled, handleIncomingPacket, publishMeshPacket]);
 
   // Keep roomsList summary updated in mesh mode
   useEffect(() => {

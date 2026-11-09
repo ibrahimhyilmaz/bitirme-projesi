@@ -371,7 +371,7 @@ wss.on('connection', (ws: WebSocket) => {
         }
 
         case 'join-room': {
-          const { roomId, roomName, user, maxUsers } = msg;
+          const { roomId, roomName, user, maxUsers, isCreatingRoom } = msg;
           if (!roomId || !user || !user.id) return;
 
           const { room, error } = getOrCreateRoom(
@@ -393,6 +393,19 @@ wss.on('connection', (ws: WebSocket) => {
             return;
           }
 
+          // If room has 0 active users and creator is initializing/creating it, apply custom name & maxUsers
+          if (room.users.size === 0 && (isCreatingRoom || maxUsers || roomName)) {
+            if (typeof roomName === 'string' && roomName.trim()) {
+              room.name = roomName.trim();
+            }
+            if (typeof maxUsers === 'number' && maxUsers >= 2) {
+              room.settings.maxUsers = Math.min(
+                MAX_USERS_PER_ROOM,
+                Math.max(2, Math.round(maxUsers))
+              );
+            }
+          }
+
           const isAlreadyInRoom = room.users.has(user.id);
           const savedRole = room.roleAssignments.get(user.id);
           const isOwnerOrAdmin =
@@ -407,20 +420,20 @@ wss.on('connection', (ws: WebSocket) => {
                 type: 'room-error',
                 code: 'ROOM_LOCKED',
                 roomId: room.id,
-                message: `"${room.name}" odası şu anda kilitli. Oda yöneticisi yeni katılımları kapattı.`,
+                message: `"${room.name}" (#${room.id.toUpperCase()}) odası şu anda kilitli. Oda yöneticisi yeni katılımları kapattı.`,
               })
             );
             return;
           }
 
-          // Check room user capacity limit
-          if (!isAlreadyInRoom && room.users.size >= room.settings.maxUsers && !isOwnerOrAdmin) {
+          // Strictly enforce room user capacity limit for all new participants
+          if (!isAlreadyInRoom && room.users.size >= room.settings.maxUsers) {
             ws.send(
               JSON.stringify({
                 type: 'room-error',
                 code: 'ROOM_FULL',
                 roomId: room.id,
-                message: `"${room.name}" odası dolu (${room.users.size}/${room.settings.maxUsers} kullanıcı sınırına ulaşıldı).`,
+                message: `"${room.name}" (#${room.id.toUpperCase()}) odası maksimum kapasiteye ulaştı (${room.users.size}/${room.settings.maxUsers} kişi). Bu odaya giriş yapılamaz.`,
               })
             );
             return;

@@ -25,6 +25,7 @@ import { CanvasElement, RoomSettings } from '../types';
 interface UseFirebaseSyncOptions {
   roomId: string;
   roomName: string;
+  enabled?: boolean;
   roomSettings: RoomSettings;
   code: { content: string; language: string; lastUpdatedBy: string };
   notes: { content: string; lastUpdatedBy: string };
@@ -40,6 +41,7 @@ interface UseFirebaseSyncOptions {
 export function useFirebaseSync({
   roomId,
   roomName,
+  enabled = true,
   roomSettings,
   code,
   notes,
@@ -85,9 +87,9 @@ export function useFirebaseSync({
     }
   }, []);
 
-  // Listen to Firestore room document & elements when authenticated
+  // Listen to Firestore room document & elements when authenticated and workspace is active
   useEffect(() => {
-    if (!isAuthReady || !firebaseUser) return;
+    if (!enabled || !isAuthReady || !firebaseUser) return;
 
     const roomPath = `rooms/${safeRoomId}`;
     const roomRef = doc(db, 'rooms', safeRoomId);
