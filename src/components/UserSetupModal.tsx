@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowRight,
   X,
@@ -12,8 +12,11 @@ import {
   LogOut,
   Sparkles,
   DoorOpen,
+  Trash2,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
+import { RoomSummary } from '../types';
+import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
 
 const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -26,13 +29,10 @@ export function generateRoomCodeSeed(length: number = 5): string {
 }
 
 export function normalizeToFiveCharCode(raw?: string): string {
-  if (!raw) return generateRoomCodeSeed(5);
+  if (!raw) return '';
   const cleaned = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (cleaned.length === 5) return cleaned;
-  if (cleaned.length > 5 && cleaned !== 'ANAODA') {
-    return cleaned.slice(0, 5);
-  }
-  return generateRoomCodeSeed(5);
+  if (cleaned === 'ANAODA') return '';
+  return cleaned.slice(0, 5);
 }
 
 export interface RoomJoinPayload {
@@ -51,6 +51,9 @@ interface UserSetupModalProps {
   initialRoomName?: string;
   hasUrlRoomParam?: boolean;
   isInitialSetup?: boolean;
+  currentUserId?: string;
+  roomsList?: RoomSummary[];
+  onDeleteRoom?: (roomId: string) => Promise<boolean>;
   joinError?: string | null;
   onClearJoinError?: () => void;
   firebaseUser?: {
@@ -58,7 +61,7 @@ interface UserSetupModalProps {
     email?: string | null;
     photoURL?: string | null;
   } | null;
-  onSignInGoogle?: () => Promise<void>;
+  onSignInGoogle?: (preferredName?: string) => Promise<void>;
   onSignOutGoogle?: () => Promise<void>;
   onJoin: (payload: RoomJoinPayload) => void;
   onClose?: () => void;
@@ -75,6 +78,8 @@ const AVATAR_COLORS = [
   '#d97706', // Amber
 ];
 
+const MAX_ROOMS_PER_USER = 3;
+
 export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   initialName,
   initialColor,
@@ -82,6 +87,9 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   initialRoomName,
   hasUrlRoomParam = false,
   isInitialSetup = false,
+  currentUserId,
+  roomsList: propRoomsList,
+  onDeleteRoom,
   joinError,
   onClearJoinError,
   firebaseUser,
@@ -97,12 +105,12 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   });
   const [color, setColor] = useState(initialColor || AVATAR_COLORS[0]);
 
-  // 5-char room code for "Oda Kodu ile Giriş"
+  // Strict 5-char room code for "Oda Kodu ile Giriş"
   const [joinRoomCode, setJoinRoomCode] = useState(() => {
     if (hasUrlRoomParam && initialRoomId) {
-      return initialRoomId.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 12);
+      return normalizeToFiveCharCode(initialRoomId);
     }
-    return normalizeToFiveCharCode(initialRoomId);
+    return '';
   });
 
   // Create Room Modal states
@@ -112,13 +120,44 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     return initialName || '';
   });
   const [createRoomName, setCreateRoomName] = useState(
-    initialRoomName || 'Tasarım & Mimari Çalışma Odası'
+    initialRoomName && !initialRoomName.startsWith('Oda #')
+      ? initialRoomName
+      : 'Tasarım & Mimari Çalışma Odası'
   );
   const [createRoomSeed, setCreateRoomSeed] = useState(() => generateRoomCodeSeed(5));
   const [createMaxUsers, setCreateMaxUsers] = useState<number>(8);
   const [copiedSeed, setCopiedSeed] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isCheckingRoom, setIsCheckingRoom] = useState(false);
   const [localValidationError, setLocalValidationError] = useState<string | null>(null);
+  const [fetchedRooms, setFetchedRooms] = useState<RoomSummary[]>(propRoomsList || []);
+
+  const ownerKey = getOrCreateOwnerKey();
+
+  const refreshServerRooms = useCallback(async () => {
+    try {
+      const res = await fetch('/api/rooms');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.rooms)) {
+          setFetchedRooms(data.rooms);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (propRoomsList && propRoomsList.length > 0) {
+      setFetchedRooms(propRoomsList);
+    }
+    void refreshServerRooms();
+  }, [propRoomsList, refreshServerRooms]);
+
+  const myOwnedRooms = fetchedRooms.filter(
+    (r) =>
+      r.id !== 'ana-oda' &&
+      ((ownerKey && r.ownerKey === ownerKey) || (currentUserId && r.ownerId === currentUserId))
+  );
 
   // Sync Google displayName when user signs in with Google
   useEffect(() => {
@@ -130,17 +169,21 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
 
   useEffect(() => {
     if (hasUrlRoomParam && initialRoomId) {
-      setJoinRoomCode(initialRoomId.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 12));
+      const normalized = normalizeToFiveCharCode(initialRoomId);
+      if (normalized) {
+        setJoinRoomCode(normalized);
+      }
     }
   }, [hasUrlRoomParam, initialRoomId]);
 
-  const handleOpenCreateModal = () => {
+  const handleOpenCreateModal = async () => {
     setLocalValidationError(null);
     if (onClearJoinError) onClearJoinError();
     if (name.trim()) {
       setCreateUserName(name.trim());
     }
     setCreateRoomSeed(generateRoomCodeSeed(5));
+    await refreshServerRooms();
     setIsCreateModalOpen(true);
   };
 
@@ -161,16 +204,37 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     if (!onSignInGoogle) return;
     setIsGoogleLoading(true);
     try {
-      await onSignInGoogle();
+      await onSignInGoogle(name.trim() || createUserName.trim() || undefined);
     } finally {
       setIsGoogleLoading(false);
     }
   };
 
-  const handleCreateRoomSubmit = (e: React.FormEvent) => {
+  const handleDeleteOwnedRoom = async (targetRoomId: string) => {
+    try {
+      if (onDeleteRoom) {
+        await onDeleteRoom(targetRoomId);
+      } else {
+        await fetch(
+          `/api/rooms/${encodeURIComponent(targetRoomId)}?ownerKey=${encodeURIComponent(ownerKey)}&userId=${encodeURIComponent(currentUserId || '')}`,
+          { method: 'DELETE' }
+        );
+      }
+      await refreshServerRooms();
+      setLocalValidationError(null);
+      if (onClearJoinError) onClearJoinError();
+    } catch {}
+  };
+
+  const handleCreateRoomSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const finalUserName = createUserName.trim();
-    const finalRoomName = createRoomName.trim();
+    // Clean room name: never append (#CODE) or #CODE
+    const finalRoomName = createRoomName
+      .trim()
+      .replace(/\s*\(#[A-Za-z0-9_-]+\)\s*$/g, '')
+      .replace(/\s*#[A-Za-z0-9_-]+\s*$/g, '')
+      .trim();
     const finalSeed = createRoomSeed.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
 
     if (!finalUserName) {
@@ -181,8 +245,15 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       setLocalValidationError('Lütfen oluşturacağınız odanın adını girin.');
       return;
     }
-    if (finalSeed.length < 3) {
-      setLocalValidationError('Oda kodu en az 3-5 karakter olmalıdır.');
+    if (finalSeed.length !== 5) {
+      setLocalValidationError('Oda kodu tam 5 karakter olmalıdır.');
+      return;
+    }
+
+    if (myOwnedRooms.length >= MAX_ROOMS_PER_USER) {
+      setLocalValidationError(
+        `Bir kullanıcı en fazla ${MAX_ROOMS_PER_USER} oda açabilir. Yeni oda oluşturmak için aşağıdan mevcut 3 odanızdan birini silin veya kapatın.`
+      );
       return;
     }
 
@@ -198,26 +269,65 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     });
   };
 
-  const handleJoinWithCodeSubmit = (e: React.FormEvent) => {
+  const handleJoinWithCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const finalName = name.trim();
-    const cleanCode = joinRoomCode.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const cleanCode = joinRoomCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
     if (!finalName) {
       setLocalValidationError('Lütfen odaya katılmadan önce adınızı girin.');
       return;
     }
-    if (!cleanCode) {
-      setLocalValidationError('Lütfen geçerli bir 5 haneli oda kodu girin.');
+    if (cleanCode.length !== 5) {
+      setLocalValidationError('Lütfen tam 5 haneli geçerli bir oda kodu girin.');
       return;
     }
 
     setLocalValidationError(null);
+    setIsCheckingRoom(true);
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(cleanCode.toLowerCase())}`);
+      if (res.status === 404) {
+        const errData = await res.json().catch(() => ({}));
+        setLocalValidationError(
+          errData.error ||
+            `#${cleanCode} kodlu bir çalışma odası bulunamadı. Lütfen oda kodunu kontrol edin veya yeni bir oda oluşturun.`
+        );
+        setIsCheckingRoom(false);
+        return;
+      }
+      if (res.ok) {
+        const roomData = await res.json();
+        if (roomData.settings?.isLocked) {
+          setLocalValidationError(
+            `"${roomData.name}" (#${cleanCode}) odası şu anda kilitli. Oda yöneticisi yeni katılımları kapattı.`
+          );
+          setIsCheckingRoom(false);
+          return;
+        }
+        if (
+          typeof roomData.userCount === 'number' &&
+          typeof roomData.settings?.maxUsers === 'number' &&
+          roomData.userCount >= roomData.settings.maxUsers
+        ) {
+          setLocalValidationError(
+            `"${roomData.name}" (#${cleanCode}) odası maksimum kapasiteye ulaştı (${roomData.userCount}/${roomData.settings.maxUsers} kişi). Bu odaya giriş yapılamaz.`
+          );
+          setIsCheckingRoom(false);
+          return;
+        }
+      }
+    } catch {
+      // If offline/serverless, proceed and let WS/mesh validate
+    } finally {
+      setIsCheckingRoom(false);
+    }
+
     onJoin({
       name: finalName,
       color,
-      roomId: cleanCode,
-      roomName: initialRoomName || undefined,
+      roomId: cleanCode.toLowerCase(),
+      roomName: undefined,
       isCreatingRoom: false,
     });
   };
@@ -226,8 +336,8 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     <div
       className={
         isInitialSetup
-          ? 'min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-y-auto select-none'
-          : 'fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 select-none'
+          ? 'h-screen w-full bg-slate-950 text-slate-100 flex items-center justify-center p-3 sm:p-5 relative overflow-hidden select-none cb-anim-fade-in'
+          : 'fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-hidden select-none cb-anim-fade-in'
       }
     >
       {/* Background grid & ambient glow when acting as full-screen Pre-Welcome Gate */}
@@ -245,35 +355,36 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
         </>
       )}
 
-      {/* Main Welcome / Login Card */}
-      <div className="relative z-10 bg-white text-slate-900 border border-slate-200/90 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        {/* Top Brand Header */}
-        <div className="relative px-6 pt-7 pb-5 bg-slate-900 text-white flex flex-col items-center text-center border-b border-slate-800">
+      {/* Main Welcome / Login Card — Fixed consistent dimensions across all devices with internal scroll */}
+      <div className="relative z-10 bg-white text-slate-900 border border-slate-200/90 rounded-2xl shadow-2xl w-[440px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-32px)] flex flex-col overflow-hidden cb-anim-scale-in">
+        {/* Top Brand Header (Fixed non-scrolling) */}
+        <div className="shrink-0 relative px-6 pt-5 pb-4 bg-slate-900 text-white flex flex-col items-center text-center border-b border-slate-800">
           {onClose && !isInitialSetup && (
             <button
               type="button"
               onClick={onClose}
-              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              className="absolute top-3.5 right-3.5 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               title="Kapat"
             >
               <X className="w-4 h-4" />
             </button>
           )}
-          <BrandLogo size="lg" className="mb-3 shadow-lg" />
-          <h1 className="text-xl font-extrabold tracking-tight">
+          <BrandLogo size="lg" className="mb-2.5 shadow-lg" />
+          <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
             {isInitialSetup ? 'CollabBoard Çalışma Alanı' : 'Profil ve Oda Geçişi'}
           </h1>
           <p className="text-xs text-slate-300 mt-1 max-w-xs leading-relaxed">
             {isInitialSetup
               ? 'Başlamak için yeni bir çalışma odası oluşturun veya 5 haneli oda kodu ile mevcut odaya katılın.'
-              : 'Görünür profil bilgilerinizi güncelleyin veya oda kodu ile başka bir odaya geçiş yapın.'}
+              : 'Görünür profil bilgilerinizi güncelleyin veya 5 haneli oda kodu ile başka bir odaya geçiş yapın.'}
           </p>
         </div>
 
-        <div className="p-6 space-y-5">
-          {/* Room Full / Locked / Validation Error Alert */}
+        {/* Scrollable Card Body */}
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+          {/* Room Full / Locked / Not Found / Validation Error Alert */}
           {(joinError || localValidationError) && (
-            <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-800 flex items-start gap-2.5 animate-in fade-in duration-150">
+            <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-800 flex items-start gap-2.5 cb-anim-fade-in">
               <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
               <div className="flex-1 text-xs font-medium leading-relaxed">
                 {joinError || localValidationError}
@@ -284,7 +395,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   setLocalValidationError(null);
                   if (onClearJoinError) onClearJoinError();
                 }}
-                className="text-red-400 hover:text-red-700 p-0.5"
+                className="text-red-400 hover:text-red-700 p-0.5 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -296,22 +407,72 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             <button
               type="button"
               onClick={handleOpenCreateModal}
-              className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-sm shadow-md shadow-blue-600/20 transition-all flex items-center justify-between group"
+              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-sm shadow-md shadow-blue-600/20 transition-all flex items-center justify-between group cursor-pointer"
             >
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center shrink-0">
                   <PlusCircle className="w-4 h-4 text-white" />
                 </div>
                 <div className="text-left">
                   <div className="text-sm font-bold leading-tight">Yeni Çalışma Odası Oluştur</div>
                   <div className="text-[11px] font-normal text-blue-100 mt-0.5">
-                    5 haneli rastgele kod ve kişi kapasitesi belirleyin
+                    5 haneli rastgele kod ve kişi kapasitesi belirleyin ({myOwnedRooms.length}/
+                    {MAX_ROOMS_PER_USER} oda)
                   </div>
                 </div>
               </div>
-              <ArrowRight className="w-4 h-4 text-blue-100 group-hover:translate-x-0.5 transition-transform" />
+              <ArrowRight className="w-4 h-4 text-blue-100 group-hover:translate-x-0.5 transition-transform shrink-0" />
             </button>
           </div>
+
+          {/* User's Owned Rooms Quick List (when user has active rooms, so they can rejoin or delete if at 3-room limit) */}
+          {myOwnedRooms.length > 0 && (
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-bold text-slate-700">
+                  Açtığınız Aktif Odalar ({myOwnedRooms.length}/{MAX_ROOMS_PER_USER})
+                </span>
+                {myOwnedRooms.length >= MAX_ROOMS_PER_USER && (
+                  <span className="text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-semibold">
+                    Limit Dolu (Maks. 3)
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1.5 max-h-28 overflow-y-auto pr-0.5">
+                {myOwnedRooms.map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-slate-800 truncate">{r.name}</div>
+                      <div className="text-[10px] font-mono text-slate-500">
+                        Kod: #{r.id.toUpperCase()} · {r.userCount}/{r.maxUsers} Kişi
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setJoinRoomCode(r.id.toUpperCase().slice(0, 5))}
+                        className="px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-[11px] cursor-pointer"
+                        title="Bu odanın kodunu doldur"
+                      >
+                        Kodu Seç
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteOwnedRoom(r.id)}
+                        className="p-1 rounded text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors cursor-pointer"
+                        title="Bu odayı kapat / sil"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Google Sign-In Section */}
           {onSignInGoogle && (
@@ -346,7 +507,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                     <button
                       type="button"
                       onClick={onSignOutGoogle}
-                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center gap-1 shrink-0"
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
                       title="Google Hesabından Çıkış Yap"
                     >
                       <LogOut className="w-3.5 h-3.5" />
@@ -359,7 +520,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   type="button"
                   onClick={handleGoogleLoginClick}
                   disabled={isGoogleLoading}
-                  className="w-full py-2.5 px-4 rounded-xl border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-all flex items-center justify-center gap-2.5 shadow-2xs disabled:opacity-60"
+                  className="w-full py-2.5 px-4 rounded-xl border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-all flex items-center justify-center gap-2.5 shadow-2xs disabled:opacity-60 cursor-pointer"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
                     <path
@@ -396,8 +557,8 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             <div className="grow border-t border-slate-200" />
           </div>
 
-          {/* Option 2: Join Room by 5-Digit Code Form */}
-          <form onSubmit={handleJoinWithCodeSubmit} className="space-y-4">
+          {/* Option 2: Join Room by Strict 5-Character Code Form */}
+          <form onSubmit={handleJoinWithCodeSubmit} className="space-y-3.5">
             {/* User Name */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -424,7 +585,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                     key={c}
                     type="button"
                     onClick={() => setColor(c)}
-                    className={`w-6 h-6 rounded-full transition-transform ${
+                    className={`w-6 h-6 rounded-full transition-transform cursor-pointer ${
                       color === c
                         ? 'scale-120 ring-2 ring-blue-500 ring-offset-2'
                         : 'hover:scale-110 opacity-85 hover:opacity-100'
@@ -435,54 +596,60 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
               </div>
             </div>
 
-            {/* 5-Digit Room Code */}
+            {/* Strict 5-Digit Room Code */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-bold text-slate-700">
                   5 Haneli Oda Kodu
                 </label>
-                {hasUrlRoomParam && (
-                  <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                    Davet Kodu Yüklendi
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-mono font-semibold text-slate-400">
+                    {joinRoomCode.length}/5
                   </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    required
-                    maxLength={12}
-                    value={joinRoomCode}
-                    onChange={(e) =>
-                      setJoinRoomCode(
-                        e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '')
-                      )
-                    }
-                    placeholder="Örn: K7X9A"
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono font-bold tracking-widest uppercase text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
-                  />
+                  {hasUrlRoomParam && joinRoomCode.length === 5 && (
+                    <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      Davet Kodu Yüklendi
+                    </span>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setJoinRoomCode(generateRoomCodeSeed(5))}
-                  className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5 shrink-0"
-                  title="Yeni 5 Haneli Kod Üret"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>5 Haneli Kod</span>
-                </button>
               </div>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  required
+                  maxLength={5}
+                  value={joinRoomCode}
+                  onChange={(e) => {
+                    setJoinRoomCode(
+                      e.target.value
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]/g, '')
+                        .slice(0, 5)
+                    );
+                    if (localValidationError) setLocalValidationError(null);
+                  }}
+                  placeholder="Örn: K7X9A"
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono font-bold tracking-[0.22em] uppercase text-slate-900 placeholder:text-slate-400 placeholder:tracking-normal focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Katılmak istediğiniz mevcut çalışma odasının 5 karakterlik kodunu girin.
+              </p>
             </div>
 
             <button
               type="submit"
-              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm shadow-xs transition-all flex items-center justify-center gap-2"
+              disabled={isCheckingRoom}
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold rounded-xl text-sm shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <DoorOpen className="w-4 h-4" />
               <span>
-                {isInitialSetup ? 'Oda Kodu ile Giriş Yap' : 'Odaya Geç / Bilgileri Kaydet'}
+                {isCheckingRoom
+                  ? 'Oda Kontrol Ediliyor...'
+                  : isInitialSetup
+                  ? 'Oda Kodu ile Giriş Yap'
+                  : 'Odaya Geç / Bilgileri Kaydet'}
               </span>
             </button>
           </form>
@@ -491,12 +658,12 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
 
       {/* Dedicated Create Room Modal (Opened when clicking "Yeni Çalışma Odası Oluştur") */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white text-slate-900 border border-slate-200 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-60 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-hidden cb-anim-fade-in">
+          <div className="bg-white text-slate-900 border border-slate-200 rounded-2xl shadow-2xl w-[440px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-32px)] flex flex-col overflow-hidden cb-anim-scale-in">
             {/* Create Room Modal Header */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+            <div className="shrink-0 px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
                   <Sparkles className="w-4 h-4 text-white" />
                 </div>
                 <div>
@@ -509,14 +676,60 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
                 title="İptal"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateRoomSubmit} className="p-6 space-y-4">
+            <form
+              onSubmit={handleCreateRoomSubmit}
+              className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4"
+            >
+              {/* Max 3 Rooms Warning if limit reached */}
+              {myOwnedRooms.length >= MAX_ROOMS_PER_USER && (
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-2.5">
+                  <div className="flex items-start gap-2 text-xs font-semibold">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      3 oda sınırına ulaştınız ({myOwnedRooms.length}/{MAX_ROOMS_PER_USER}). Yeni oda
+                      oluşturmak için mevcut 3 odanızdan birini silin veya kapatın:
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {myOwnedRooms.map((r) => (
+                      <div
+                        key={r.id}
+                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-amber-200 text-xs"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-bold text-slate-800 truncate block">{r.name}</span>
+                          <span className="text-[10px] font-mono text-slate-500">
+                            #{r.id.toUpperCase()} · {r.userCount}/{r.maxUsers} Kişi
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteOwnedRoom(r.id)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-rose-600 text-white hover:bg-rose-700 text-[11px] font-semibold transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Odayı Sil</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {localValidationError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs font-medium flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span className="flex-1">{localValidationError}</span>
+                </div>
+              )}
+
               {/* Step 1: User's Own Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -568,7 +781,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   <button
                     type="button"
                     onClick={handleRegenerateSeed}
-                    className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center gap-1.5 shrink-0"
+                    className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
                     title="Yeni Rastgele 5 Haneli Kod Üret"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
@@ -577,7 +790,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   <button
                     type="button"
                     onClick={handleCopySeed}
-                    className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center gap-1 shrink-0"
+                    className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
                     title="Oda Kodunu Kopyala"
                   >
                     {copiedSeed ? (
@@ -641,13 +854,14 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                  className="px-4 py-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
                 >
                   Geri Dön
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
+                  disabled={myOwnedRooms.length >= MAX_ROOMS_PER_USER}
+                  className="flex-1 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <span>Odayı Oluştur ve Başla</span>
                   <ArrowRight className="w-4 h-4" />

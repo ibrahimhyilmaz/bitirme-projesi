@@ -143,6 +143,11 @@ export const TopNav: React.FC<TopNavProps> = ({
   const roomMenuRef = useRef<HTMLDivElement | null>(null);
 
   const isDark = theme === 'dark' || theme === 'midnight';
+  const cleanRoomName =
+    roomName
+      .replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
+      .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
+      .trim() || roomName;
   const hiddenCount =
     (showToolbar ? 0 : 1) +
     (showStyleBar ? 0 : 1) +
@@ -163,7 +168,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   }, []);
 
   const handleCopyLink = async () => {
-    const shareUrl = getShareableRoomUrl(roomId, { roomName });
+    const shareUrl = getShareableRoomUrl(roomId, { roomName: cleanRoomName });
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(shareUrl);
@@ -238,7 +243,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             ) : (
               <DoorOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
             )}
-            <span className="font-semibold truncate max-w-[90px] xl:max-w-[125px]">{roomName}</span>
+            <span className="font-semibold truncate max-w-[90px] xl:max-w-[125px]">{cleanRoomName}</span>
             <span className={`font-mono text-[11px] font-bold px-1 rounded ${isDark ? 'bg-slate-800 text-blue-400' : 'bg-slate-100 text-blue-700'}`}>
               #{roomId.toUpperCase()}
             </span>
@@ -251,7 +256,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           {/* Quick Room Switcher & Room Info Popover */}
           {showRoomQuickMenu && (
             <div
-              className={`absolute left-0 top-full mt-2 w-76 rounded-2xl border shadow-2xl p-3.5 z-50 animate-in fade-in zoom-in-95 duration-150 ${
+              className={`absolute left-0 top-full mt-2 w-76 rounded-2xl border shadow-2xl p-3.5 z-50 cb-anim-scale-in ${
                 isDark
                   ? 'bg-slate-900 border-slate-700 text-slate-100'
                   : 'bg-white border-slate-200 text-slate-900'
@@ -267,7 +272,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Aktif Çalışma Odası
                   </div>
-                  <div className="text-xs font-bold truncate mt-0.5">{roomName}</div>
+                  <div className="text-xs font-bold truncate mt-0.5">{cleanRoomName}</div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-xs font-mono font-extrabold text-blue-600 dark:text-blue-400 tracking-wider">
                       Kod: #{roomId.toUpperCase()}
@@ -314,8 +319,9 @@ export const TopNav: React.FC<TopNavProps> = ({
                   const clean = quickSwitchCode
                     .trim()
                     .toLowerCase()
-                    .replace(/[^a-z0-9_-]/g, '');
-                  if (!clean) return;
+                    .replace(/[^a-z0-9]/g, '')
+                    .slice(0, 5);
+                  if (clean.length !== 5) return;
                   if (onSwitchRoomByCode) {
                     onSwitchRoomByCode(clean);
                   }
@@ -324,23 +330,28 @@ export const TopNav: React.FC<TopNavProps> = ({
                 }}
                 className="mb-3"
               >
-                <label className="block text-[11px] font-bold mb-1.5 text-slate-500 dark:text-slate-400">
-                  Oda Kodu ile Başka Odaya Geç
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                    5 Haneli Oda Kodu ile Geç
+                  </label>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {quickSwitchCode.length}/5
+                  </span>
+                </div>
                 <div className="flex items-center gap-1.5">
                   <div className="relative flex-1">
                     <KeyRound className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
-                      maxLength={12}
+                      maxLength={5}
                       value={quickSwitchCode}
                       onChange={(e) =>
                         setQuickSwitchCode(
-                          e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '')
+                          e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5)
                         )
                       }
                       placeholder="Örn: K7X9A"
-                      className={`w-full pl-8 pr-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold uppercase tracking-wider focus:outline-hidden focus:border-blue-500 ${
+                      className={`w-full pl-8 pr-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold uppercase tracking-widest focus:outline-hidden focus:border-blue-500 ${
                         isDark
                           ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500'
                           : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
@@ -349,7 +360,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                   </div>
                   <button
                     type="submit"
-                    disabled={!quickSwitchCode.trim()}
+                    disabled={quickSwitchCode.trim().length !== 5}
                     className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-bold transition-colors flex items-center gap-1 shrink-0"
                   >
                     <span>Geç</span>

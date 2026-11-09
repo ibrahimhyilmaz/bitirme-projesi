@@ -561,6 +561,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return (
       <div
         ref={toolbarRef}
+        data-floating-bar="true"
         onPointerDown={(e) => {
           e.stopPropagation();
           onFocus?.();
@@ -576,7 +577,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               }
             : {}),
         }}
-        className={`absolute top-3 left-4 pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+        className={`absolute top-3 left-4 pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
           isDraggingBar
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
@@ -609,6 +610,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     <div
       ref={toolbarRef}
       data-tour="toolbar"
+      data-floating-bar="true"
       onPointerDown={(e) => {
         e.stopPropagation();
         onFocus?.();
@@ -628,7 +630,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         isVertical
           ? 'flex-col w-[98px] p-2 gap-1.5'
           : 'flex-row flex-wrap w-auto max-w-max items-center gap-1 p-1.5'
-      } bg-white/95 backdrop-blur-md border ${
+      } bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
         isDraggingBar
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'

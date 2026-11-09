@@ -203,6 +203,7 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
     return (
       <div
         ref={barRef}
+        data-floating-bar="true"
         onPointerDown={(e) => {
           e.stopPropagation();
           onFocus?.();
@@ -219,7 +220,7 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
               }
             : {}),
         }}
-        className={`absolute pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+        className={`absolute pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
           isDragging
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
@@ -273,6 +274,7 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   return (
     <div
       ref={barRef}
+      data-floating-bar="true"
       onPointerDown={(e) => {
         e.stopPropagation();
         onFocus?.();
@@ -289,13 +291,13 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
             }
           : {}),
       }}
-      className={`absolute pointer-events-auto flex flex-col items-end select-none ${
+      className={`absolute pointer-events-auto flex flex-col items-end select-none cb-anim-scale-in ${
         !position ? 'top-3 right-4' : ''
       }`}
     >
       {/* Voice Channel Bar */}
       <div
-        className={`flex items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border ${
+        className={`flex items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border transition-colors ${
           isDragging
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'

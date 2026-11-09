@@ -113,11 +113,14 @@ export interface RoomSummary {
   elementCount: number;
   createdAt: number;
   ownerName: string;
+  ownerId?: string;
+  ownerKey?: string;
 }
 
 export interface ServerLimits {
   maxRooms: number;
   maxUsersPerRoom: number;
+  maxRoomsPerUser?: number;
   currentRoomsCount: number;
 }
 
@@ -153,6 +156,7 @@ export interface CanvasElement {
   imageUrl?: string;
   pdfUrl?: string;
   videoUrl?: string;
+  markdownContent?: string;
   isPlaying?: boolean;
   currentTime?: number;
   volume?: number;

@@ -395,9 +395,9 @@ KESİN KURALLAR:
 
   // Valid models per @google/genai guidelines
   const attemptPlans = [
-    { model: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Ana Çizim Motoru)' },
-    { model: 'gemini-flash-latest', label: 'Gemini Flash Latest (Yedek Kurtarma Motoru)' },
-    { model: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Hızlı Çözüm Motoru)' },
+    { model: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (Ana Çizim Motoru)' },
+    { model: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite (Hızlı Çözüm Motoru)' },
+    { model: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Yedek Kurtarma Motoru)' },
   ];
 
   let lastError: unknown = null;
@@ -447,7 +447,11 @@ KESİN KURALLAR:
       const response = await Promise.race([generatePromise, timeoutPromise]);
       if (timer) clearTimeout(timer);
 
-      const responseText = (response?.text || '').trim();
+      const responseText = (response?.text || '')
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
       if (!responseText) {
         throw new Error('Model boş yanıt döndürdü.');
       }
@@ -631,9 +635,9 @@ export async function generateSvgImageWithRetry(params: {
   };
 
   const attemptPlans = [
-    { model: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
-    { model: 'gemini-flash-latest', label: 'Gemini Flash Latest' },
-    { model: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
+    { model: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
+    { model: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite' },
+    { model: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   ];
 
   let lastError: unknown = null;
@@ -685,7 +689,11 @@ KURALLAR:
       const response = await Promise.race([generatePromise, timeoutPromise]);
       if (timer) clearTimeout(timer);
 
-      const responseText = (response?.text || '').trim();
+      const responseText = (response?.text || '')
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
       if (!responseText) {
         throw new Error('Model boş yanıt döndürdü.');
       }

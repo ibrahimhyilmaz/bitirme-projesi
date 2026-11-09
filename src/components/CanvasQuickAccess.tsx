@@ -5,6 +5,7 @@ import {
   Type,
   StickyNote,
   Square,
+  ArrowRight,
   Eraser,
   Flame,
   Sparkles,
@@ -32,6 +33,7 @@ interface CanvasQuickAccessProps {
   fontSize: number;
   fontFamily: string;
   radialMenuPos: { x: number; y: number } | null;
+  hoveredRadialTool?: ToolType | null;
   onCloseRadialMenu: () => void;
   gridStyle?: 'dots' | 'grid' | 'none';
   onChangeGridStyle?: (style: 'dots' | 'grid' | 'none') => void;
@@ -40,7 +42,7 @@ interface CanvasQuickAccessProps {
   onResetWidgetLayout?: () => void;
 }
 
-const RADIAL_TOOLS: {
+export const RADIAL_TOOLS: {
   id: ToolType;
   label: string;
   shortcut: string;
@@ -52,9 +54,21 @@ const RADIAL_TOOLS: {
   { id: 'text', label: 'Metin', shortcut: 'T', icon: Type, color: '#4f46e5' },
   { id: 'sticky', label: 'Not', shortcut: 'N', icon: StickyNote, color: '#d97706' },
   { id: 'rectangle', label: 'Şekil', shortcut: 'R', icon: Square, color: '#7c3aed' },
+  { id: 'arrow', label: 'Ok', shortcut: 'A', icon: ArrowRight, color: '#0891b2' },
   { id: 'laser', label: 'Lazer', shortcut: 'K', icon: Flame, color: '#e11d48' },
   { id: 'eraser', label: 'Silgi', shortcut: 'E', icon: Eraser, color: '#475569' },
 ];
+
+export function getRadialToolAtAngle(dx: number, dy: number): ToolType | null {
+  const dist = Math.hypot(dx, dy);
+  if (dist < 22) return null;
+  // Angle in radians where 0 is top (-PI/2), increasing clockwise [0, 2*PI)
+  let angle = Math.atan2(dy, dx) + Math.PI / 2;
+  if (angle < 0) angle += Math.PI * 2;
+  const slice = (Math.PI * 2) / RADIAL_TOOLS.length;
+  const index = Math.floor(((angle + slice / 2) % (Math.PI * 2)) / slice);
+  return RADIAL_TOOLS[index]?.id || null;
+}
 
 export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
   elements,
@@ -68,6 +82,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
   fontSize,
   fontFamily,
   radialMenuPos,
+  hoveredRadialTool = null,
   onCloseRadialMenu,
   gridStyle = 'dots',
   onChangeGridStyle,
@@ -233,10 +248,15 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
     });
   };
 
+  const hoveredToolObj = hoveredRadialTool
+    ? RADIAL_TOOLS.find((t) => t.id === hoveredRadialTool)
+    : null;
+
   return (
     <>
       {/* 1. Unified Bottom-Left Flex Dock (Minimap stacked above Grid Selector & Layout Reset — Zero Overlap) */}
       <div
+        data-floating-bar="true"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         className="fixed bottom-3 left-3 z-20 pointer-events-none flex flex-col items-start gap-2 select-none max-w-[calc(100vw-24px)]"
@@ -245,7 +265,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
         {showMinimap ? (
           <div
             data-tour="minimap"
-            className="pointer-events-auto bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-lg overflow-hidden transition-all duration-200"
+            className="pointer-events-auto bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-lg overflow-hidden transition-all duration-200 cb-anim-scale-in"
           >
             {/* Header Bar */}
             <div className="px-3 py-1.5 bg-slate-50/90 border-b border-slate-200/70 flex items-center justify-between gap-2.5">
@@ -361,7 +381,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
                 />
                 <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-500 px-0.5">
                   <span>Yakınlaştırma: %{Math.round(camera.zoom * 100)}</span>
-                  <span className="text-blue-600 font-medium">Sağ Tık: Hızlı Menü</span>
+                  <span className="text-blue-600 font-medium">Orta Tuş: Hızlı Seçim</span>
                 </div>
               </div>
             )}
@@ -372,7 +392,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
               type="button"
               data-tour="minimap"
               onClick={onToggleMinimap}
-              className="pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl shadow-md text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+              className="pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl shadow-md text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors cb-anim-scale-in"
               title="Mini Haritayı Göster"
             >
               <MapIcon className="w-3.5 h-3.5 text-blue-600" />
@@ -384,7 +404,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
 
         {/* Docked Grid Pattern Selector & Layout Reset Bar */}
         {onChangeGridStyle && (
-          <div className="pointer-events-auto flex items-center gap-1 bg-white/95 backdrop-blur-md p-1 rounded-xl border border-slate-200/90 text-xs text-slate-600 shadow-lg">
+          <div className="pointer-events-auto flex items-center gap-1 bg-white/95 backdrop-blur-md p-1 rounded-xl border border-slate-200/90 text-xs text-slate-600 shadow-lg cb-anim-scale-in">
             <button
               type="button"
               onClick={() => onChangeGridStyle('dots')}
@@ -437,61 +457,81 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
         )}
       </div>
 
-      {/* 2. Right-Click Radial Quick Tool Menu */}
+      {/* 2. Middle-Mouse Wheel Button (Hold & Drag or Click) Radial Quick Tool Menu */}
       {radialMenuPos && (
         <div
           className="fixed inset-0 z-50 select-none"
-          onClick={onCloseRadialMenu}
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) {
+              e.stopPropagation();
+              onCloseRadialMenu();
+            }
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             onCloseRadialMenu();
           }}
         >
           <div
-            className="fixed"
+            className="fixed cb-anim-scale-in"
             style={{
               left: Math.min(Math.max(130, radialMenuPos.x), window.innerWidth - 130),
               top: Math.min(Math.max(130, radialMenuPos.y), window.innerHeight - 130),
             }}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Center Hub with Live Brush/Font Preview */}
-            <div className=" -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full bg-slate-900/95 text-white border-2 border-white/20 shadow-2xl flex flex-col items-center justify-center p-1 text-center">
+            {/* Center Hub with Live Brush/Font Preview & Hovered Tool Feedback */}
+            <div className=" -translate-x-1/2 -translate-y-1/2 w-22 h-22 rounded-full bg-slate-900/95 text-white border-2 border-white/25 shadow-2xl flex flex-col items-center justify-center p-1.5 text-center transition-all">
               <span
                 className="w-3.5 h-3.5 rounded-full border border-white/40 mb-0.5"
-                style={{ backgroundColor: strokeColor }}
+                style={{ backgroundColor: hoveredToolObj ? hoveredToolObj.color : strokeColor }}
               />
               <span className="text-[10px] font-bold tracking-tight leading-tight">
-                Hızlı Araç
+                {hoveredToolObj ? hoveredToolObj.label : 'Hızlı Seçim'}
               </span>
-              <span className="text-[9px] text-slate-400 font-mono">
-                {fontSize}px · {strokeWidth}px
+              <span className="text-[9px] text-slate-300 font-mono mt-0.5">
+                {hoveredToolObj ? `Bırak: ${hoveredToolObj.shortcut}` : 'Sürükle / Tıkla'}
               </span>
             </div>
 
             {/* Radial Tool Buttons */}
             {RADIAL_TOOLS.map((tool, index) => {
               const angle = (index / RADIAL_TOOLS.length) * Math.PI * 2 - Math.PI / 2;
-              const radius = 84;
+              const radius = 88;
               const tx = Math.cos(angle) * radius;
               const ty = Math.sin(angle) * radius;
               const Icon = tool.icon;
+              const isHoveredByDrag = hoveredRadialTool === tool.id;
               const isSelected = activeTool === tool.id;
 
               return (
                 <button
                   key={tool.id}
                   type="button"
-                  onClick={() => {
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onPointerUp={(e) => {
+                    e.stopPropagation();
+                    onSelectTool(tool.id);
+                    onCloseRadialMenu();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
                     onSelectTool(tool.id);
                     onCloseRadialMenu();
                   }}
                   style={{
-                    transform: `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px))`,
+                    transform: `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) ${
+                      isHoveredByDrag ? 'scale(1.18)' : ''
+                    }`,
                   }}
-                  className={`absolute top-0 left-0 w-13 h-13 rounded-2xl shadow-xl border flex flex-col items-center justify-center gap-0.5 transition-all hover:scale-110 ${
-                    isSelected
-                      ? 'bg-blue-600 text-white border-blue-400 ring-4 ring-blue-500/30'
+                  className={`absolute top-0 left-0 w-13 h-13 rounded-2xl shadow-xl border flex flex-col items-center justify-center gap-0.5 transition-all hover:scale-110 cursor-pointer ${
+                    isHoveredByDrag
+                      ? 'bg-blue-600 text-white border-blue-300 ring-4 ring-blue-500/40 z-10'
+                      : isSelected
+                      ? 'bg-slate-900 text-white border-blue-400 ring-2 ring-blue-500/30'
                       : 'bg-white/95 hover:bg-white text-slate-800 border-slate-200'
                   }`}
                   title={`${tool.label} (${tool.shortcut})`}
@@ -506,14 +546,21 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
             {onOpenAIPrompt && (
               <button
                 type="button"
-                onClick={() => {
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => {
+                  e.stopPropagation();
+                  onCloseRadialMenu();
+                  onOpenAIPrompt();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
                   onCloseRadialMenu();
                   onOpenAIPrompt();
                 }}
                 style={{
-                  transform: 'translate(-50%, 108px)',
+                  transform: 'translate(-50%, 118px)',
                 }}
-                className="absolute top-0 left-0 px-3 py-1.5 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-[11px] font-bold shadow-xl flex items-center gap-1.5 whitespace-nowrap hover:scale-105 transition-transform"
+                className="absolute top-0 left-0 px-3 py-1.5 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-[11px] font-bold shadow-xl flex items-center gap-1.5 whitespace-nowrap hover:scale-105 transition-transform cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>AI Çizim Asistanı</span>
@@ -525,3 +572,4 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
     </>
   );
 };
+

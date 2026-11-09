@@ -35,6 +35,7 @@ import {
   UserRole,
 } from '../types';
 import { generateRoomCodeSeed } from './UserSetupModal';
+import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
 
 export type ShareLinkTargetMode = 'shared' | 'custom' | 'current';
 
@@ -136,10 +137,14 @@ export function getShareableRoomUrl(roomId: string, options?: ShareUrlOptions): 
 
     url.hash = '';
 
-    const cleanRoomId = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'ana-oda';
+    const cleanRoomId = roomId.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'ana01';
     url.searchParams.set('room', cleanRoomId);
-    if (options?.roomName?.trim()) {
-      url.searchParams.set('rname', options.roomName.trim());
+    const cleanOptName = options?.roomName
+      ?.replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
+      .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
+      .trim();
+    if (cleanOptName) {
+      url.searchParams.set('rname', cleanOptName);
     } else {
       url.searchParams.delete('rname');
     }
@@ -155,7 +160,7 @@ export function getShareableRoomUrl(roomId: string, options?: ShareUrlOptions): 
 
     return url.toString();
   } catch {
-    const cleanRoom = encodeURIComponent(roomId.trim() || 'ana-oda');
+    const cleanRoom = encodeURIComponent(roomId.trim().slice(0, 5) || 'ana01');
     return `${window.location.origin}${window.location.pathname}?room=${cleanRoom}`;
   }
 }
@@ -186,6 +191,7 @@ interface RoomsModalProps {
     maxUsers?: number,
     isCreatingRoom?: boolean
   ) => void;
+  onDeleteRoom?: (roomId: string) => Promise<{ ok: boolean; error?: string }>;
   onUpdateRoomSettings: (changes: {
     isLocked?: boolean;
     maxUsers?: number;
@@ -219,6 +225,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   onSyncToCloud,
   onAddQrToCanvas,
   onSelectRoom,
+  onDeleteRoom,
   onUpdateRoomSettings,
   onUpdateUserRole,
   onKickUser,
@@ -233,11 +240,27 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   const [editingRoomName, setEditingRoomName] = useState(currentRoomName);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isCheckingRoom, setIsCheckingRoom] = useState(false);
+  const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
 
   const [includeSnapshot, setIncludeSnapshot] = useState<boolean>(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [qrFullscreenDataUrl, setQrFullscreenDataUrl] = useState<string>('');
   const [isQrFullscreen, setIsQrFullscreen] = useState<boolean>(false);
+
+  const ownerKey = useMemo(() => getOrCreateOwnerKey(), []);
+  const maxRoomsPerUser = serverLimits.maxRoomsPerUser || 3;
+
+  const myOwnedRooms = useMemo(() => {
+    return roomsList.filter(
+      (r) =>
+        (r.ownerKey && r.ownerKey === ownerKey) ||
+        (r.ownerId && currentUserId && r.ownerId === currentUserId)
+    );
+  }, [roomsList, ownerKey, currentUserId]);
+
+  const hasReachedUserRoomLimit = myOwnedRooms.length >= maxRoomsPerUser;
 
   useEffect(() => {
     onRefreshRooms();
@@ -247,26 +270,108 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
     setEditingRoomName(currentRoomName);
   }, [currentRoomName]);
 
-  const handleJoinByCode = (e: React.FormEvent) => {
+  const handleJoinByCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanCode = joinByCodeInput.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
-    if (!cleanCode) return;
+    setModalError(null);
+    const cleanCode = joinByCodeInput
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 5);
+    if (cleanCode.length !== 5) {
+      setModalError('Lütfen geçerli bir 5 haneli oda kodu girin.');
+      return;
+    }
+
+    setIsCheckingRoom(true);
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(cleanCode)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (!data.exists) {
+          setModalError(
+            `#${cleanCode.toUpperCase()} koduna sahip aktif bir oda bulunamadı. Lütfen oda kodunu kontrol edin veya yeni bir oda oluşturun.`
+          );
+          setIsCheckingRoom(false);
+          return;
+        }
+        if (data.room?.isLocked) {
+          setModalError(
+            `"${data.room.name}" (#${cleanCode.toUpperCase()}) odası kurucu tarafından kilitlenmiş.`
+          );
+          setIsCheckingRoom(false);
+          return;
+        }
+        if (data.room && data.room.userCount >= data.room.maxUsers && cleanCode !== currentRoomId) {
+          setModalError(
+            `"${data.room.name}" (#${cleanCode.toUpperCase()}) odasının maksimum kişi kapasitesi (${data.room.userCount}/${data.room.maxUsers}) dolmuş.`
+          );
+          setIsCheckingRoom(false);
+          return;
+        }
+      }
+    } catch {
+      // Fallback to websocket check
+    } finally {
+      setIsCheckingRoom(false);
+    }
+
     onSelectRoom(cleanCode, undefined, undefined, false);
     onClose();
   };
 
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
+
+    if (hasReachedUserRoomLimit) {
+      setModalError(
+        `Bir kullanıcı en fazla ${maxRoomsPerUser} oda açabilir. Yeni bir oda oluşturmak için lütfen mevcut ${maxRoomsPerUser} odanızdan birini silin veya kapatın.`
+      );
+      return;
+    }
+
     const cleanCode =
-      newRoomCode.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') ||
-      generateRoomCodeSeed(5).toLowerCase();
-    const cleanName = newRoomName.trim() || `Oda #${cleanCode.toUpperCase()}`;
+      newRoomCode
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .slice(0, 5) || generateRoomCodeSeed(5).toLowerCase();
+
+    if (cleanCode.length !== 5) {
+      setModalError('Oda kodu tam 5 karakter olmalıdır.');
+      return;
+    }
+
+    // Never append (#CODE) or #CODE to room name
+    const cleanName =
+      newRoomName
+        .replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
+        .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
+        .trim() || 'Yeni Çalışma Odası';
+
     const clampedMax = Math.min(
       serverLimits.maxUsersPerRoom || 30,
       Math.max(2, Number(newRoomMaxUsers) || 8)
     );
     onSelectRoom(cleanCode, cleanName, clampedMax, true);
     onClose();
+  };
+
+  const handleDeleteOwnedRoom = async (targetRoomId: string) => {
+    if (!onDeleteRoom) return;
+    setDeletingRoomId(targetRoomId);
+    setModalError(null);
+    try {
+      const res = await onDeleteRoom(targetRoomId);
+      if (!res.ok && res.error) {
+        setModalError(res.error);
+      } else {
+        onRefreshRooms();
+      }
+    } finally {
+      setDeletingRoomId(null);
+    }
   };
 
   // Full share URL (can optionally include compact snapshot)
@@ -403,8 +508,8 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 select-none">
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 select-none cb-anim-fade-in">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden cb-anim-scale-in">
         {/* Header */}
         <div className="h-14 px-6 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2.5">
@@ -416,7 +521,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 Odalar, Yetkiler, QR Kod & Çoklu Cihaz Daveti
               </h2>
               <p className="text-[11px] text-slate-500 font-mono tabular-nums">
-                Aktif Oda: {serverLimits.currentRoomsCount}/{serverLimits.maxRooms} · Bu Oda:{' '}
+                Odalarınız: {myOwnedRooms.length}/{maxRoomsPerUser} · Bu Oda:{' '}
                 {users.length}/{roomSettings.maxUsers} Kişi · Rolünüz:{' '}
                 {getRoleLabel(currentUserRole)}
               </p>
@@ -477,6 +582,19 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         {/* Tab 1: Active Rooms & Create Room */}
         {activeTab === 'rooms' && (
           <div className="p-6 space-y-5 max-h-[68vh] overflow-y-auto">
+            {modalError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center justify-between gap-2">
+                <span className="font-semibold">{modalError}</span>
+                <button
+                  type="button"
+                  onClick={() => setModalError(null)}
+                  className="p-1 rounded hover:bg-rose-100 text-rose-600 shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Switch Room by 5-Digit Code Card */}
             <form
               onSubmit={handleJoinByCode}
@@ -485,31 +603,32 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               <div>
                 <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                   <KeyRound className="w-4 h-4 text-blue-600" />
-                  <span>Oda Kodu ile Başka Bir Odaya Geç</span>
+                  <span>5 Haneli Oda Kodu ile Başka Bir Odaya Geç</span>
                 </div>
                 <p className="text-[11px] text-slate-600 mt-0.5">
-                  Katılmak istediğiniz odanın 5 haneli kodunu girerek doğrudan geçiş yapın.
+                  Katılmak istediğiniz mevcut odanın 5 haneli kodunu girin (Olmayan odaya giriş yapılmaz).
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <input
                   type="text"
-                  maxLength={12}
+                  maxLength={5}
                   value={joinByCodeInput}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setModalError(null);
                     setJoinByCodeInput(
-                      e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '')
-                    )
-                  }
-                  placeholder="Örn: K7X9A"
-                  className="w-32 px-3 py-2 bg-white rounded-lg border border-blue-300 text-xs font-mono font-bold tracking-widest uppercase text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600"
+                      e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5)
+                    );
+                  }}
+                  placeholder="K7X9A"
+                  className="w-28 px-3 py-2 bg-white rounded-lg border border-blue-300 text-xs font-mono font-bold tracking-widest uppercase text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600"
                 />
                 <button
                   type="submit"
-                  disabled={!joinByCodeInput.trim()}
+                  disabled={joinByCodeInput.trim().length !== 5 || isCheckingRoom}
                   className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0"
                 >
-                  <span>Odaya Geç</span>
+                  <span>{isCheckingRoom ? 'Kontrol...' : 'Odaya Geç'}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -519,7 +638,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             <div>
               <div className="flex items-center justify-between mb-2.5">
                 <span className="text-xs font-bold text-slate-800">
-                  Açık Çalışma Odaları (Maksimum {serverLimits.maxRooms} Oda)
+                  Açık Çalışma Odaları ({roomsList.length} Aktif Oda · Sizin Odalarınız: {myOwnedRooms.length}/{maxRoomsPerUser})
                 </span>
                 <button
                   onClick={onRefreshRooms}
@@ -534,6 +653,15 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 {roomsList.map((r) => {
                   const isCurrent = r.id === currentRoomId;
                   const isFull = r.userCount >= r.maxUsers;
+                  const isOwnedByMe =
+                    (r.ownerKey && r.ownerKey === ownerKey) ||
+                    (r.ownerId && currentUserId && r.ownerId === currentUserId);
+                  const cleanRName =
+                    r.name
+                      .replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
+                      .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
+                      .trim() || r.name;
+
                   return (
                     <div
                       key={r.id}
@@ -562,11 +690,16 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-slate-900 truncate">
-                              {r.name}
+                              {cleanRName}
                             </span>
                             <span className="text-[11px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
                               #{r.id.toUpperCase()}
                             </span>
+                            {isOwnedByMe && (
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                Sizin Odanız
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
                             {r.userCount}/{r.maxUsers} kullanıcı · {r.elementCount} nesne · Kurucu:{' '}
@@ -576,7 +709,19 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="shrink-0 ml-3">
+                      <div className="shrink-0 ml-3 flex items-center gap-1.5">
+                        {isOwnedByMe && onDeleteRoom && !isCurrent && (
+                          <button
+                            type="button"
+                            disabled={deletingRoomId === r.id}
+                            onClick={() => handleDeleteOwnedRoom(r.id)}
+                            className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 text-xs font-semibold transition-colors flex items-center gap-1"
+                            title="Bu odayı kapat ve sil (3 oda hakkınızı boşaltır)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>{deletingRoomId === r.id ? 'Siliniyor...' : 'Odayı Sil'}</span>
+                          </button>
+                        )}
                         {isCurrent ? (
                           <span className="px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-xs font-semibold">
                             Bu Odadasınız
@@ -585,7 +730,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                           <button
                             disabled={r.isLocked || isFull}
                             onClick={() => {
-                              onSelectRoom(r.id, r.name, r.maxUsers, false);
+                              onSelectRoom(r.id, cleanRName, r.maxUsers, false);
                               onClose();
                             }}
                             className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold transition-colors flex items-center gap-1"
@@ -609,18 +754,29 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Plus className="w-4 h-4 text-blue-600" />
-                  <span>Yeni Çalışma Odası Oluştur</span>
+                  <span>Yeni Çalışma Odası Oluştur (En Fazla {maxRoomsPerUser} Oda Hakkı)</span>
                 </span>
-                <span className="text-[11px] text-slate-500 font-mono tabular-nums">
-                  Kalan Kapasite: {Math.max(0, serverLimits.maxRooms - serverLimits.currentRoomsCount)}{' '}
-                  oda
+                <span
+                  className={`text-[11px] font-mono tabular-nums font-bold px-2 py-0.5 rounded ${
+                    hasReachedUserRoomLimit
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-blue-50 text-blue-700'
+                  }`}
+                >
+                  Oda Hakkınız: {myOwnedRooms.length}/{maxRoomsPerUser}
                 </span>
               </div>
+
+              {hasReachedUserRoomLimit && (
+                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-medium">
+                  Maksimum {maxRoomsPerUser} aktif oda sınırına ulaştınız. Yeni bir oda açmak için yukarıdaki listeden mevcut odalarınızdan birini <strong>Odayı Sil</strong> butonuyla kapatın.
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Oda Adı
+                    Oda Adı (Kod Eklenmez)
                   </label>
                   <input
                     type="text"
@@ -685,7 +841,11 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  disabled={serverLimits.currentRoomsCount >= serverLimits.maxRooms}
+                  disabled={
+                    hasReachedUserRoomLimit ||
+                    serverLimits.currentRoomsCount >= serverLimits.maxRooms ||
+                    newRoomCode.trim().length !== 5
+                  }
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
                 >
                   <Plus className="w-3.5 h-3.5" />

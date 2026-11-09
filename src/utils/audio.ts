@@ -253,6 +253,8 @@ export class VoiceManager {
     }
     const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
     let speakingCounter = 0;
+    let lastVolumeReportTime = 0;
+    let lastVolumeReported = 0;
 
     const checkVolume = () => {
       if (!this.analyser) return;
@@ -265,16 +267,25 @@ export class VoiceManager {
       const average = sum / dataArray.length;
       const volume = Math.min(100, Math.round((average / 128) * 100));
 
-      const isSpeakingNow = !this.isMuted && volume > 14;
+      const isSpeakingNow = !this.isMuted && volume > 12;
       if (isSpeakingNow) {
-        speakingCounter = 6;
+        speakingCounter = 8;
       } else if (speakingCounter > 0) {
         speakingCounter--;
       }
 
-      const activeSpeaking = speakingCounter > 0;
-      if (activeSpeaking !== this.lastSpeakingReported || !this.isMuted) {
+      const activeSpeaking = !this.isMuted && speakingCounter > 0;
+      const now = performance.now();
+      const speakingChanged = activeSpeaking !== this.lastSpeakingReported;
+      const volumeChangedEnough =
+        !this.isMuted &&
+        now - lastVolumeReportTime > 140 &&
+        Math.abs(volume - lastVolumeReported) >= 4;
+
+      if (speakingChanged || volumeChangedEnough) {
         this.lastSpeakingReported = activeSpeaking;
+        lastVolumeReported = this.isMuted ? 0 : volume;
+        lastVolumeReportTime = now;
         this.onSpeakingChange(activeSpeaking, this.isMuted ? 0 : volume);
       }
 
@@ -286,14 +297,62 @@ export class VoiceManager {
 
   async setMuted(muted: boolean) {
     this.isMuted = muted;
-    if (!muted && !this.localStream) {
+    const hasLiveTrack =
+      this.localStream &&
+      this.localStream.getAudioTracks().some((t) => t.readyState === 'live');
+
+    if (!muted && !hasLiveTrack) {
       await this.initLocalMicrophone();
     }
+
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      this.audioContext.resume().catch(() => {});
+    }
+
     if (this.localStream) {
+      const audioTrack = this.localStream.getAudioTracks()[0] || null;
       this.localStream.getAudioTracks().forEach((track) => {
         track.enabled = !muted;
       });
+
+      // Ensure all active peer connections have the live audio track attached when unmuting
+      if (!muted && audioTrack) {
+        for (const [peerId, pc] of this.peerConnections.entries()) {
+          try {
+            const transceivers = pc.getTransceivers();
+            const audioTransceiver = transceivers.find(
+              (t) =>
+                t.sender.track?.kind === 'audio' ||
+                t.receiver.track?.kind === 'audio'
+            );
+            if (audioTransceiver && audioTransceiver.sender) {
+              if (
+                audioTransceiver.direction === 'recvonly' ||
+                audioTransceiver.direction === 'inactive'
+              ) {
+                audioTransceiver.direction = 'sendrecv';
+              }
+              if (audioTransceiver.sender.track !== audioTrack) {
+                await audioTransceiver.sender.replaceTrack(audioTrack);
+              }
+            } else {
+              pc.addTrack(audioTrack, this.localStream);
+              if (pc.signalingState === 'stable') {
+                const offer = await pc.createOffer({ offerToReceiveAudio: true });
+                await pc.setLocalDescription(offer);
+                this.onSignalNeeded(peerId, {
+                  type: 'offer',
+                  sdp: pc.localDescription,
+                });
+              }
+            }
+          } catch {
+            // Ignore track attach error
+          }
+        }
+      }
     }
+
     this.resumeAllRemoteAudio();
     if (muted) {
       this.lastSpeakingReported = false;

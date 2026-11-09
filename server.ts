@@ -36,6 +36,7 @@ const PORT = getPort();
 // Server-wide capacity limits
 const MAX_ROOMS = 20;
 const MAX_USERS_PER_ROOM = 30;
+const MAX_ROOMS_PER_USER = 3;
 const DEFAULT_ROOM_MAX_USERS = 12;
 
 // Permissive CORS middleware so shared/invited clients never get blocked by application CORS
@@ -131,6 +132,7 @@ interface RoomState {
   name: string;
   createdAt: number;
   ownerName: string;
+  ownerKey?: string;
   settings: RoomSettings;
   roleAssignments: Map<string, UserRole>;
   elements: Map<string, CanvasElement>;
@@ -160,6 +162,19 @@ function canManageRoom(role: UserRole): boolean {
   return role === 'owner' || role === 'admin';
 }
 
+function sanitizeRoomDisplayName(rawName: string | undefined, roomId: string): string {
+  if (!rawName || !rawName.trim()) {
+    return roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : 'Çalışma Odası';
+  }
+  // Strip any accidental (#CODE) or #CODE suffix from room name
+  const cleaned = rawName
+    .trim()
+    .replace(/\s*\(#[a-zA-Z0-9_-]+\)\s*$/g, '')
+    .replace(/\s+#[a-zA-Z0-9_-]{3,8}\s*$/g, '')
+    .trim();
+  return cleaned || (roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : 'Çalışma Odası');
+}
+
 function getRoomSummaries() {
   return Array.from(rooms.values()).map((r) => ({
     id: r.id,
@@ -170,6 +185,8 @@ function getRoomSummaries() {
     elementCount: r.elements.size,
     createdAt: r.createdAt,
     ownerName: r.ownerName,
+    ownerId: r.settings.ownerId,
+    ownerKey: r.ownerKey,
   }));
 }
 
@@ -180,6 +197,7 @@ function broadcastGlobalRoomsList() {
     limits: {
       maxRooms: MAX_ROOMS,
       maxUsersPerRoom: MAX_USERS_PER_ROOM,
+      maxRoomsPerUser: MAX_ROOMS_PER_USER,
       currentRoomsCount: rooms.size,
     },
   });
@@ -190,29 +208,81 @@ function broadcastGlobalRoomsList() {
   });
 }
 
+function countUserOwnedRooms(ownerKey?: string, creatorId?: string): RoomState[] {
+  const owned: RoomState[] = [];
+  for (const r of rooms.values()) {
+    if (r.id === 'ana-oda') continue;
+    if (
+      (ownerKey && r.ownerKey && r.ownerKey === ownerKey) ||
+      (creatorId && r.settings.ownerId === creatorId)
+    ) {
+      owned.push(r);
+    }
+  }
+  return owned;
+}
+
 // Helper to create or retrieve a room
 function getOrCreateRoom(
   rawRoomId: string,
   roomName?: string,
   creatorId?: string,
   creatorName?: string,
-  customMaxUsers?: number
-): { room: RoomState | null; error?: string } {
-  const roomId = rawRoomId
-    ? rawRoomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'ana-oda'
-    : 'ana-oda';
+  customMaxUsers?: number,
+  allowCreate: boolean = true,
+  ownerKey?: string
+): { room: RoomState | null; error?: string; code?: string } {
+  const cleanRaw = rawRoomId
+    ? rawRoomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+    : '';
+  if (!cleanRaw) {
+    return {
+      room: null,
+      code: 'INVALID_ROOM_CODE',
+      error: 'Geçerli bir 5 haneli oda kodu giriniz.',
+    };
+  }
+  if (cleanRaw !== 'ana-oda' && cleanRaw.length !== 5) {
+    return {
+      room: null,
+      code: 'INVALID_ROOM_CODE',
+      error: 'Oda kodu tam 5 karakter olmalıdır.',
+    };
+  }
+  const roomId = cleanRaw;
+
   if (!rooms.has(roomId)) {
-    if (rooms.size >= MAX_ROOMS) {
+    if (!allowCreate && roomId !== 'ana-oda') {
       return {
         room: null,
-        error: `Maksimum oda sınırına (${MAX_ROOMS} oda) ulaşıldı. Lütfen mevcut bir odaya katılın.`,
+        code: 'ROOM_NOT_FOUND',
+        error: `"${roomId.toUpperCase()}" kodlu bir çalışma odası bulunamadı. Lütfen oda kodunu kontrol edin veya yeni bir oda oluşturun.`,
       };
     }
 
-    const displayRoomName =
-      roomName || (roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : `Oda #${roomId}`);
+    if (roomId !== 'ana-oda' && (ownerKey || creatorId)) {
+      const ownedRooms = countUserOwnedRooms(ownerKey, creatorId);
+      if (ownedRooms.length >= MAX_ROOMS_PER_USER) {
+        const names = ownedRooms.map((r) => `${r.name} (#${r.id.toUpperCase()})`).join(', ');
+        return {
+          room: null,
+          code: 'USER_MAX_ROOMS_REACHED',
+          error: `Bir kullanıcı en fazla ${MAX_ROOMS_PER_USER} oda açabilir. Şu anda aktif odalarınız: ${names}. Yeni oda açmak için mevcut 3 odanızdan birini silin veya kapatın.`,
+        };
+      }
+    }
 
-    const defaultCode = `// CollabBoard Ortak Kod Editörü — ${displayRoomName} (#${roomId})
+    if (rooms.size >= MAX_ROOMS) {
+      return {
+        room: null,
+        code: 'MAX_ROOMS_REACHED',
+        error: `Sunucu maksimum oda sınırına (${MAX_ROOMS} oda) ulaştı. Lütfen mevcut bir odaya katılın.`,
+      };
+    }
+
+    const displayRoomName = sanitizeRoomDisplayName(roomName, roomId);
+
+    const defaultCode = `// CollabBoard Ortak Kod Editörü — ${displayRoomName}
 // Bu odadaki kod alanı yalnızca bu odaya özeldir ve odadaki üyelerle anlık senkronize olur.
 
 function calculateSprintMetrics(tasks) {
@@ -242,7 +312,7 @@ calculateSprintMetrics(sampleTasks);
 - [ ] Sprint hedeflerinin gözden geçirilmesi
 
 ---
-*Not: Bu alana yazılan metinler #${roomId} odasındaki herkesle eşzamanlı paylaşılır.*
+*Not: Bu alana yazılan metinler odadaki herkesle eşzamanlı paylaşılır.*
 `;
 
     const ownerId = creatorId || 'system';
@@ -261,6 +331,7 @@ calculateSprintMetrics(sampleTasks);
       name: displayRoomName,
       createdAt: Date.now(),
       ownerName: creatorName || 'Sistem',
+      ownerKey: ownerKey || creatorId || 'system',
       settings: {
         isLocked: false,
         maxUsers: clampedMax,
@@ -298,7 +369,7 @@ calculateSprintMetrics(sampleTasks);
 }
 
 // Initialize default main room
-getOrCreateRoom('ana-oda', 'Genel Çalışma Alanı', 'system', 'Sistem', 15);
+getOrCreateRoom('ana-oda', 'Genel Çalışma Alanı', 'system', 'Sistem', 15, true, 'system');
 
 // Broadcast helper for a room
 function broadcastToRoom(roomId: string, message: object, excludeUserId?: string) {
@@ -363,6 +434,7 @@ wss.on('connection', (ws: WebSocket) => {
               limits: {
                 maxRooms: MAX_ROOMS,
                 maxUsersPerRoom: MAX_USERS_PER_ROOM,
+                maxRoomsPerUser: MAX_ROOMS_PER_USER,
                 currentRoomsCount: rooms.size,
               },
             })
@@ -370,24 +442,115 @@ wss.on('connection', (ws: WebSocket) => {
           break;
         }
 
-        case 'join-room': {
-          const { roomId, roomName, user, maxUsers, isCreatingRoom } = msg;
-          if (!roomId || !user || !user.id) return;
+        case 'leave-room': {
+          const targetLeaveRoomId = msg.roomId || currentRoomId;
+          const targetLeaveUserId = msg.userId || currentUserId;
+          if (targetLeaveRoomId && targetLeaveUserId) {
+            const r = rooms.get(targetLeaveRoomId);
+            if (r && r.users.has(targetLeaveUserId)) {
+              r.users.delete(targetLeaveUserId);
+              broadcastToRoom(targetLeaveRoomId, {
+                type: 'user-left',
+                userId: targetLeaveUserId,
+              });
+              broadcastGlobalRoomsList();
+            }
+          }
+          if (currentRoomId === targetLeaveRoomId) {
+            currentRoomId = null;
+          }
+          break;
+        }
 
-          const { room, error } = getOrCreateRoom(
-            roomId,
+        case 'delete-room': {
+          const targetRoomId = String(msg.roomId || '').trim().toLowerCase();
+          const reqOwnerKey = String(msg.ownerKey || '');
+          const reqUserId = String(msg.userId || currentUserId || '');
+          if (!targetRoomId || targetRoomId === 'ana-oda') {
+            ws.send(
+              JSON.stringify({
+                type: 'room-error',
+                code: 'FORBIDDEN',
+                message: 'Genel çalışma alanı silinemez.',
+              })
+            );
+            break;
+          }
+          const targetRoom = rooms.get(targetRoomId);
+          if (!targetRoom) {
+            broadcastGlobalRoomsList();
+            break;
+          }
+          const isOwner =
+            (reqOwnerKey && targetRoom.ownerKey === reqOwnerKey) ||
+            (reqUserId && targetRoom.settings.ownerId === reqUserId);
+          if (!isOwner) {
+            ws.send(
+              JSON.stringify({
+                type: 'room-error',
+                code: 'FORBIDDEN',
+                message: 'Yalnızca odanın kurucusu bu odayı kapatabilir veya silebilir.',
+              })
+            );
+            break;
+          }
+
+          // Notify all active participants in the deleted room
+          for (const [, userObj] of targetRoom.users.entries()) {
+            if (userObj.ws.readyState === WebSocket.OPEN) {
+              userObj.ws.send(
+                JSON.stringify({
+                  type: 'kicked-from-room',
+                  roomId: targetRoom.id,
+                  roomName: targetRoom.name,
+                  by: `${targetRoom.ownerName} (Oda Kapatıldı)`,
+                })
+              );
+            }
+          }
+          rooms.delete(targetRoomId);
+          broadcastGlobalRoomsList();
+          break;
+        }
+
+        case 'join-room': {
+          const { roomId: rawJoinRoomId, roomName, user, maxUsers, isCreatingRoom, ownerKey } = msg;
+          if (!rawJoinRoomId || !user || !user.id) return;
+
+          const normalizedRoomId = String(rawJoinRoomId)
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, '');
+
+          if (normalizedRoomId !== 'ana-oda' && normalizedRoomId.length !== 5) {
+            ws.send(
+              JSON.stringify({
+                type: 'room-error',
+                code: 'INVALID_ROOM_CODE',
+                roomId: normalizedRoomId,
+                message: 'Oda kodu tam 5 karakter olmalıdır.',
+              })
+            );
+            return;
+          }
+
+          const { room, error, code } = getOrCreateRoom(
+            normalizedRoomId,
             roomName,
             user.id,
             user.name,
-            maxUsers
+            maxUsers,
+            Boolean(isCreatingRoom),
+            typeof ownerKey === 'string' && ownerKey ? ownerKey : user.id
           );
 
           if (!room || error) {
             ws.send(
               JSON.stringify({
                 type: 'room-error',
-                code: 'MAX_ROOMS_REACHED',
-                message: error || 'Oda oluşturulamadı.',
+                code: code || 'ROOM_NOT_FOUND',
+                roomId: normalizedRoomId,
+                message: error || 'Böyle bir oda bulunamadı.',
               })
             );
             return;
@@ -396,7 +559,7 @@ wss.on('connection', (ws: WebSocket) => {
           // If room has 0 active users and creator is initializing/creating it, apply custom name & maxUsers
           if (room.users.size === 0 && (isCreatingRoom || maxUsers || roomName)) {
             if (typeof roomName === 'string' && roomName.trim()) {
-              room.name = roomName.trim();
+              room.name = sanitizeRoomDisplayName(roomName, room.id);
             }
             if (typeof maxUsers === 'number' && maxUsers >= 2) {
               room.settings.maxUsers = Math.min(
@@ -404,12 +567,16 @@ wss.on('connection', (ws: WebSocket) => {
                 Math.max(2, Math.round(maxUsers))
               );
             }
+            if (typeof ownerKey === 'string' && ownerKey) {
+              room.ownerKey = ownerKey;
+            }
           }
 
           const isAlreadyInRoom = room.users.has(user.id);
           const savedRole = room.roleAssignments.get(user.id);
           const isOwnerOrAdmin =
             room.settings.ownerId === user.id ||
+            (ownerKey && room.ownerKey === ownerKey) ||
             savedRole === 'owner' ||
             savedRole === 'admin';
 
@@ -439,29 +606,52 @@ wss.on('connection', (ws: WebSocket) => {
             return;
           }
 
-          // If user was in another room, remove them cleanly from the previous room
-          if (currentRoomId && currentRoomId !== roomId && currentUserId) {
-            const prevRoom = rooms.get(currentRoomId);
-            if (prevRoom) {
-              prevRoom.users.delete(currentUserId);
-              broadcastToRoom(currentRoomId, {
-                type: 'user-left',
-                userId: currentUserId,
-              });
+          // Remove this user from ANY other room they were previously connected to (eliminates ghost users on room switch)
+          for (const [otherRoomId, otherRoom] of rooms.entries()) {
+            if (otherRoomId !== room.id) {
+              let removedAny = false;
+              if (currentUserId && otherRoom.users.has(currentUserId)) {
+                otherRoom.users.delete(currentUserId);
+                removedAny = true;
+              }
+              if (otherRoom.users.has(user.id)) {
+                otherRoom.users.delete(user.id);
+                removedAny = true;
+              }
+              if (removedAny) {
+                broadcastToRoom(otherRoomId, {
+                  type: 'user-left',
+                  userId: user.id,
+                });
+                if (currentUserId && currentUserId !== user.id) {
+                  broadcastToRoom(otherRoomId, {
+                    type: 'user-left',
+                    userId: currentUserId,
+                  });
+                }
+              }
             }
           }
 
-          currentRoomId = roomId;
+          currentRoomId = room.id;
           currentUserId = user.id;
 
           // Determine user's role in the room
           let assignedRole: UserRole = savedRole || room.settings.defaultRole;
-          if (room.settings.ownerId === 'system' || room.settings.ownerId === user.id || room.users.size === 0) {
+          if (
+            room.settings.ownerId === 'system' ||
+            room.settings.ownerId === user.id ||
+            (ownerKey && room.ownerKey === ownerKey) ||
+            room.users.size === 0
+          ) {
             if (room.settings.ownerId === 'system' || room.users.size === 0) {
               room.settings.ownerId = user.id;
               room.ownerName = user.name || 'Kurucu';
+              if (typeof ownerKey === 'string' && ownerKey) {
+                room.ownerKey = ownerKey;
+              }
             }
-            if (room.settings.ownerId === user.id) {
+            if (room.settings.ownerId === user.id || (ownerKey && room.ownerKey === ownerKey)) {
               assignedRole = 'owner';
             }
           }
@@ -508,6 +698,7 @@ wss.on('connection', (ws: WebSocket) => {
               limits: {
                 maxRooms: MAX_ROOMS,
                 maxUsersPerRoom: MAX_USERS_PER_ROOM,
+                maxRoomsPerUser: MAX_ROOMS_PER_USER,
                 currentRoomsCount: rooms.size,
               },
             })
@@ -515,7 +706,7 @@ wss.on('connection', (ws: WebSocket) => {
 
           // Broadcast user joined to other room members
           broadcastToRoom(
-            roomId,
+            room.id,
             {
               type: 'user-joined',
               user: presence,
@@ -559,7 +750,7 @@ wss.on('connection', (ws: WebSocket) => {
               room.settings.defaultRole = changes.defaultRole;
             }
             if (typeof changes.roomName === 'string' && changes.roomName.trim()) {
-              room.name = changes.roomName.trim();
+              room.name = sanitizeRoomDisplayName(changes.roomName, room.id);
             }
           }
 
@@ -1737,17 +1928,78 @@ app.get('/api/rooms', (_req, res) => {
     limits: {
       maxRooms: MAX_ROOMS,
       maxUsersPerRoom: MAX_USERS_PER_ROOM,
+      maxRoomsPerUser: MAX_ROOMS_PER_USER,
+      currentRoomsCount: rooms.size,
+    },
+  });
+});
+
+app.delete('/api/rooms/:roomId', (req, res) => {
+  const targetRoomId = String(req.params.roomId || '').trim().toLowerCase();
+  const ownerKey = String(req.query.ownerKey || req.body?.ownerKey || '');
+  const userId = String(req.query.userId || req.body?.userId || '');
+
+  if (!targetRoomId || targetRoomId === 'ana-oda') {
+    res.status(403).json({ error: 'Genel çalışma alanı silinemez.' });
+    return;
+  }
+
+  const targetRoom = rooms.get(targetRoomId);
+  if (!targetRoom) {
+    res.json({ ok: true, rooms: getRoomSummaries() });
+    return;
+  }
+
+  const isOwner =
+    (ownerKey && targetRoom.ownerKey === ownerKey) ||
+    (userId && targetRoom.settings.ownerId === userId);
+  if (!isOwner) {
+    res.status(403).json({ error: 'Yalnızca odanın kurucusu bu odayı kapatabilir veya silebilir.' });
+    return;
+  }
+
+  for (const [, userObj] of targetRoom.users.entries()) {
+    if (userObj.ws.readyState === WebSocket.OPEN) {
+      userObj.ws.send(
+        JSON.stringify({
+          type: 'kicked-from-room',
+          roomId: targetRoom.id,
+          roomName: targetRoom.name,
+          by: `${targetRoom.ownerName} (Oda Kapatıldı)`,
+        })
+      );
+    }
+  }
+  rooms.delete(targetRoomId);
+  broadcastGlobalRoomsList();
+  res.json({
+    ok: true,
+    rooms: getRoomSummaries(),
+    limits: {
+      maxRooms: MAX_ROOMS,
+      maxUsersPerRoom: MAX_USERS_PER_ROOM,
+      maxRoomsPerUser: MAX_ROOMS_PER_USER,
       currentRoomsCount: rooms.size,
     },
   });
 });
 
 app.get('/api/rooms/:roomId', (req, res) => {
-  const roomId = req.params.roomId || 'ana-oda';
+  const roomId = (req.params.roomId || 'ana-oda').trim().toLowerCase();
   const roomName = typeof req.query.roomName === 'string' ? req.query.roomName : undefined;
-  const { room, error } = getOrCreateRoom(roomId, roomName);
+  const allowCreate = req.query.create === 'true' || roomId === 'ana-oda';
+  const ownerKey = typeof req.query.ownerKey === 'string' ? req.query.ownerKey : undefined;
+  const { room, error, code } = getOrCreateRoom(
+    roomId,
+    roomName,
+    undefined,
+    undefined,
+    undefined,
+    allowCreate,
+    ownerKey
+  );
   if (!room || error) {
-    res.status(404).json({ error: error || 'Room not found' });
+    res.status(404).json({ error: error || 'Böyle bir oda bulunamadı.', code: code || 'ROOM_NOT_FOUND' });
     return;
   }
   const elementsArray = room.elementOrder
@@ -1772,13 +2024,14 @@ app.get('/api/rooms/:roomId', (req, res) => {
     limits: {
       maxRooms: MAX_ROOMS,
       maxUsersPerRoom: MAX_USERS_PER_ROOM,
+      maxRoomsPerUser: MAX_ROOMS_PER_USER,
       currentRoomsCount: rooms.size,
     },
   });
 });
 
 app.post('/api/rooms/:roomId/sync', (req, res) => {
-  const roomId = req.params.roomId || 'ana-oda';
+  const roomId = (req.params.roomId || 'ana-oda').trim().toLowerCase();
   const { roomName, elements, code, notes, chatMessage } = req.body as {
     roomName?: string;
     elements?: CanvasElement[];
@@ -1787,9 +2040,9 @@ app.post('/api/rooms/:roomId/sync', (req, res) => {
     chatMessage?: { text: string; userName: string; userColor: string; userId?: string };
   };
 
-  const { room, error } = getOrCreateRoom(roomId, roomName);
+  const { room, error } = getOrCreateRoom(roomId, roomName, undefined, undefined, undefined, false);
   if (!room || error) {
-    res.status(400).json({ error: error || 'Room could not be synced' });
+    res.status(404).json({ error: error || 'Room not found' });
     return;
   }
 
@@ -1873,7 +2126,7 @@ async function startServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);

@@ -77,6 +77,19 @@ function getDefaultNotesForRoom(roomId: string, displayRoomName: string) {
 `;
 }
 
+export function getOrCreateOwnerKey(): string {
+  try {
+    let key = localStorage.getItem('collab_owner_key');
+    if (!key) {
+      key = `owner-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem('collab_owner_key', key);
+    }
+    return key;
+  } catch {
+    return 'owner-fallback';
+  }
+}
+
 export function useWebSocket({
   roomId,
   roomName,
@@ -91,11 +104,14 @@ export function useWebSocket({
   const wsRef = useRef<WebSocket | null>(null);
   const mqttClientsRef = useRef<MqttClient[]>([]);
   const isMeshModeRef = useRef<boolean>(false);
+  const isWsConnectedRef = useRef<boolean>(false);
   const joinedAtRef = useRef<number>(Date.now());
   const peerLastSeenRef = useRef<Map<string, number>>(new Map());
   const seenPacketsRef = useRef<Set<string>>(new Set());
   const packetSeqRef = useRef<number>(0);
   const rejectedRoomRef = useRef<boolean>(false);
+  const roomNameRef = useRef<string>(roomName);
+  roomNameRef.current = roomName;
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [elements, setElements] = useState<CanvasElement[]>([]);
@@ -293,6 +309,16 @@ export function useWebSocket({
       try {
         const msg = JSON.parse(raw);
         if (!msg || typeof msg !== 'object') return;
+
+        // Ignore packets meant for a different room
+        if (
+          msg._roomId &&
+          String(msg._roomId).trim().toLowerCase() !== roomId.trim().toLowerCase() &&
+          msg.type !== 'rooms-list-updated' &&
+          msg.type !== 'room-error'
+        ) {
+          return;
+        }
 
         // Deduplicate packets by _pktId
         if (msg._pktId) {
@@ -528,7 +554,7 @@ export function useWebSocket({
           // --- Standard Room & Workspace Events ---
           case 'init-room': {
             setRoomError(null);
-            setSyncedRoomName(msg.roomName || roomName);
+            setSyncedRoomName(msg.roomName || roomNameRef.current);
             if (msg.settings) {
               setRoomSettings(msg.settings);
             }
@@ -538,56 +564,25 @@ export function useWebSocket({
             if (msg.limits) {
               setServerLimits(msg.limits);
             }
-            if (Array.isArray(msg.elements) && msg.elements.length > 0) {
-              setElements((prev) => {
-                if (prev.length === 0) return msg.elements;
-                const map = new Map<string, CanvasElement>();
-                for (const el of prev) {
-                  if (el && el.id) map.set(el.id, el);
-                }
-                for (const el of msg.elements) {
-                  if (el && el.id && !map.has(el.id)) {
-                    map.set(el.id, el);
-                  }
-                }
-                return Array.from(map.values());
-              });
+            if (Array.isArray(msg.elements)) {
+              setElements(msg.elements);
             }
             if (msg.code && (msg.code.content || msg.code.language)) {
-              setCode((prev) => (prev.lastUpdatedBy === 'Sistem' ? msg.code : prev));
+              setCode(msg.code);
             }
             if (msg.notes && msg.notes.content) {
-              setNotes((prev) => (prev.lastUpdatedBy === 'Sistem' ? msg.notes : prev));
+              setNotes(msg.notes);
             }
-            if (Array.isArray(msg.files) && msg.files.length > 0) {
-              setFiles((prev) => {
-                const map = new Map(prev.map((f) => [f.id, f]));
-                for (const f of msg.files) {
-                  if (f && f.id) map.set(f.id, f);
-                }
-                return Array.from(map.values());
-              });
+            if (Array.isArray(msg.files)) {
+              setFiles(msg.files);
             }
-            if (Array.isArray(msg.messages) && msg.messages.length > 0) {
-              setChatMessages((prev) => {
-                const map = new Map(prev.map((m) => [m.id, m]));
-                for (const m of msg.messages) {
-                  if (m && m.id) map.set(m.id, m);
-                }
-                return Array.from(map.values()).sort((a, b) => a.timestamp - b.timestamp);
-              });
+            if (Array.isArray(msg.messages)) {
+              setChatMessages(
+                [...msg.messages].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+              );
             }
-            if (Array.isArray(msg.users) && msg.users.length > 0) {
-              setUsers((prev) => {
-                const map = new Map<string, UserPresence>();
-                for (const u of prev) {
-                  if (u && u.id) map.set(u.id, u);
-                }
-                for (const u of msg.users) {
-                  if (u && u.id) map.set(u.id, u);
-                }
-                return Array.from(map.values());
-              });
+            if (Array.isArray(msg.users)) {
+              setUsers(msg.users);
             }
             break;
           }
@@ -631,7 +626,10 @@ export function useWebSocket({
             if (
               errObj.code === 'ROOM_FULL' ||
               errObj.code === 'ROOM_LOCKED' ||
-              errObj.code === 'MAX_ROOMS_REACHED'
+              errObj.code === 'MAX_ROOMS_REACHED' ||
+              errObj.code === 'ROOM_NOT_FOUND' ||
+              errObj.code === 'USER_MAX_ROOMS_REACHED' ||
+              errObj.code === 'INVALID_ROOM_CODE'
             ) {
               rejectedRoomRef.current = true;
               setIsConnected(false);
@@ -1055,28 +1053,40 @@ export function useWebSocket({
         console.error('Packet handling error:', err);
       }
     },
-    [roomId, roomName, publishMeshPacket]
+    [roomId, publishMeshPacket]
   );
 
   // Connect & reconnect logic per roomId
   useEffect(() => {
     if (!enabled) {
       setIsConnected(false);
+      isWsConnectedRef.current = false;
       setUsers([]);
       return;
     }
 
     let isCancelled = false;
     rejectedRoomRef.current = false;
+    isWsConnectedRef.current = false;
+    isMeshModeRef.current = false;
     joinedAtRef.current = Date.now();
     peerLastSeenRef.current.clear();
+
+    // Reset room-specific state when entering/switching rooms so stale users/elements never persist
+    setUsers([]);
+    setElements([]);
+    setPings([]);
+    setReactions([]);
+    setRemoteLaserPoints([]);
+    setCodeCursors([]);
 
     const targetMaxUsers =
       customMaxUsersRef.current && customMaxUsersRef.current >= 2
         ? customMaxUsersRef.current
         : 12;
 
-    setSyncedRoomName(roomName);
+    const currentDisplayRoomName = roomNameRef.current;
+    setSyncedRoomName(currentDisplayRoomName);
     setRoomSettings((prev) => ({
       ...prev,
       isLocked: false,
@@ -1085,9 +1095,10 @@ export function useWebSocket({
     }));
 
     // Setup BroadcastChannel for instant local cross-tab/window sync
+    const bcChannelName = `collabboard_room_${roomId.trim().toLowerCase()}`;
     if (typeof BroadcastChannel !== 'undefined') {
       try {
-        const bc = new BroadcastChannel(`collabboard_room_${roomId}`);
+        const bc = new BroadcastChannel(bcChannelName);
         broadcastChannelRef.current = bc;
         bc.onmessage = (ev) => {
           if (typeof ev.data === 'string' && !rejectedRoomRef.current) {
@@ -1108,7 +1119,6 @@ export function useWebSocket({
         host.endsWith('.vercel.app');
 
       if (isStaticHost) {
-        // On GitHub Pages and static hosts, always use Serverless WSS + WebRTC Mesh immediately
         return null;
       }
 
@@ -1139,18 +1149,22 @@ export function useWebSocket({
 
     let meshHeartbeatTimer: number | null = null;
     let beforeUnloadHandler: (() => void) | null = null;
+    let meshStarted = false;
 
-    function initMeshNetwork() {
-      if (isCancelled || rejectedRoomRef.current) return;
-      isMeshModeRef.current = true;
-      setIsConnected(true);
+    function initMeshNetwork(serverlessOnly: boolean) {
+      if (isCancelled || rejectedRoomRef.current || meshStarted) return;
+      meshStarted = true;
+      if (serverlessOnly) {
+        isMeshModeRef.current = true;
+        setIsConnected(true);
+      }
 
       const initialSelfPresence: UserPresence = {
         id: userRef.current.id,
         name: userRef.current.name,
         avatar: userRef.current.avatar || userRef.current.name.charAt(0).toUpperCase(),
         color: userRef.current.color,
-        role: 'owner',
+        role: isCreatingRoomRef.current ? 'owner' : 'editor',
         cursor: { x: 0, y: 0 },
         isDrawing: false,
         activeTool: 'select',
@@ -1160,29 +1174,18 @@ export function useWebSocket({
         joinedAt: joinedAtRef.current,
       };
 
-      setRoomSettings((prev) => ({
-        ...prev,
-        maxUsers: targetMaxUsers,
-        ownerId: prev.ownerId || userRef.current.id,
-      }));
-
-      setUsers((prev) => {
-        const others = prev.filter((u) => u.id !== userRef.current.id);
-        return [initialSelfPresence, ...others];
-      });
-
-      setRoomsList([
-        {
-          id: roomId,
-          name: roomName,
-          userCount: 1,
+      if (serverlessOnly) {
+        setRoomSettings((prev) => ({
+          ...prev,
           maxUsers: targetMaxUsers,
-          isLocked: false,
-          elementCount: elementsRef.current.length,
-          createdAt: joinedAtRef.current,
-          ownerName: userRef.current.name,
-        },
-      ]);
+          ownerId: prev.ownerId || userRef.current.id,
+        }));
+
+        setUsers((prev) => {
+          const others = prev.filter((u) => u.id !== userRef.current.id);
+          return [initialSelfPresence, ...others];
+        });
+      }
 
       const safeRoom = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'ana-oda';
       const safeUid = userRef.current.id.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -1204,13 +1207,12 @@ export function useWebSocket({
             setIsConnected(true);
             client.subscribe([eventsTopic, directPeerTopic], { qos: 0 }, () => {
               if (rejectedRoomRef.current) return;
-              // Announce presence to everyone in the room
               const selfNow =
                 usersRef.current.find((u) => u.id === userRef.current.id) || initialSelfPresence;
               publishMeshPacket({
                 type: 'mesh-join',
                 roomId,
-                roomName,
+                roomName: syncedRoomNameRef.current || roomNameRef.current,
                 maxUsers: targetMaxUsers,
                 isCreatingRoom: isCreatingRoomRef.current,
                 user: selfNow,
@@ -1233,7 +1235,7 @@ export function useWebSocket({
       publishMeshPacket({
         type: 'mesh-join',
         roomId,
-        roomName,
+        roomName: syncedRoomNameRef.current || roomNameRef.current,
         maxUsers: targetMaxUsers,
         isCreatingRoom: isCreatingRoomRef.current,
         user: initialSelfPresence,
@@ -1258,17 +1260,21 @@ export function useWebSocket({
           });
         }
 
-        // Prune peers silent for > 15s
-        const now = Date.now();
-        const staleIds: string[] = [];
-        peerLastSeenRef.current.forEach((lastSeen, peerId) => {
-          if (now - lastSeen > 15000) {
-            staleIds.push(peerId);
+        // Only prune stale peers automatically in serverless mesh mode (when WS server is not managing presence)
+        if (!isWsConnectedRef.current) {
+          const now = Date.now();
+          const staleIds: string[] = [];
+          peerLastSeenRef.current.forEach((lastSeen, peerId) => {
+            if (now - lastSeen > 15000) {
+              staleIds.push(peerId);
+            }
+          });
+          if (staleIds.length > 0) {
+            staleIds.forEach((id) => peerLastSeenRef.current.delete(id));
+            setUsers((prev) =>
+              prev.filter((u) => u.id === userRef.current.id || !staleIds.includes(u.id))
+            );
           }
-        });
-        if (staleIds.length > 0) {
-          staleIds.forEach((id) => peerLastSeenRef.current.delete(id));
-          setUsers((prev) => prev.filter((u) => u.id === userRef.current.id || !staleIds.includes(u.id)));
         }
       }, 4000);
 
@@ -1277,6 +1283,17 @@ export function useWebSocket({
           type: 'mesh-leave',
           userId: userRef.current.id,
         });
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          try {
+            wsRef.current.send(
+              JSON.stringify({
+                type: 'leave-room',
+                roomId,
+                userId: userRef.current.id,
+              })
+            );
+          } catch {}
+        }
       };
       window.addEventListener('beforeunload', beforeUnloadHandler);
     }
@@ -1285,22 +1302,28 @@ export function useWebSocket({
       if (isCancelled || rejectedRoomRef.current) return;
 
       const wsUrl = resolveWsUrl();
-      if (!wsUrl) return;
+      if (!wsUrl) {
+        initMeshNetwork(true);
+        return;
+      }
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         if (isCancelled || rejectedRoomRef.current) return;
+        isWsConnectedRef.current = true;
+        isMeshModeRef.current = false;
         setIsConnected(true);
 
         ws.send(
           JSON.stringify({
             type: 'join-room',
-            roomId,
-            roomName,
+            roomId: roomId.trim().toLowerCase(),
+            roomName: roomNameRef.current,
             maxUsers: targetMaxUsers,
             isCreatingRoom: isCreatingRoomRef.current,
+            ownerKey: getOrCreateOwnerKey(),
             user: userRef.current,
           })
         );
@@ -1309,6 +1332,9 @@ export function useWebSocket({
           const item = pendingQueue.current.shift();
           if (item) ws.send(item);
         }
+
+        // Start secondary mesh network for cross-tab/cross-container sync after WS joins
+        initMeshNetwork(false);
 
         if (keepAliveIntervalRef.current) {
           clearInterval(keepAliveIntervalRef.current);
@@ -1327,12 +1353,16 @@ export function useWebSocket({
       };
 
       ws.onclose = () => {
+        isWsConnectedRef.current = false;
         if (isCancelled || rejectedRoomRef.current) return;
         if (keepAliveIntervalRef.current) {
           clearInterval(keepAliveIntervalRef.current);
         }
+        if (!meshStarted) {
+          initMeshNetwork(true);
+        }
         reconnectTimeoutRef.current = window.setTimeout(() => {
-          if (!rejectedRoomRef.current) {
+          if (!rejectedRoomRef.current && !isCancelled) {
             connectWs();
           }
         }, 2500);
@@ -1343,9 +1373,6 @@ export function useWebSocket({
       };
     }
 
-    // Always initiate global mesh network so peers across instances, previews, and domains always connect
-    initMeshNetwork();
-    // Also connect to local WebSocket if available
     connectWs();
 
     return () => {
@@ -1353,11 +1380,22 @@ export function useWebSocket({
       if (beforeUnloadHandler) {
         window.removeEventListener('beforeunload', beforeUnloadHandler);
       }
-      if (isMeshModeRef.current && !rejectedRoomRef.current) {
+      if (!rejectedRoomRef.current) {
         publishMeshPacket({
           type: 'mesh-leave',
           userId: userRef.current.id,
         });
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          try {
+            wsRef.current.send(
+              JSON.stringify({
+                type: 'leave-room',
+                roomId: roomId.trim().toLowerCase(),
+                userId: userRef.current.id,
+              })
+            );
+          } catch {}
+        }
       }
       if (meshHeartbeatTimer) {
         clearInterval(meshHeartbeatTimer);
@@ -1377,6 +1415,7 @@ export function useWebSocket({
       if (wsRef.current) {
         wsRef.current.close();
       }
+      isWsConnectedRef.current = false;
       if (broadcastChannelRef.current) {
         try {
           broadcastChannelRef.current.close();
@@ -1384,11 +1423,11 @@ export function useWebSocket({
         broadcastChannelRef.current = null;
       }
     };
-  }, [roomId, roomName, enabled, handleIncomingPacket, publishMeshPacket]);
+  }, [roomId, enabled, handleIncomingPacket, publishMeshPacket]);
 
-  // Keep roomsList summary updated in mesh mode
+  // Keep roomsList summary updated ONLY in pure serverless mesh mode (when WS server is not present)
   useEffect(() => {
-    if (!isMeshModeRef.current) return;
+    if (!isMeshModeRef.current || isWsConnectedRef.current) return;
     setRoomsList([
       {
         id: roomId,
@@ -1400,6 +1439,7 @@ export function useWebSocket({
         createdAt: joinedAtRef.current,
         ownerName:
           users.find((u) => u.role === 'owner')?.name || userRef.current.name,
+        ownerKey: getOrCreateOwnerKey(),
       },
     ]);
   }, [roomId, syncedRoomName, users, roomSettings.maxUsers, roomSettings.isLocked, elements.length]);
@@ -1433,10 +1473,58 @@ export function useWebSocket({
 
   // Public Actions
   const requestRoomsList = useCallback(() => {
-    if (!isMeshModeRef.current) {
-      sendMessage({ type: 'get-rooms' });
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'get-rooms' }));
+      } catch {}
     }
-  }, [sendMessage]);
+    fetch('/api/rooms')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.rooms)) {
+          setRoomsList(data.rooms);
+        }
+        if (data && data.limits) {
+          setServerLimits(data.limits);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const deleteRoom = useCallback(async (targetRoomId: string): Promise<boolean> => {
+    const cleanTarget = targetRoomId.trim().toLowerCase();
+    if (!cleanTarget || cleanTarget === 'ana-oda') return false;
+    const ownerKey = getOrCreateOwnerKey();
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'delete-room',
+            roomId: cleanTarget,
+            ownerKey,
+            userId: userRef.current.id,
+          })
+        );
+      } catch {}
+    }
+    try {
+      const res = await fetch(
+        `/api/rooms/${encodeURIComponent(cleanTarget)}?ownerKey=${encodeURIComponent(ownerKey)}&userId=${encodeURIComponent(userRef.current.id)}`,
+        { method: 'DELETE' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.rooms)) {
+          setRoomsList(data.rooms);
+        }
+        if (data.limits) {
+          setServerLimits(data.limits);
+        }
+        return true;
+      }
+    } catch {}
+    return true;
+  }, []);
 
   const updateRoomSettings = useCallback(
     (changes: {
@@ -1748,19 +1836,31 @@ export function useWebSocket({
 
   const updateVoiceState = useCallback(
     (voiceState: { isMuted?: boolean; isDeafened?: boolean; isSpeaking?: boolean }) => {
+      const nextMuted = voiceState.isMuted ?? localVoiceRef.current.isMuted;
+      const nextDeafened = voiceState.isDeafened ?? localVoiceRef.current.isDeafened;
+      const nextSpeaking = voiceState.isSpeaking ?? localVoiceRef.current.isSpeaking;
+
+      const changed =
+        nextMuted !== localVoiceRef.current.isMuted ||
+        nextDeafened !== localVoiceRef.current.isDeafened ||
+        nextSpeaking !== localVoiceRef.current.isSpeaking;
+
       localVoiceRef.current = {
-        isMuted: voiceState.isMuted ?? localVoiceRef.current.isMuted,
-        isDeafened: voiceState.isDeafened ?? localVoiceRef.current.isDeafened,
-        isSpeaking: voiceState.isSpeaking ?? localVoiceRef.current.isSpeaking,
+        isMuted: nextMuted,
+        isDeafened: nextDeafened,
+        isSpeaking: nextSpeaking,
       };
+
+      if (!changed) return;
+
       setUsers((prev) =>
         prev.map((u) =>
           u.id === userRef.current.id
             ? {
                 ...u,
-                isMuted: voiceState.isMuted ?? u.isMuted,
-                isDeafened: voiceState.isDeafened ?? u.isDeafened,
-                isSpeaking: voiceState.isSpeaking ?? u.isSpeaking,
+                isMuted: nextMuted,
+                isDeafened: nextDeafened,
+                isSpeaking: nextSpeaking,
               }
             : u
         )
@@ -1768,7 +1868,9 @@ export function useWebSocket({
       sendMessage({
         type: 'voice-state',
         userId: userRef.current.id,
-        ...voiceState,
+        isMuted: nextMuted,
+        isDeafened: nextDeafened,
+        isSpeaking: nextSpeaking,
       });
     },
     [sendMessage]
@@ -1828,26 +1930,31 @@ export function useWebSocket({
 
   const sendWebRTCSignal = useCallback(
     (targetUserId: string, signal: unknown) => {
-      if (isMeshModeRef.current) {
-        publishMeshPacket(
-          {
-            type: 'webrtc-signal',
-            fromUserId: userRef.current.id,
-            targetUserId,
-            signal,
-          },
-          targetUserId
-        );
-        return;
+      publishMeshPacket(
+        {
+          type: 'webrtc-signal',
+          fromUserId: userRef.current.id,
+          targetUserId,
+          signal,
+        },
+        targetUserId
+      );
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        try {
+          wsRef.current.send(
+            JSON.stringify({
+              type: 'webrtc-signal',
+              fromUserId: userRef.current.id,
+              targetUserId,
+              signal,
+              _senderId: userRef.current.id,
+              _roomId: roomId,
+            })
+          );
+        } catch {}
       }
-      sendMessage({
-        type: 'webrtc-signal',
-        fromUserId: userRef.current.id,
-        targetUserId,
-        signal,
-      });
     },
-    [sendMessage, publishMeshPacket]
+    [publishMeshPacket, roomId]
   );
 
   return {
@@ -1872,6 +1979,7 @@ export function useWebSocket({
     remoteLaserPoints,
     codeCursors,
     requestRoomsList,
+    deleteRoom,
     updateRoomSettings,
     updateUserRole,
     kickUser,

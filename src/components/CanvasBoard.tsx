@@ -59,8 +59,10 @@ import {
   validateFile,
   validateVideoFileMetadata,
   createDocumentCardSvgDataUrl,
+  createMarkdownCardSvgDataUrl,
+  extractTextFromDataUrl,
 } from '../utils/fileValidation';
-import { CanvasQuickAccess } from './CanvasQuickAccess';
+import { CanvasQuickAccess, getRadialToolAtAngle } from './CanvasQuickAccess';
 
 // Custom Precision SVG Cursors for Pencil, Highlighter, Erasers, and Ping
 const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z'/><path d='m15 5 4 4'/></g><path d='M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z' fill='%23dbeafe' stroke='%231d4ed8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/><path d='m15 5 4 4' stroke='%231d4ed8' stroke-width='1.8' stroke-linecap='round'/><circle cx='2' cy='22' r='1.5' fill='%23ef4444'/></svg>") 2 22, crosshair`;
@@ -412,6 +414,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
   const effectiveGridStyle = gridStyle;
   const [radialMenuPos, setRadialMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredRadialTool, setHoveredRadialTool] = useState<ToolType | null>(null);
+  const isMiddleMouseRadialRef = useRef<boolean>(false);
+  const rightClickPanMovedRef = useRef<boolean>(false);
+  const rightClickStartPosRef = useRef<Point>({ x: 0, y: 0 });
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
 
   // Throttled cursor broadcast
@@ -938,8 +944,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     return () => cancelAnimationFrame(animId);
   }, [render]);
 
-  // Wheel zoom & pan
-  const handleWheel = (e: React.WheelEvent) => {
+  // Wheel zoom & pan (attached with { passive: false } to avoid passive event listener console errors)
+  const handleWheelNativeRef = useRef<(e: WheelEvent) => void>(() => {});
+  handleWheelNativeRef.current = (e: WheelEvent) => {
     e.preventDefault();
     const container = containerRef.current;
     if (!container) return;
@@ -965,6 +972,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }));
     }
   };
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onWheel = (e: WheelEvent) => handleWheelNativeRef.current(e);
+    container.addEventListener('wheel', onWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onWheel);
+  }, []);
 
   // Save inline text / sticky editing
   const handleSaveInlineText = () => {
@@ -1071,8 +1086,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     if (contextMenuPos) {
       setContextMenuPos(null);
     }
-    if (radialMenuPos) {
+    if (radialMenuPos && e.button !== 1) {
       setRadialMenuPos(null);
+      setHoveredRadialTool(null);
     }
 
     // Capture pointer on the canvas container so moving outside the screen never breaks drawing/dragging
@@ -1082,8 +1098,26 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       // Ignore if pointer capture is unsupported for synthetic events
     }
 
-    // Pan with Middle Mouse Button, Space Key, or Pan Tool
-    if (e.button === 1 || isSpacePressedRef.current || activeTool === 'pan') {
+    // Middle Mouse Wheel Button (e.button === 1): Hold & Drag Radial Quick Tool Menu
+    if (e.button === 1) {
+      e.preventDefault();
+      isMiddleMouseRadialRef.current = true;
+      setHoveredRadialTool(null);
+      setRadialMenuPos({ x: e.clientX, y: e.clientY });
+      return;
+    }
+
+    // Right Mouse Button (e.button === 2): Hold & Drag to Pan Canvas
+    if (e.button === 2) {
+      isPanningRef.current = true;
+      rightClickPanMovedRef.current = false;
+      rightClickStartPosRef.current = { x: e.clientX, y: e.clientY };
+      panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+      return;
+    }
+
+    // Pan with Space Key or Pan Tool
+    if (isSpacePressedRef.current || activeTool === 'pan') {
       isPanningRef.current = true;
       panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
       return;
@@ -1426,8 +1460,24 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     const rect = container.getBoundingClientRect();
     const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 
+    // Middle-mouse hold & drag radial menu selection
+    if (isMiddleMouseRadialRef.current && radialMenuPos) {
+      const dx = e.clientX - radialMenuPos.x;
+      const dy = e.clientY - radialMenuPos.y;
+      setHoveredRadialTool(getRadialToolAtAngle(dx, dy));
+      return;
+    }
+
     // Handle Panning first so panning the canvas does not move or emit cursor positions
     if (isPanningRef.current) {
+      if (
+        Math.hypot(
+          e.clientX - rightClickStartPosRef.current.x,
+          e.clientY - rightClickStartPosRef.current.y
+        ) > 5
+      ) {
+        rightClickPanMovedRef.current = true;
+      }
       setPan({
         x: e.clientX - panStartRef.current.x,
         y: e.clientY - panStartRef.current.y,
@@ -1857,6 +1907,18 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         // Ignore if already released
       }
     }
+    // Complete middle-mouse radial tool drag selection
+    if (isMiddleMouseRadialRef.current) {
+      isMiddleMouseRadialRef.current = false;
+      if (hoveredRadialTool) {
+        if (onSelectTool) {
+          onSelectTool(hoveredRadialTool);
+        }
+        setHoveredRadialTool(null);
+        setRadialMenuPos(null);
+      }
+    }
+
     isPointerDownRef.current = false;
     isPanningRef.current = false;
     isDraggingSelectedRef.current = false;
@@ -2246,6 +2308,25 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               handleAddImageAtPosition(file.dataUrl, canvasPt.x, canvasPt.y, w, h);
             };
             return;
+          } else if (
+            /\.(md|markdown)$/i.test(file.name || '') ||
+            file.type === 'text/markdown' ||
+            file.type === 'text/x-markdown'
+          ) {
+            const mdText = extractTextFromDataUrl(file.dataUrl || '') || '';
+            const mdCard = createMarkdownCardSvgDataUrl({
+              name: file.name || 'Belge.md',
+              size: file.size || 0,
+              markdownContent: mdText,
+            });
+            handleAddImageAtPosition(
+              mdCard.dataUrl,
+              canvasPt.x,
+              canvasPt.y,
+              mdCard.width,
+              mdCard.height
+            );
+            return;
           } else {
             // Any other shared document (Word, Excel, PPTX, TXT, CSV, JSON, Audio, etc.)
             const cardSvg = createDocumentCardSvgDataUrl({
@@ -2286,6 +2367,12 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     const isImage =
       file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/.test(lowerName);
 
+    const isMarkdown =
+      lowerName.endsWith('.md') ||
+      lowerName.endsWith('.markdown') ||
+      file.type === 'text/markdown' ||
+      file.type === 'text/x-markdown';
+
     if (isPdf) {
       const reader = new FileReader();
       reader.onload = async (event) => {
@@ -2293,6 +2380,25 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         if (dataUrl) {
           await handleAddPdfAtPosition(dataUrl, file.name, canvasPt.x, canvasPt.y);
         }
+      };
+      reader.readAsDataURL(file);
+    } else if (isMarkdown) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        const mdText = extractTextFromDataUrl(dataUrl) || '';
+        const mdCard = createMarkdownCardSvgDataUrl({
+          name: file.name,
+          size: file.size,
+          markdownContent: mdText,
+        });
+        handleAddImageAtPosition(
+          mdCard.dataUrl,
+          canvasPt.x,
+          canvasPt.y,
+          mdCard.width,
+          mdCard.height
+        );
       };
       reader.readAsDataURL(file);
     } else if (isVideo) {
@@ -2395,7 +2501,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   return (
     <div
       ref={containerRef}
-      onWheel={handleWheel}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -2405,6 +2510,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       onDoubleClick={handleDoubleClick}
       onContextMenu={(e) => {
         e.preventDefault();
+        // If user right-click dragged to pan the canvas, do not open a context menu on release
+        if (rightClickPanMovedRef.current) {
+          rightClickPanMovedRef.current = false;
+          return;
+        }
         const container = containerRef.current;
         if (!container) return;
         const rect = container.getBoundingClientRect();
@@ -2424,18 +2534,17 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             onSelectTool('select');
           }
           setRadialMenuPos(null);
+          setHoveredRadialTool(null);
           setContextMenuPos({ x: e.clientX, y: e.clientY });
           return;
         }
 
         if (activeSelectedIds.length > 0) {
           setRadialMenuPos(null);
+          setHoveredRadialTool(null);
           setContextMenuPos({ x: e.clientX, y: e.clientY });
           return;
         }
-
-        setContextMenuPos(null);
-        setRadialMenuPos({ x: e.clientX, y: e.clientY });
       }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
@@ -3088,11 +3197,12 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
         return (
           <div
+            data-floating-bar="true"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}
             style={{ left: `${left}px`, top: `${top}px`, width: `${menuWidth}px` }}
-            className="fixed z-50 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200/90 p-2 text-xs text-slate-700 select-none animate-in fade-in zoom-in-95 duration-150"
+            className="fixed z-50 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200/90 p-2 text-xs text-slate-700 select-none cb-anim-scale-in"
           >
             {/* Context Menu Header */}
             <div className="flex items-center justify-between px-2.5 py-1.5 mb-1 bg-slate-50 rounded-xl border border-slate-200/60">
@@ -3417,7 +3527,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         fontSize={fontSize}
         fontFamily={fontFamily}
         radialMenuPos={radialMenuPos}
-        onCloseRadialMenu={() => setRadialMenuPos(null)}
+        hoveredRadialTool={hoveredRadialTool}
+        onCloseRadialMenu={() => {
+          setRadialMenuPos(null);
+          setHoveredRadialTool(null);
+        }}
         gridStyle={gridStyle}
         onChangeGridStyle={handleGridStyleChange}
         showMinimap={showMinimap}

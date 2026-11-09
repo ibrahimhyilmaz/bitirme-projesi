@@ -119,8 +119,13 @@ export default function App() {
   } | null>(null);
 
   const fallbackRoomName = useMemo(() => {
-    if (customRoomName.trim()) return customRoomName.trim();
-    return roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : `Oda #${roomId.toUpperCase()}`;
+    const clean = customRoomName
+      .trim()
+      .replace(/\s*\(#[A-Za-z0-9_-]{3,10}\)\s*$/g, '')
+      .replace(/\s+#[A-Za-z0-9_-]{3,10}\s*$/g, '')
+      .trim();
+    if (clean) return clean;
+    return roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : 'Çalışma Alanı';
   }, [roomId, customRoomName]);
 
   // User Identity (Unique per browser tab via sessionStorage so multi-tab testing enforces maxUsers accurately)
@@ -452,6 +457,7 @@ export default function App() {
     updateRoomSettings,
     updateUserRole,
     kickUser,
+    deleteRoom,
     sendWebRTCSignal,
   } = useWebSocket({
     roomId,
@@ -1115,8 +1121,27 @@ export default function App() {
     setActivePanel((prev) => (prev === panel ? 'none' : panel));
   };
 
-  // Add Image from File vault or Toolbar directly to canvas center
-  const handleAddImageToCanvas = (dataUrl: string, width = 300, height = 240) => {
+  // Add Image or Document/Markdown Card from File vault or Toolbar directly to canvas center
+  const handleAddImageToCanvas = (
+    dataUrl: string,
+    widthOrName?: number | string,
+    heightOrWidth = 240,
+    explicitHeight?: number
+  ) => {
+    const width =
+      typeof widthOrName === 'number'
+        ? widthOrName
+        : typeof heightOrWidth === 'number' && explicitHeight !== undefined
+        ? heightOrWidth
+        : 320;
+    const height =
+      typeof widthOrName === 'number'
+        ? heightOrWidth
+        : typeof explicitHeight === 'number'
+        ? explicitHeight
+        : 240;
+    const fileName = typeof widthOrName === 'string' ? widthOrName : undefined;
+
     const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - width / 2;
     const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - height / 2;
 
@@ -1129,6 +1154,7 @@ export default function App() {
       width,
       height,
       imageUrl: dataUrl,
+      fileName,
       rotation: 0,
       flipX: false,
       flipY: false,
@@ -1255,9 +1281,12 @@ export default function App() {
           setJoinGateError(null);
           clearRoomError();
         }}
+        roomsList={roomsList}
+        currentUserId={currentUser.id}
+        onDeleteRoom={deleteRoom}
         firebaseUser={firebaseUser}
         onSignInGoogle={async () => {
-          const u = await signInWithGoogle();
+          const u = await signInWithGoogle(currentUser.name);
           if (u && u.displayName) {
             setCurrentUser((prev) => ({
               ...prev,
@@ -1273,7 +1302,10 @@ export default function App() {
   }
 
   return (
-    <div className="relative w-full h-full flex flex-col overflow-hidden bg-slate-50 select-none font-sans">
+    <div
+      data-theme={settings.theme}
+      className="relative w-full h-full flex flex-col overflow-hidden bg-slate-50 select-none font-sans"
+    >
       {/* Top Bar Contract */}
       <TopNav
         roomName={effectiveRoomName}
@@ -1639,7 +1671,7 @@ export default function App() {
             files={files}
             onUploadFile={uploadFile}
             onDeleteFile={deleteFile}
-            onAddImageToCanvas={(dataUrl, name) => handleAddImageToCanvas(dataUrl, 320, 240)}
+            onAddImageToCanvas={(dataUrl, name, w, h) => handleAddImageToCanvas(dataUrl, name, w, h)}
             onAddPdfToCanvas={(pdfUrl, name) => handleAddPdfToCanvas(pdfUrl, name)}
             onAddVideoToCanvas={(videoUrl, name) => handleAddVideoToCanvas(videoUrl, name)}
             onClose={() => setActivePanel('none')}
@@ -1768,6 +1800,10 @@ export default function App() {
           onUpdateRoomSettings={updateRoomSettings}
           onUpdateUserRole={updateUserRole}
           onKickUser={kickUser}
+          onDeleteRoom={async (targetRoomId) => {
+            const ok = await deleteRoom(targetRoomId);
+            return { ok, error: ok ? undefined : 'Oda silinemedi veya yetkiniz bulunmuyor.' };
+          }}
           onClose={() => setIsRoomsModalOpen(false)}
         />
       )}
@@ -1814,9 +1850,12 @@ export default function App() {
             setJoinGateError(null);
             clearRoomError();
           }}
+          roomsList={roomsList}
+          currentUserId={currentUser.id}
+          onDeleteRoom={deleteRoom}
           firebaseUser={firebaseUser}
           onSignInGoogle={async () => {
-            const u = await signInWithGoogle();
+            const u = await signInWithGoogle(currentUser.name);
             if (u && u.displayName) {
               setCurrentUser((prev) => ({
                 ...prev,

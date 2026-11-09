@@ -406,6 +406,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       <div
         ref={barRef}
         data-tour="style-bar"
+        data-floating-bar="true"
         onPointerDown={(e) => {
           e.stopPropagation();
           onFocus?.();
@@ -422,7 +423,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
               }
             : {}),
         }}
-        className={`absolute flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border ${
+        className={`absolute flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
           isDragging
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
@@ -464,6 +465,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     <div
       ref={barRef}
       data-tour="style-bar"
+      data-floating-bar="true"
       onPointerDown={(e) => {
         e.stopPropagation();
         onFocus?.();
@@ -480,7 +482,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             }
           : {}),
       }}
-      className={`absolute flex flex-wrap items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border ${
+      className={`absolute flex flex-wrap items-center gap-2 p-1.5 bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
         isDragging
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'

@@ -283,3 +283,139 @@ export function createDocumentCardSvgDataUrl(file: {
   const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   return { dataUrl, width, height };
 }
+
+/**
+ * Decodes UTF-8 text content from a data URL (or plain text) for .md / .txt preview.
+ */
+export function extractTextFromDataUrl(dataUrl: string): string {
+  if (!dataUrl) return '';
+  try {
+    if (!dataUrl.startsWith('data:')) {
+      return dataUrl;
+    }
+    const commaIdx = dataUrl.indexOf(',');
+    if (commaIdx === -1) return '';
+    const header = dataUrl.slice(0, commaIdx);
+    const body = dataUrl.slice(commaIdx + 1);
+    if (header.includes(';base64')) {
+      const binary = atob(body);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+    return decodeURIComponent(body);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Generates a rich formatted Markdown (.md) document card SVG Data URL for the canvas
+ * so Markdown files appear as a formatted readable document card on the whiteboard.
+ */
+export function createMarkdownCardSvgDataUrl(file: {
+  name: string;
+  size: number;
+  markdownContent: string;
+  uploadedBy?: string;
+}): { dataUrl: string; width: number; height: number } {
+  const escapeXml = (str: string) =>
+    str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  const safeName = escapeXml(
+    file.name.length > 36 ? file.name.slice(0, 33) + '...' : file.name
+  );
+  const sizeStr = formatBytesReadable(file.size || 0);
+  const authorStr = escapeXml(file.uploadedBy || 'Paylaşılan Dosya');
+
+  const rawLines = (file.markdownContent || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith('```'))
+    .slice(0, 12);
+
+  const width = 420;
+  const height = 340;
+
+  let yCursor = 90;
+  const renderedRows: string[] = [];
+
+  for (const line of rawLines) {
+    if (yCursor > height - 42) break;
+    if (line.startsWith('# ')) {
+      const text = escapeXml(line.replace(/^#+\s*/, '').slice(0, 42));
+      renderedRows.push(
+        `<text x="22" y="${yCursor}" font-family="Plus Jakarta Sans, sans-serif" font-size="15" font-weight="800" fill="#0f172a">${text}</text>`
+      );
+      yCursor += 24;
+    } else if (line.startsWith('## ') || line.startsWith('### ')) {
+      const text = escapeXml(line.replace(/^#+\s*/, '').slice(0, 46));
+      renderedRows.push(
+        `<text x="22" y="${yCursor}" font-family="Plus Jakarta Sans, sans-serif" font-size="13" font-weight="700" fill="#1e293b">${text}</text>`
+      );
+      yCursor += 21;
+    } else if (line.startsWith('- ') || line.startsWith('* ')) {
+      const clean = escapeXml(
+        line
+          .replace(/^[-*]\s+(\[[ xX]\]\s*)?/, '')
+          .replace(/\*\*(.*?)\*\*/g, '$1')
+          .replace(/`(.*?)`/g, '$1')
+          .slice(0, 52)
+      );
+      renderedRows.push(
+        `<circle cx="27" cy="${yCursor - 4}" r="3" fill="#4f46e5"/>` +
+          `<text x="36" y="${yCursor}" font-family="Plus Jakarta Sans, sans-serif" font-size="12" font-weight="500" fill="#334155">${clean}</text>`
+      );
+      yCursor += 19;
+    } else if (line.startsWith('> ')) {
+      const clean = escapeXml(line.replace(/^>\s*/, '').slice(0, 50));
+      renderedRows.push(
+        `<rect x="22" y="${yCursor - 11}" width="3" height="14" rx="1.5" fill="#6366f1"/>` +
+          `<text x="32" y="${yCursor}" font-family="Plus Jakarta Sans, sans-serif" font-size="11.5" font-style="italic" font-weight="500" fill="#475569">${clean}</text>`
+      );
+      yCursor += 19;
+    } else {
+      const clean = escapeXml(
+        line
+          .replace(/\*\*(.*?)\*\*/g, '$1')
+          .replace(/\*(.*?)\*/g, '$1')
+          .replace(/`(.*?)`/g, '$1')
+          .slice(0, 55)
+      );
+      renderedRows.push(
+        `<text x="22" y="${yCursor}" font-family="Plus Jakarta Sans, sans-serif" font-size="12" font-weight="500" fill="#475569">${clean}</text>`
+      );
+      yCursor += 18;
+    }
+  }
+
+  if (renderedRows.length === 0) {
+    renderedRows.push(
+      `<text x="22" y="100" font-family="Plus Jakarta Sans, sans-serif" font-size="12" font-style="italic" fill="#94a3b8">Boş Markdown dokümanı</text>`
+    );
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    <rect x="2" y="2" width="${width - 4}" height="${height - 4}" rx="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+    <rect x="2" y="2" width="${width - 4}" height="56" rx="14" fill="#eef2ff"/>
+    <rect x="18" y="14" width="46" height="26" rx="7" fill="#4f46e5"/>
+    <text x="41" y="31" font-family="Plus Jakarta Sans, sans-serif" font-size="11" font-weight="800" fill="#ffffff" text-anchor="middle">.MD</text>
+    <text x="74" y="27" font-family="Plus Jakarta Sans, sans-serif" font-size="13.5" font-weight="800" fill="#0f172a">${safeName}</text>
+    <text x="74" y="44" font-family="Plus Jakarta Sans, sans-serif" font-size="10.5" font-weight="600" fill="#4f46e5">MARKDOWN DOKÜMAN KARTI · ${sizeStr}</text>
+    <line x1="18" y1="60" x2="${width - 18}" y2="60" stroke="#e2e8f0" stroke-width="1"/>
+    ${renderedRows.join('\n    ')}
+    <line x1="18" y1="${height - 32}" x2="${width - 18}" y2="${height - 32}" stroke="#f1f5f9" stroke-width="1.5"/>
+    <text x="20" y="${height - 14}" font-family="Plus Jakarta Sans, sans-serif" font-size="10.5" font-weight="600" fill="#64748b">Ekleyen: ${authorStr}</text>
+    <text x="${width - 20}" y="${height - 14}" font-family="Plus Jakarta Sans, sans-serif" font-size="10.5" font-weight="700" fill="#4f46e5" text-anchor="end">CollabBoard Markdown</text>
+  </svg>`;
+
+  const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  return { dataUrl, width, height };
+}

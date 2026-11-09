@@ -1,6 +1,6 @@
 {
-  "summary":  "Ön karşılama (giriş kapısı) ekranı, 5 haneli rastgele oda kodu üretimi, Google ile giriş entegrasyonu, yeni oda oluşturma ve kapasite sınırı (maxUsers) zorlaması ile oda içerisinden kodla hızlı oda değiştirme özelliklerinin uygulama planı (bozuk görsel çizim hatası düzeltildi).",
-  "updatedAt":  "2026-11-09T08:24:54.738464509Z",
+  "summary":  "Gerçek zamanlı WebSocket/WebRTC senkronizasyonu, oda kuralları (var olmayan odaya girişi engelleme, 5 karakter sınırı, kullanıcı başına maksimum 3 oda, temiz oda ismi), orta tekerlek ile sürüklemeli dairesel hızlı seçim ve sağ tık ile tuval kaydırma/bağlam menüsü, konsol hataları, karşılama ekranı sabit boyut ve kaydırma, Markdown (.md) dosya ve tuval kartı desteği, Google Auth/Firebase bağlantısı, tema uyumu, animasyonlar ve AI çizim motoru iyileştirmelerini içeren uygulama planı.",
+  "updatedAt":  "2026-11-09T10:13:26.527427295Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
