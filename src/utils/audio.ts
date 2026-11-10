@@ -115,6 +115,16 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun3.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
+  // Public relay (best effort): lets two devices on different networks / behind strict NATs still hear each other
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp',
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
 ];
 
 export class VoiceManager {
@@ -136,6 +146,7 @@ export class VoiceManager {
   private isMicAvailable: boolean = false;
   private lastSpeakingReported: boolean = false;
   private unlockGestureHandler: (() => void) | null = null;
+  private iceServers: RTCIceServer[] = DEFAULT_ICE_SERVERS;
 
   constructor(
     onSpeakingChange: (isSpeaking: boolean, volume: number) => void,
@@ -145,6 +156,16 @@ export class VoiceManager {
     this.onSpeakingChange = onSpeakingChange;
     this.onSignalNeeded = onSignalNeeded;
     this.onDataChannelMessage = onDataChannelMessage;
+
+    // Prefer the server's ICE list (it may carry a private TURN server from env vars)
+    fetch('/api/rtc-config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (cfg && Array.isArray(cfg.iceServers) && cfg.iceServers.length > 0) {
+          this.iceServers = cfg.iceServers;
+        }
+      })
+      .catch(() => {});
 
     // Ensure browser autoplay policies unlock remote audio streams on any user interaction
     this.unlockGestureHandler = () => {
@@ -404,6 +425,15 @@ export class VoiceManager {
     return 100;
   }
 
+  /** Live view of the audio links, used by the UI to show whether other people can actually be heard */
+  getPeerStates(): { id: string; state: RTCPeerConnectionState; hasAudio: boolean }[] {
+    return Array.from(this.peerConnections.entries()).map(([id, pc]) => ({
+      id,
+      state: pc.connectionState,
+      hasAudio: this.remoteAudioElements.has(id),
+    }));
+  }
+
   broadcastDataChannel(payload: string) {
     for (const dc of this.dataChannels.values()) {
       if (dc.readyState === 'open') {
@@ -454,7 +484,7 @@ export class VoiceManager {
 
     try {
       const pc = new RTCPeerConnection({
-        iceServers: DEFAULT_ICE_SERVERS,
+        iceServers: this.iceServers,
       });
 
       this.peerConnections.set(remoteUserId, pc);
@@ -504,7 +534,12 @@ export class VoiceManager {
         }
       };
 
+      pc.oniceconnectionstatechange = () => {
+        console.info('[voice] ICE', remoteUserId, pc.iceConnectionState);
+      };
+
       pc.onconnectionstatechange = () => {
+        console.info('[voice] connection', remoteUserId, pc.connectionState);
         if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           this.removePeer(remoteUserId);
         }

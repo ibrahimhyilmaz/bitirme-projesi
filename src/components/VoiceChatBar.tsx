@@ -30,6 +30,7 @@ interface VoiceChatBarProps {
   onToggleDeafen: () => void;
   getUserVolume: (userId: string) => number;
   onSetUserVolume: (userId: string, volume: number) => void;
+  voiceLinks?: { connected: number; total: number };
   isHidden?: boolean;
   onToggleHidden?: () => void;
   layoutResetCounter?: number;
@@ -47,6 +48,7 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   onToggleDeafen,
   getUserVolume,
   onSetUserVolume,
+  voiceLinks,
   isHidden,
   onToggleHidden,
   layoutResetCounter = 0,
@@ -339,6 +341,16 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
           <span className="font-mono tabular-nums text-slate-500 whitespace-nowrap">
             {users.length} kişi
           </span>
+          {voiceLinks && voiceLinks.total > 0 && (
+            <span
+              className={`font-mono tabular-nums whitespace-nowrap ${
+                voiceLinks.connected === voiceLinks.total ? 'text-emerald-600' : 'text-amber-600'
+              }`}
+              title="Ses bağlantısı: diğer kişilerle kurulan doğrudan (WebRTC) ses bağlantıları"
+            >
+              · ses {voiceLinks.connected}/{voiceLinks.total}
+            </span>
+          )}
         </div>
 
         {/* Local Mic Volume Level Meter */}

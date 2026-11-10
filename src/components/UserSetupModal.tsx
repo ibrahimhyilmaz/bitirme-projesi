@@ -17,6 +17,7 @@ import {
 import { BrandLogo } from './BrandLogo';
 import { RoomSummary } from '../types';
 import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
+import { RoomHistoryList } from './RoomHistoryList';
 
 const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -284,6 +285,23 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     });
   };
 
+  const enterHistoryRoom = (entry: { id: string; name: string }, recreate: boolean) => {
+    const finalName = name.trim();
+    if (!finalName) {
+      setLocalValidationError('Lütfen odaya girmeden önce adınızı girin.');
+      return;
+    }
+    setLocalValidationError(null);
+    onJoin({
+      name: finalName,
+      color,
+      roomId: entry.id,
+      roomName: recreate ? entry.name : undefined,
+      maxUsers: recreate ? 8 : undefined,
+      isCreatingRoom: recreate,
+    });
+  };
+
   const handleJoinWithCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const finalName = name.trim();
@@ -434,6 +452,15 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
               <ArrowRight className="w-4 h-4 text-blue-100 group-hover:translate-x-0.5 transition-transform shrink-0" />
             </button>
           </div>
+
+          {/* Room history: every code I entered before + how many rooms I created */}
+          <RoomHistoryList
+            activeOwnedCount={myOwnedRooms.length}
+            maxRoomsPerUser={MAX_ROOMS_PER_USER}
+            onJoin={(entry) => enterHistoryRoom(entry, false)}
+            onRecreate={(entry) => enterHistoryRoom(entry, true)}
+            onError={(message) => setLocalValidationError(message)}
+          />
 
           {/* User's Owned Rooms Quick List (when user has active rooms, so they can rejoin or delete if at 3-room limit) */}
           {myOwnedRooms.length > 0 && (

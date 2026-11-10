@@ -2057,13 +2057,30 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.get('/api/rtc-config', (_req, res) => {
-  res.json({
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
+  const iceServers: Record<string, unknown>[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ];
+  // Private TURN server (recommended for production): TURN_URL, TURN_USERNAME, TURN_CREDENTIAL
+  if (process.env.TURN_URL && process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL) {
+    iceServers.push({
+      urls: process.env.TURN_URL.split(',').map((u) => u.trim()),
+      username: process.env.TURN_USERNAME,
+      credential: process.env.TURN_CREDENTIAL,
+    });
+  }
+  // Public best-effort relay so voice works across different networks out of the box
+  iceServers.push({
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp',
     ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
   });
+  res.json({ iceServers });
 });
 
 app.get('/api/rooms', (_req, res) => {

@@ -37,6 +37,7 @@ import {
 import { generateRoomCodeSeed } from './UserSetupModal';
 import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
 import { useI18n } from '../i18n';
+import { RoomHistoryList } from './RoomHistoryList';
 import type { CloudRoomSummary } from '../hooks/useFirebaseSync';
 
 export type ShareLinkTargetMode = 'shared' | 'custom' | 'current';
@@ -740,6 +741,23 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Room history + created-room counts */}
+            <RoomHistoryList
+              activeOwnedCount={myOwnedRooms.length}
+              maxRoomsPerUser={maxRoomsPerUser}
+              extraOwnedIds={cloudRooms.map((c) => c.id)}
+              currentRoomId={currentRoomId}
+              onJoin={(entry) => {
+                onSelectRoom(entry.id, entry.name, undefined, false);
+                onClose();
+              }}
+              onRecreate={(entry) => {
+                onSelectRoom(entry.id, entry.name, 8, true);
+                onClose();
+              }}
+              onError={(message) => setModalError(message)}
+            />
 
             {/* Active Rooms List */}
             <div>

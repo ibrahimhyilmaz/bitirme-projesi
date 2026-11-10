@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AlertTriangle, X, DoorOpen } from 'lucide-react';
-import { useWebSocket } from './hooks/useWebSocket';
+import { useWebSocket, getOrCreateOwnerKey } from './hooks/useWebSocket';
 import { VoiceManager } from './utils/audio';
 import {
   ToolType,
@@ -31,6 +31,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { ClockWidget } from './components/ClockWidget';
 import { FolderWidget } from './components/FolderWidget';
 import { getLanguage, translate, useI18n } from './i18n';
+import { recordRoomVisit } from './utils/roomHistory';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 
@@ -194,6 +195,7 @@ export default function App() {
     sessionBootstrap.expired ? translate(getLanguage(), 'session.timeout') : null
   );
   const lastActivityRef = useRef<number>(savedSession?.lastActivityAt ?? Date.now());
+  const [joinedRoomId, setJoinedRoomId] = useState<string>('');
   const lastValidRoomRef = useRef<{
     roomId: string;
     roomName: string;
@@ -619,7 +621,15 @@ export default function App() {
     customMaxUsers,
     isCreatingRoom,
     restoreRoom,
-    onJoined: () => {
+    onJoined: (joinedId) => {
+      // Remember this room code (and whether I created it) in my room history
+      recordRoomVisit({
+        id: joinedId,
+        name: customRoomName || undefined,
+        created: isCreatingRoom,
+        owner: isCreatingRoom,
+      });
+      setJoinedRoomId(joinedId);
       // Joined successfully: from now on reconnects must never be treated as a "create" request
       setIsCreatingRoom(false);
       setRestoreRoom(false);
@@ -688,7 +698,7 @@ export default function App() {
   const effectiveRoomName = syncedRoomName || fallbackRoomName;
 
   const handleSelectOrSwitchRoom = useCallback(
-    (
+    async (
       targetRoomId: string,
       targetRoomName?: string,
       targetMaxUsers?: number,
@@ -696,6 +706,41 @@ export default function App() {
     ) => {
       const cleanTarget = targetRoomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
       if (!cleanTarget) return;
+
+      // Switching to an existing room must never open a room that was not created:
+      // verify with the server first and stay in the current room when it does not exist.
+      if (!creating && cleanTarget !== 'ana-oda' && cleanTarget !== roomId) {
+        try {
+          const res = await fetch(
+            `/api/rooms/${encodeURIComponent(cleanTarget)}/status?ownerKey=${encodeURIComponent(getOrCreateOwnerKey())}`
+          );
+          if (res.ok) {
+            const info = await res.json();
+            const code = cleanTarget.toUpperCase();
+            if (info && info.exists === false) {
+              setJoinGateError(
+                `#${code} kodlu bir oda bulunamadı. Yalnızca oluşturulmuş odalara geçiş yapılabilir.`
+              );
+              return;
+            }
+            if (info && info.exists === true && !info.isOwner && !info.canResume) {
+              if (info.isLocked) {
+                setJoinGateError(`"${info.name}" (#${code}) odası kilitli.`);
+                return;
+              }
+              if (info.userCount >= info.maxUsers) {
+                setJoinGateError(
+                  `"${info.name}" (#${code}) odası dolu (${info.userCount}/${info.maxUsers}).`
+                );
+                return;
+              }
+            }
+          }
+        } catch {
+          // No server reachable (serverless mode): fall through and let the join attempt decide
+        }
+      }
+
       clearRoomError();
       setJoinGateError(null);
       setIsCreatingRoom(Boolean(creating));
@@ -704,7 +749,7 @@ export default function App() {
       setCustomRoomName(targetRoomName || '');
       setRoomId(cleanTarget);
     },
-    [clearRoomError]
+    [clearRoomError, roomId]
   );
 
   // Firebase Cloud Firestore Persistence & Google Auth
@@ -801,6 +846,16 @@ export default function App() {
       window.removeEventListener('pagehide', persistOnLeave);
     };
   }, [hasEnteredWorkspace, handleSessionTimeoutLocal]);
+
+  // Once the server confirmed my role, keep the history entry (name / ownership) accurate
+  useEffect(() => {
+    if (!hasEnteredWorkspace || joinedRoomId !== roomId) return;
+    recordRoomVisit({
+      id: roomId,
+      name: syncedRoomName || undefined,
+      owner: currentUserRole === 'owner',
+    });
+  }, [hasEnteredWorkspace, joinedRoomId, roomId, syncedRoomName, currentUserRole]);
 
   // Remember the active room so a page refresh lands back in the same workspace
   useEffect(() => {
@@ -929,8 +984,19 @@ export default function App() {
   }, [users, currentUser.id]);
 
   // Periodically re-establish peers whose connection failed or was closed
+  const [voiceLinks, setVoiceLinks] = useState<{ connected: number; total: number }>({
+    connected: 0,
+    total: 0,
+  });
   useEffect(() => {
     const timer = window.setInterval(() => {
+      const states = voiceManagerRef.current?.getPeerStates() ?? [];
+      const connected = states.filter((s) => s.state === 'connected').length;
+      setVoiceLinks((prev) =>
+        prev.connected === connected && prev.total === states.length
+          ? prev
+          : { connected, total: states.length }
+      );
       voiceManagerRef.current?.syncPeers(
         usersForVoiceRef.current.map((u) => u.id),
         currentUser.id
@@ -1731,6 +1797,7 @@ export default function App() {
           onToggleDeafen={handleToggleDeafen}
           getUserVolume={handleGetUserVolume}
           onSetUserVolume={handleSetUserVolume}
+          voiceLinks={voiceLinks}
           isHidden={!showVoiceBar}
           onToggleHidden={handleToggleVoiceBar}
           layoutResetCounter={layoutResetCounter}
