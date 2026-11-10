@@ -151,6 +151,14 @@ export class VoiceManager {
   private unlockGestureHandler: (() => void) | null = null;
   private iceServers: RTCIceServer[] = DEFAULT_ICE_SERVERS;
   private peerCreatedAt: Map<string, number> = new Map();
+  private candidateStats: Map<string, { local: Record<string, number>; remote: Record<string, number> }> = new Map();
+
+  private countCandidate(peerId: string, side: 'local' | 'remote', candidate?: string) {
+    const type = /\styp\s(\w+)/.exec(candidate || '')?.[1] || 'unknown';
+    const stats = this.candidateStats.get(peerId) || { local: {}, remote: {} };
+    stats[side][type] = (stats[side][type] || 0) + 1;
+    this.candidateStats.set(peerId, stats);
+  }
 
   constructor(
     onSpeakingChange: (isSpeaking: boolean, volume: number) => void,
@@ -532,6 +540,7 @@ export class VoiceManager {
       // Handle ICE Candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
+          this.countCandidate(remoteUserId, 'local', event.candidate.candidate);
           this.onSignalNeeded(remoteUserId, {
             type: 'candidate',
             candidate: event.candidate.toJSON ? event.candidate.toJSON() : event.candidate,
@@ -664,6 +673,7 @@ export class VoiceManager {
           await this.flushPendingCandidates(fromUserId, pc);
         }
       } else if (signal.type === 'candidate' && signal.candidate) {
+        this.countCandidate(fromUserId, 'remote', signal.candidate.candidate);
         if (pc.remoteDescription && pc.remoteDescription.type) {
           await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
         } else {
@@ -687,7 +697,13 @@ export class VoiceManager {
     for (const [id, pc] of Array.from(this.peerConnections.entries())) {
       const age = now - (this.peerCreatedAt.get(id) ?? now);
       if (pc.connectionState !== 'connected' && age > maxAgeMs) {
-        console.info('[voice] retrying stale peer', id, pc.connectionState);
+        console.info(
+          '[voice] retrying stale peer',
+          id,
+          pc.connectionState,
+          'candidates (host/srflx/relay):',
+          JSON.stringify(this.candidateStats.get(id) || {})
+        );
         this.removePeer(id);
       }
     }
@@ -695,6 +711,7 @@ export class VoiceManager {
 
   removePeer(remoteUserId: string) {
     this.peerCreatedAt.delete(remoteUserId);
+    this.candidateStats.delete(remoteUserId);
     const dc = this.dataChannels.get(remoteUserId);
     if (dc) {
       try {
