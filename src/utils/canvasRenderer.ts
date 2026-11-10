@@ -1433,15 +1433,15 @@ export function drawRemoteCursors(
   ctx: CanvasRenderingContext2D,
   users: UserPresence[],
   currentUserId: string,
-  _pan: Point,
+  pan: Point,
   zoom: number
 ) {
   for (const user of users) {
     if (user.id === currentUserId || !user.cursor) continue;
 
     const screenPos = {
-      x: user.cursor.x * zoom,
-      y: user.cursor.y * zoom,
+      x: user.cursor.x * zoom + pan.x,
+      y: user.cursor.y * zoom + pan.y,
     };
 
     ctx.save();

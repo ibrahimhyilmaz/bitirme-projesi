@@ -113,6 +113,8 @@ interface CanvasBoardProps {
   pings: UserPing[];
   reactions: UserReaction[];
   remoteLaserPoints?: LaserStrokePoint[];
+  liveStrokes?: CanvasElement[];
+  onLiveStroke?: (element: CanvasElement | null) => void;
   onCursorMove: (cursor: Point, isDrawing: boolean, activeTool: string) => void;
   onLaserMove?: (point: Point) => void;
   onPing?: (point: Point) => void;
@@ -299,6 +301,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   pings,
   reactions,
   remoteLaserPoints = [],
+  liveStrokes = [],
+  onLiveStroke,
   onCursorMove,
   onLaserMove,
   onPing,
@@ -580,6 +584,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       drawElement(ctx, el, () => render());
     }
 
+    // Strokes other users are drawing right now (live preview)
+    for (const liveEl of liveStrokes) {
+      drawElement(ctx, liveEl);
+    }
+
     // Render in-progress drawing element
     if (currentDrawingElement) {
       drawElement(ctx, currentDrawingElement);
@@ -780,6 +789,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     zoom,
     elements,
     currentDrawingElement,
+    liveStrokes,
     selectedElementId,
     selectedElementIds,
     activeSelectedIds,
@@ -1427,6 +1437,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       };
       currentDrawingElementRef.current = newDrawing;
       setCurrentDrawingElement(newDrawing);
+      emitLiveStroke(newDrawing, true);
       return;
     }
 
@@ -1451,6 +1462,16 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     };
     currentDrawingElementRef.current = newShape;
     setCurrentDrawingElement(newShape);
+  };
+
+  // Throttled live broadcast of the stroke being drawn so peers see it while the pointer is still down
+  const lastLiveEmitRef = useRef<number>(0);
+  const emitLiveStroke = (el: CanvasElement, force = false) => {
+    if (!onLiveStroke) return;
+    const now = performance.now();
+    if (!force && now - lastLiveEmitRef.current < 40) return;
+    lastLiveEmitRef.current = now;
+    onLiveStroke(el);
   };
 
   // Pointer Move
@@ -1486,7 +1507,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
 
     const canvasPt = screenToCanvas(screenPt, pan, zoom);
-    const cursorPt = { x: screenPt.x / zoom, y: screenPt.y / zoom };
+    // World coordinates, so remote cursors line up with the strokes regardless of each user's pan/zoom
+    const cursorPt = { x: canvasPt.x, y: canvasPt.y };
 
     // Track pointer position for visible eraser/pen contact circle & ping shortcut
     mouseScreenPosRef.current = screenPt;
@@ -1879,6 +1901,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           const updated = { ...curr, points: nextPts };
           currentDrawingElementRef.current = updated;
           setCurrentDrawingElement(updated);
+          emitLiveStroke(updated);
         }
       } else {
         let w = canvasPt.x - curr.x;
@@ -1892,6 +1915,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         const updated = { ...curr, width: w, height: h };
         currentDrawingElementRef.current = updated;
         setCurrentDrawingElement(updated);
+        emitLiveStroke(updated);
       }
     }
   };
@@ -1970,6 +1994,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       let finished = currentDrawingElementRef.current;
       currentDrawingElementRef.current = null;
       setCurrentDrawingElement(null);
+      onLiveStroke?.(null);
 
       // Normalize negative width/height for geometric boxes (except directional arrows/line)
       if (

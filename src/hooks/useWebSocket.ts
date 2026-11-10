@@ -154,6 +154,7 @@ export function useWebSocket({
   }));
   const [files, setFiles] = useState<SharedFile[]>([]);
   const [codeFiles, setCodeFiles] = useState<CodeFile[]>([]);
+  const [liveStrokeMap, setLiveStrokeMap] = useState<Record<string, { el: CanvasElement; at: number }>>({});
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [pings, setPings] = useState<UserPing[]>([]);
   const [reactions, setReactions] = useState<UserReaction[]>([]);
@@ -744,6 +745,11 @@ export function useWebSocket({
           }
 
           case 'user-left': {
+            setLiveStrokeMap((prev) => {
+              if (!(msg.userId in prev)) return prev;
+              const { [msg.userId as string]: _gone, ...rest } = prev;
+              return rest;
+            });
             setUsers((prev) => prev.filter((u) => u.id !== msg.userId));
             setCodeCursors((prev) => prev.filter((c) => c.userId !== msg.userId));
             break;
@@ -789,9 +795,31 @@ export function useWebSocket({
             break;
           }
 
+          case 'stroke-live': {
+            const uid = msg.userId || msg._senderId;
+            if (!uid || uid === userRef.current.id) break;
+            setLiveStrokeMap((prev) => {
+              if (!msg.element) {
+                if (!(uid in prev)) return prev;
+                const { [uid]: _removed, ...rest } = prev;
+                return rest;
+              }
+              return { ...prev, [uid]: { el: msg.element as CanvasElement, at: Date.now() } };
+            });
+            break;
+          }
+
           case 'element-created':
           case 'element-create': {
             if (!msg.element) break;
+            // The finished stroke replaces its live preview
+            setLiveStrokeMap((prev) => {
+              const hit = Object.keys(prev).filter((k) => prev[k].el.id === msg.element.id);
+              if (hit.length === 0) return prev;
+              const next = { ...prev };
+              hit.forEach((k) => delete next[k]);
+              return next;
+            });
             setElements((prev) => {
               if (prev.some((el) => el.id === msg.element.id)) {
                 return prev.map((el) => (el.id === msg.element.id ? msg.element : el));
@@ -1654,6 +1682,37 @@ export function useWebSocket({
     [sendMessage]
   );
 
+  const sendLiveStroke = useCallback(
+    (element: CanvasElement | null) => {
+      sendMessage({
+        type: 'stroke-live',
+        userId: userRef.current.id,
+        element,
+      });
+    },
+    [sendMessage]
+  );
+
+  // Drop live previews whose author stopped sending (disconnect / lost pointer-up)
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setLiveStrokeMap((prev) => {
+        const now = Date.now();
+        const keys = Object.keys(prev).filter((k) => now - prev[k].at > 6000);
+        if (keys.length === 0) return prev;
+        const next = { ...prev };
+        keys.forEach((k) => delete next[k]);
+        return next;
+      });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const liveStrokes = useMemo(
+    () => Object.values(liveStrokeMap).map((v) => v.el),
+    [liveStrokeMap]
+  );
+
   const sendLaserPoint = useCallback(
     (point: Point) => {
       sendMessage({
@@ -2014,16 +2073,20 @@ export function useWebSocket({
 
   const sendWebRTCSignal = useCallback(
     (targetUserId: string, signal: unknown) => {
-      publishMeshPacket(
-        {
-          type: 'webrtc-signal',
-          fromUserId: userRef.current.id,
-          targetUserId,
-          signal,
-        },
-        targetUserId
-      );
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const wsOpen = !!wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+      // Relay through exactly one channel so peers never process the same offer/answer twice
+      if (!wsOpen) {
+        publishMeshPacket(
+          {
+            type: 'webrtc-signal',
+            fromUserId: userRef.current.id,
+            targetUserId,
+            signal,
+          },
+          targetUserId
+        );
+      }
+      if (wsOpen && wsRef.current) {
         try {
           wsRef.current.send(
             JSON.stringify({
@@ -2062,6 +2125,8 @@ export function useWebSocket({
     reactions,
     remoteLaserPoints,
     codeCursors,
+    liveStrokes,
+    sendLiveStroke,
     codeFiles,
     upsertCodeFile,
     deleteCodeFile,

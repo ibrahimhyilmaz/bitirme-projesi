@@ -610,6 +610,8 @@ export default function App() {
     upsertCodeFile,
     deleteCodeFile,
     sendActivity,
+    liveStrokes,
+    sendLiveStroke,
   } = useWebSocket({
     roomId,
     roomName: fallbackRoomName,
@@ -890,14 +892,21 @@ export default function App() {
   }, [chatMessages, activePanel]);
 
   // Initialize Voice Manager
+  // The VoiceManager must live for the whole session: re-creating it (because a callback identity
+  // changed) tears down every peer connection and silently kills the audio. Callbacks go through refs.
+  const updateVoiceStateRef = useRef(updateVoiceState);
+  updateVoiceStateRef.current = updateVoiceState;
+  const sendWebRTCSignalRef = useRef(sendWebRTCSignal);
+  sendWebRTCSignalRef.current = sendWebRTCSignal;
+
   useEffect(() => {
     const vm = new VoiceManager(
       (isSpeaking, volume) => {
         setLocalVolume(volume);
-        updateVoiceState({ isSpeaking });
+        updateVoiceStateRef.current({ isSpeaking });
       },
       (targetUserId, signal) => {
-        sendWebRTCSignal(targetUserId, signal);
+        sendWebRTCSignalRef.current(targetUserId, signal);
       }
     );
 
@@ -906,15 +915,29 @@ export default function App() {
 
     return () => {
       vm.cleanup();
+      voiceManagerRef.current = null;
     };
-  }, [updateVoiceState, sendWebRTCSignal]);
+  }, []);
 
   // Sync WebRTC peers when room user list changes
+  const usersForVoiceRef = useRef(users);
+  usersForVoiceRef.current = users;
   useEffect(() => {
     if (!voiceManagerRef.current) return;
     const activeIds = users.map((u) => u.id);
     voiceManagerRef.current.syncPeers(activeIds, currentUser.id);
   }, [users, currentUser.id]);
+
+  // Periodically re-establish peers whose connection failed or was closed
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      voiceManagerRef.current?.syncPeers(
+        usersForVoiceRef.current.map((u) => u.id),
+        currentUser.id
+      );
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [currentUser.id]);
 
   // Voice Toggles
   const handleToggleMute = useCallback(() => {
@@ -1894,6 +1917,8 @@ export default function App() {
           pings={pings}
           reactions={reactions}
           remoteLaserPoints={remoteLaserPoints}
+          liveStrokes={liveStrokes}
+          onLiveStroke={sendLiveStroke}
           onCursorMove={sendCursor}
           onLaserMove={sendLaserPoint}
           onPing={(pt) => sendPing(pt.x, pt.y)}

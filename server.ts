@@ -976,6 +976,22 @@ wss.on('connection', (ws: WebSocket) => {
           break;
         }
 
+        case 'stroke-live': {
+          if (!currentRoomId || !currentUserId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+          const sender = room.users.get(currentUserId);
+          if (sender && !canEditWorkspace(sender.presence.role)) return;
+          const liveEl = msg.element;
+          if (liveEl && (typeof liveEl.id !== 'string' || (liveEl.points && liveEl.points.length > 4000))) return;
+          broadcastToRoom(
+            currentRoomId,
+            { type: 'stroke-live', userId: currentUserId, element: liveEl || null },
+            currentUserId || undefined
+          );
+          break;
+        }
+
         case 'element-create': {
           if (!currentRoomId || !currentUserId) return;
           const room = rooms.get(currentRoomId);
