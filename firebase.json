@@ -13,7 +13,10 @@
       }
     ]
   },
-  "firestore": {
-    "rules": "firestore.rules"
-  }
+  "firestore": [
+    {
+      "database": "ai-studio-bitirmeprojesi-2a03f943-cedb-4df4-b92c-52f306aac441",
+      "rules": "firestore.rules"
+    }
+  ]
 }
