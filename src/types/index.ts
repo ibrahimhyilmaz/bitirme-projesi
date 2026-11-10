@@ -94,7 +94,38 @@ export interface AppSettings {
   soundEffectsEnabled: boolean;
   showRemoteCursors: boolean;
   autoSmoothFreehand: boolean;
+  language?: LanguageCode;
+  uiHidden?: boolean;
+  showClock?: boolean;
+  showFolder?: boolean;
+  showMinimap?: boolean;
 }
+
+export type LanguageCode = 'tr' | 'en' | 'de' | 'fr' | 'ar' | 'es';
+
+export interface EditorSettings {
+  editorFontSize: number;
+  editorTextColor: string;
+  editorBgColor: string;
+  tabSize: number;
+  consoleFontSize: number;
+  consoleTextColor: string;
+  consoleErrorColor: string;
+  consoleBgColor: string;
+  consoleHeight: number;
+}
+
+export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
+  editorFontSize: 12,
+  editorTextColor: '#34d399',
+  editorBgColor: '#0f172a',
+  tabSize: 2,
+  consoleFontSize: 12,
+  consoleTextColor: '#6ee7b7',
+  consoleErrorColor: '#fb7185',
+  consoleBgColor: '#020617',
+  consoleHeight: 208,
+};
 
 export interface RoomSettings {
   isLocked: boolean;
@@ -115,6 +146,8 @@ export interface RoomSummary {
   ownerName: string;
   ownerId?: string;
   ownerKey?: string;
+  lockedByIdle?: boolean;
+  lastActivityAt?: number;
 }
 
 export interface ServerLimits {
@@ -243,6 +276,14 @@ export interface CodeCursorPresence {
   selectionStart: number;
   selectionEnd: number;
   updatedAt: number;
+}
+
+export interface CodeFile {
+  id: string;
+  name: string;
+  language: string;
+  content: string;
+  lastUpdatedBy: string;
 }
 
 export interface SharedFile {

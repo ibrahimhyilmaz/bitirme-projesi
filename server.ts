@@ -128,12 +128,24 @@ interface UserPresence {
   joinedAt: number;
 }
 
+interface CodeFile {
+  id: string;
+  name: string;
+  language: string;
+  content: string;
+  lastUpdatedBy: string;
+}
+
 interface RoomState {
   id: string;
+  codeFiles: CodeFile[];
   name: string;
   createdAt: number;
   ownerName: string;
   ownerKey?: string;
+  lastActivityAt: number;
+  lockedByIdle?: boolean;
+  memberKeys: Set<string>;
   settings: RoomSettings;
   roleAssignments: Map<string, UserRole>;
   elements: Map<string, CanvasElement>;
@@ -154,6 +166,10 @@ interface RoomState {
 
 // Global rooms map
 const rooms = new Map<string, RoomState>();
+
+// Idle policy: a room with no user activity for this long is locked; empty rooms are kept this long
+const ROOM_IDLE_LOCK_MS = 60 * 60 * 1000;
+const EMPTY_ROOM_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 function canEditWorkspace(role: UserRole): boolean {
   return role === 'owner' || role === 'admin' || role === 'editor';
@@ -188,6 +204,8 @@ function getRoomSummaries() {
     ownerName: r.ownerName,
     ownerId: r.settings.ownerId,
     ownerKey: r.ownerKey,
+    lockedByIdle: Boolean(r.lockedByIdle),
+    lastActivityAt: r.lastActivityAt,
   }));
 }
 
@@ -333,6 +351,9 @@ calculateSprintMetrics(sampleTasks);
       createdAt: Date.now(),
       ownerName: creatorName || 'Sistem',
       ownerKey: ownerKey || creatorId || 'system',
+      lastActivityAt: Date.now(),
+      memberKeys: new Set<string>(),
+      codeFiles: [],
       settings: {
         isLocked: false,
         maxUsers: clampedMax,
@@ -401,8 +422,34 @@ const heartbeatInterval = setInterval(() => {
   });
 }, 30000);
 
+const idleSweepInterval = setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  for (const room of rooms.values()) {
+    if (room.id === 'ana-oda' || room.lockedByIdle) continue;
+    if (now - room.lastActivityAt < ROOM_IDLE_LOCK_MS) continue;
+    room.settings.isLocked = true;
+    room.lockedByIdle = true;
+    changed = true;
+    for (const [userId, userObj] of Array.from(room.users.entries())) {
+      if (userObj.ws.readyState === WebSocket.OPEN) {
+        userObj.ws.send(
+          JSON.stringify({
+            type: 'session-timeout',
+            roomId: room.id,
+            roomName: room.name,
+          })
+        );
+      }
+      room.users.delete(userId);
+    }
+  }
+  if (changed) broadcastGlobalRoomsList();
+}, 60 * 1000);
+
 wss.on('close', () => {
   clearInterval(heartbeatInterval);
+  clearInterval(idleSweepInterval);
 });
 
 wss.on('connection', (ws: WebSocket) => {
@@ -418,6 +465,16 @@ wss.on('connection', (ws: WebSocket) => {
   ws.on('message', (data: string) => {
     try {
       const msg = JSON.parse(data.toString());
+
+      if (
+        currentRoomId &&
+        msg.type !== 'ping-keepalive' &&
+        msg.type !== 'get-rooms' &&
+        msg.type !== 'join-room'
+      ) {
+        const activeRoom = rooms.get(currentRoomId);
+        if (activeRoom) activeRoom.lastActivityAt = Date.now();
+      }
 
       switch (msg.type) {
         case 'ping-keepalive': {
@@ -535,13 +592,25 @@ wss.on('connection', (ws: WebSocket) => {
             return;
           }
 
+          if (isCreatingRoom && normalizedRoomId !== 'ana-oda' && rooms.has(normalizedRoomId)) {
+            ws.send(
+              JSON.stringify({
+                type: 'room-error',
+                code: 'ROOM_CODE_TAKEN',
+                roomId: normalizedRoomId,
+                message: `#${normalizedRoomId.toUpperCase()} oda kodu zaten kullanılıyor. Lütfen farklı bir oda kodu seçin veya bu koda katılmayı deneyin.`,
+              })
+            );
+            return;
+          }
+
           const { room, error, code } = getOrCreateRoom(
             normalizedRoomId,
             roomName,
             user.id,
             user.name,
             maxUsers,
-            Boolean(isCreatingRoom),
+            Boolean(isCreatingRoom) || Boolean(msg.restoreRoom),
             typeof ownerKey === 'string' && ownerKey ? ownerKey : user.id
           );
 
@@ -581,6 +650,13 @@ wss.on('connection', (ws: WebSocket) => {
             savedRole === 'owner' ||
             savedRole === 'admin';
 
+          // Anyone who was part of the session when the idle timeout locked the room may resume it
+          const isReturningMember =
+            typeof ownerKey === 'string' && ownerKey.length > 0 && room.memberKeys.has(ownerKey);
+          if (room.settings.isLocked && room.lockedByIdle && (isOwnerOrAdmin || isReturningMember)) {
+            room.settings.isLocked = false;
+            room.lockedByIdle = false;
+          }
           // Check if room is locked
           if (room.settings.isLocked && !isAlreadyInRoom && !isOwnerOrAdmin) {
             ws.send(
@@ -636,6 +712,8 @@ wss.on('connection', (ws: WebSocket) => {
 
           currentRoomId = room.id;
           currentUserId = user.id;
+          room.lastActivityAt = Date.now();
+          if (typeof ownerKey === 'string' && ownerKey) room.memberKeys.add(ownerKey);
 
           // Determine user's role in the room
           let assignedRole: UserRole = savedRole || room.settings.defaultRole;
@@ -693,6 +771,7 @@ wss.on('connection', (ws: WebSocket) => {
               code: room.code,
               notes: room.notes,
               files: room.files,
+              codeFiles: room.codeFiles,
               messages: room.messages,
               users: activeUsers,
               rooms: getRoomSummaries(),
@@ -740,6 +819,7 @@ wss.on('connection', (ws: WebSocket) => {
           if (changes) {
             if (typeof changes.isLocked === 'boolean') {
               room.settings.isLocked = changes.isLocked;
+              room.lockedByIdle = false;
             }
             if (typeof changes.maxUsers === 'number') {
               room.settings.maxUsers = Math.min(
@@ -1138,6 +1218,53 @@ wss.on('connection', (ws: WebSocket) => {
           break;
         }
 
+        case 'code-file-upsert': {
+          if (!currentRoomId || !currentUserId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+          const sender = room.users.get(currentUserId);
+          if (sender && !canEditWorkspace(sender.presence.role)) return;
+          const f = msg.file;
+          if (!f || typeof f.id !== 'string' || typeof f.content !== 'string') return;
+          if (f.content.length > 400000) return;
+          const safe: CodeFile = {
+            id: f.id.slice(0, 64),
+            name: String(f.name || 'dosya.txt').slice(0, 80),
+            language: String(f.language || 'javascript').slice(0, 24),
+            content: f.content,
+            lastUpdatedBy: String(msg.userName || 'Kullanıcı').slice(0, 80),
+          };
+          const idx = room.codeFiles.findIndex((x) => x.id === safe.id);
+          if (idx >= 0) {
+            room.codeFiles[idx] = safe;
+          } else {
+            if (room.codeFiles.length >= 20) return;
+            room.codeFiles.push(safe);
+          }
+          broadcastToRoom(
+            currentRoomId,
+            { type: 'code-file-updated', file: safe, senderId: currentUserId },
+            currentUserId || undefined
+          );
+          break;
+        }
+
+        case 'code-file-delete': {
+          if (!currentRoomId || !currentUserId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+          const sender = room.users.get(currentUserId);
+          if (sender && !canEditWorkspace(sender.presence.role)) return;
+          const fileId = String(msg.fileId || '');
+          room.codeFiles = room.codeFiles.filter((x) => x.id !== fileId);
+          broadcastToRoom(
+            currentRoomId,
+            { type: 'code-file-deleted', fileId, senderId: currentUserId },
+            currentUserId || undefined
+          );
+          break;
+        }
+
         case 'code-cursor-move': {
           if (!currentRoomId || !currentUserId) return;
           broadcastToRoom(
@@ -1423,7 +1550,7 @@ wss.on('connection', (ws: WebSocket) => {
               rooms.delete(targetRoomId);
               broadcastGlobalRoomsList();
             }
-          }, 30 * 60 * 1000);
+          }, EMPTY_ROOM_RETENTION_MS);
         }
       }
     }
@@ -1982,6 +2109,28 @@ app.delete('/api/rooms/:roomId', (req, res) => {
       maxRoomsPerUser: MAX_ROOMS_PER_USER,
       currentRoomsCount: rooms.size,
     },
+  });
+});
+
+app.get('/api/rooms/:roomId/status', (req, res) => {
+  const roomId = String(req.params.roomId || '').trim().toLowerCase();
+  const ownerKey = typeof req.query.ownerKey === 'string' ? req.query.ownerKey : '';
+  const room = rooms.get(roomId);
+  if (!room) {
+    res.json({ exists: false, roomId });
+    return;
+  }
+  res.json({
+    exists: true,
+    roomId: room.id,
+    name: room.name,
+    isLocked: room.settings.isLocked,
+    lockedByIdle: Boolean(room.lockedByIdle),
+    userCount: room.users.size,
+    maxUsers: room.settings.maxUsers,
+    isOwner: Boolean(ownerKey) && room.ownerKey === ownerKey,
+    canResume:
+      Boolean(ownerKey) && room.lockedByIdle === true && room.memberKeys.has(ownerKey),
   });
 });
 

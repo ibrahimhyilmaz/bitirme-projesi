@@ -36,6 +36,8 @@ import {
 } from '../types';
 import { generateRoomCodeSeed } from './UserSetupModal';
 import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
+import { useI18n } from '../i18n';
+import type { CloudRoomSummary } from '../hooks/useFirebaseSync';
 
 export type ShareLinkTargetMode = 'shared' | 'custom' | 'current';
 
@@ -179,6 +181,7 @@ interface RoomsModalProps {
   elements?: CanvasElement[];
   code?: { content: string; language: string };
   firebaseUserEmail?: string | null;
+  cloudRooms?: CloudRoomSummary[];
   isSyncingCloud?: boolean;
   lastCloudSyncAt?: number | null;
   onSignInGoogle?: () => void;
@@ -218,6 +221,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   elements = [],
   code,
   firebaseUserEmail,
+  cloudRooms = [],
   isSyncingCloud = false,
   lastCloudSyncAt,
   onSignInGoogle,
@@ -232,6 +236,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   onRefreshRooms,
   onClose,
 }) => {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<'rooms' | 'permissions' | 'invite'>(initialTab);
   const [joinByCodeInput, setJoinByCodeInput] = useState('');
   const [newRoomName, setNewRoomName] = useState('');
@@ -262,6 +267,34 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
   const hasReachedUserRoomLimit = myOwnedRooms.length >= maxRoomsPerUser;
 
+  const myRoomEntries = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; name: string; maxUsers: number; isLocked: boolean; live: boolean; lockedByIdle: boolean }
+    >();
+    for (const c of cloudRooms) {
+      map.set(c.id, {
+        id: c.id,
+        name: c.name,
+        maxUsers: c.maxUsers,
+        isLocked: c.isLocked,
+        live: false,
+        lockedByIdle: false,
+      });
+    }
+    for (const r of myOwnedRooms) {
+      map.set(r.id, {
+        id: r.id,
+        name: r.name,
+        maxUsers: r.maxUsers,
+        isLocked: r.isLocked,
+        live: true,
+        lockedByIdle: Boolean(r.lockedByIdle),
+      });
+    }
+    return Array.from(map.values()).filter((r) => r.id !== 'ana-oda');
+  }, [cloudRooms, myOwnedRooms]);
+
   useEffect(() => {
     onRefreshRooms();
   }, [onRefreshRooms]);
@@ -285,29 +318,30 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
     setIsCheckingRoom(true);
     try {
-      const res = await fetch(`/api/rooms/${encodeURIComponent(cleanCode)}`);
+      const res = await fetch(
+        `/api/rooms/${encodeURIComponent(cleanCode)}/status?ownerKey=${encodeURIComponent(ownerKey)}`
+      );
       if (res.ok) {
-        const data = await res.json();
-        if (!data.exists) {
+        const info = await res.json();
+        if (info && info.exists === false) {
           setModalError(
             `#${cleanCode.toUpperCase()} koduna sahip aktif bir oda bulunamadı. Lütfen oda kodunu kontrol edin veya yeni bir oda oluşturun.`
           );
-          setIsCheckingRoom(false);
           return;
         }
-        if (data.room?.isLocked) {
-          setModalError(
-            `"${data.room.name}" (#${cleanCode.toUpperCase()}) odası kurucu tarafından kilitlenmiş.`
-          );
-          setIsCheckingRoom(false);
-          return;
-        }
-        if (data.room && data.room.userCount >= data.room.maxUsers && cleanCode !== currentRoomId) {
-          setModalError(
-            `"${data.room.name}" (#${cleanCode.toUpperCase()}) odasının maksimum kişi kapasitesi (${data.room.userCount}/${data.room.maxUsers}) dolmuş.`
-          );
-          setIsCheckingRoom(false);
-          return;
+        if (info && info.exists === true && !info.isOwner && !info.canResume) {
+          if (info.isLocked) {
+            setModalError(
+              `"${info.name}" (#${cleanCode.toUpperCase()}) odası kurucu tarafından kilitlenmiş.`
+            );
+            return;
+          }
+          if (info.userCount >= info.maxUsers && cleanCode !== currentRoomId) {
+            setModalError(
+              `"${info.name}" (#${cleanCode.toUpperCase()}) odasının maksimum kişi kapasitesi (${info.userCount}/${info.maxUsers}) dolmuş.`
+            );
+            return;
+          }
         }
       }
     } catch {
@@ -320,7 +354,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
     onClose();
   };
 
-  const handleCreateRoom = (e: React.FormEvent) => {
+  const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     setModalError(null);
 
@@ -349,6 +383,21 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         .replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
         .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
         .trim() || 'Yeni Çalışma Odası';
+
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(cleanCode)}/status`);
+      if (res.ok) {
+        const info = await res.json();
+        if (info && info.exists === true) {
+          setModalError(
+            `#${cleanCode.toUpperCase()} oda kodu zaten kullanılıyor. Lütfen farklı bir kod seçin.`
+          );
+          return;
+        }
+      }
+    } catch {
+      // offline/serverless: server/mesh will validate
+    }
 
     const clampedMax = Math.min(
       serverLimits.maxUsersPerRoom || 30,
@@ -634,6 +683,64 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
             </form>
 
+            {/* My Rooms: every room I created (live on the server or saved in Firebase) */}
+            <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40">
+              <div className="text-xs font-bold text-slate-900">{t('rooms.myRooms')}</div>
+              <p className="text-[11px] text-slate-600 mb-2.5">{t('rooms.myRoomsDesc')}</p>
+              {myRoomEntries.length === 0 ? (
+                <div className="text-[11px] text-slate-500">{t('rooms.noMyRooms')}</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {myRoomEntries.map((r) => (
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white border border-slate-200"
+                    >
+                      <div className="min-w-0 flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-900 truncate">{r.name}</span>
+                        <span className="text-[11px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                          #{r.id.toUpperCase()}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            r.live ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {r.live ? t('rooms.live') : t('rooms.saved')}
+                        </span>
+                        {r.isLocked && (
+                          <span
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700"
+                            title={r.lockedByIdle ? t('rooms.lockedIdle') : undefined}
+                          >
+                            <Lock className="w-3 h-3 inline" />
+                          </span>
+                        )}
+                      </div>
+                      {r.id === currentRoomId ? (
+                        <span className="px-2.5 py-1 rounded-lg bg-blue-100 text-blue-700 text-[11px] font-semibold">
+                          {t('rooms.live')}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Live room: join it. Missing on the server (restart): recreate it from the saved record.
+                            onSelectRoom(r.id, r.name, r.maxUsers, !r.live);
+                            onClose();
+                          }}
+                          className="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold flex items-center gap-1 shrink-0"
+                        >
+                          <span>{t('rooms.enter')}</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Active Rooms List */}
             <div>
               <div className="flex items-center justify-between mb-2.5">
@@ -728,15 +835,15 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                           </span>
                         ) : (
                           <button
-                            disabled={r.isLocked || isFull}
+                            disabled={(r.isLocked && !isOwnedByMe) || (isFull && !isOwnedByMe)}
                             onClick={() => {
                               onSelectRoom(r.id, cleanRName, r.maxUsers, false);
                               onClose();
                             }}
                             className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold transition-colors flex items-center gap-1"
                           >
-                            <span>{r.isLocked ? 'Kilitli' : isFull ? 'Dolu' : 'Katıl'}</span>
-                            {!r.isLocked && !isFull && <ArrowRight className="w-3.5 h-3.5" />}
+                            <span>{r.isLocked && !isOwnedByMe ? 'Kilitli' : isFull && !isOwnedByMe ? 'Dolu' : 'Katıl'}</span>
+                            {(isOwnedByMe || (!r.isLocked && !isFull)) && <ArrowRight className="w-3.5 h-3.5" />}
                           </button>
                         )}
                       </div>

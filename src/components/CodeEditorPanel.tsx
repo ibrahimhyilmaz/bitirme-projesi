@@ -16,8 +16,14 @@ import {
   Keyboard,
   Layout,
   Users,
+  Plus,
+  Upload,
+  Settings2,
+  FileCode2,
 } from 'lucide-react';
-import { CodeCursorPresence } from '../types';
+import { CodeCursorPresence, CodeFile, EditorSettings, DEFAULT_EDITOR_SETTINGS } from '../types';
+import { EditorSettingsForm } from './EditorSettingsForm';
+import { useI18n } from '../i18n';
 
 interface CodeEditorPanelProps {
   roomName: string;
@@ -31,6 +37,11 @@ interface CodeEditorPanelProps {
   codeCursors?: CodeCursorPresence[];
   currentUserId?: string;
   onUpdateCode: (content: string, language?: string) => void;
+  codeFiles?: CodeFile[];
+  onUpsertCodeFile?: (file: CodeFile) => void;
+  onDeleteCodeFile?: (fileId: string) => void;
+  editorSettings?: EditorSettings;
+  onChangeEditorSettings?: (partial: Partial<EditorSettings>) => void;
   onCursorMove?: (cursor: {
     line: number;
     column: number;
@@ -197,10 +208,94 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   code,
   codeCursors = [],
   currentUserId,
-  onUpdateCode,
+  onUpdateCode: onUpdateMainCode,
+  codeFiles = [],
+  onUpsertCodeFile,
+  onDeleteCodeFile,
+  editorSettings = DEFAULT_EDITOR_SETTINGS,
+  onChangeEditorSettings,
   onCursorMove,
   onClose,
 }) => {
+  const { t } = useI18n();
+  const [activeFileId, setActiveFileId] = useState<string>('main');
+  const [showEditorSettings, setShowEditorSettings] = useState<boolean>(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const activeExtraFile = activeFileId === 'main' ? null : codeFiles.find((f) => f.id === activeFileId) || null;
+  // If the active extra file was deleted (locally or by a peer) fall back to the main file
+  useEffect(() => {
+    if (activeFileId !== 'main' && !codeFiles.some((f) => f.id === activeFileId)) {
+      setActiveFileId('main');
+    }
+  }, [codeFiles, activeFileId]);
+
+  const activeContent = activeExtraFile ? activeExtraFile.content : code.content;
+  const activeLanguage = activeExtraFile ? activeExtraFile.language : code.language;
+  const activeLastUpdatedBy = activeExtraFile ? activeExtraFile.lastUpdatedBy : code.lastUpdatedBy;
+
+  // Writes to whichever file tab is active (main = room code, others = synced extra files)
+  const onUpdateCode = (content: string, language?: string) => {
+    if (activeExtraFile) {
+      onUpsertCodeFile?.({
+        ...activeExtraFile,
+        content,
+        language: language || activeExtraFile.language,
+      });
+    } else {
+      onUpdateMainCode(content, language);
+    }
+  };
+
+  const inferLanguage = (fileName: string): string => {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    const hit = LANGUAGES.find((l) => l.ext === ext || (ext === 'mjs' && l.id === 'javascript'));
+    return hit ? hit.id : 'javascript';
+  };
+
+  const handleNewFile = () => {
+    if (!canEdit || !onUpsertCodeFile) return;
+    const name = window.prompt(t('code.fileNamePrompt'), `dosya${codeFiles.length + 1}.js`);
+    if (!name || !name.trim()) return;
+    const id = `cf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    onUpsertCodeFile({
+      id,
+      name: name.trim().slice(0, 80),
+      language: inferLanguage(name.trim()),
+      content: '',
+      lastUpdatedBy: '',
+    });
+    setActiveFileId(id);
+  };
+
+  const handleImportFiles = async (list: File[]) => {
+    if (!canEdit || !onUpsertCodeFile) return;
+    let lastId = '';
+    for (const f of list.slice(0, 10)) {
+      if (f.size > 300 * 1024) continue;
+      try {
+        const text = await f.text();
+        // skip binary-looking content
+        if (text.includes('\u0000')) continue;
+        const id = `cf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+        onUpsertCodeFile({
+          id,
+          name: f.name.slice(0, 80),
+          language: inferLanguage(f.name),
+          content: text,
+          lastUpdatedBy: '',
+        });
+        lastId = id;
+      } catch {}
+    }
+    if (lastId) setActiveFileId(lastId);
+  };
+
+  const editorFs = editorSettings.editorFontSize;
+  const editorLineH = Math.round(editorFs * 2);
+  const editorCharW = editorFs * 0.6017;
+  const consoleFs = editorSettings.consoleFontSize;
   const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
   const [stdinText, setStdinText] = useState<string>('');
   const [showStdin, setShowStdin] = useState<boolean>(false);
@@ -265,13 +360,13 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
     const el = textareaRef.current;
     if (!el || document.activeElement !== el || !savedSelectionRef.current) return;
     const { start, end } = savedSelectionRef.current;
-    const maxLen = code.content.length;
+    const maxLen = activeContent.length;
     requestAnimationFrame(() => {
       try {
         el.setSelectionRange(Math.min(start, maxLen), Math.min(end, maxLen));
       } catch {}
     });
-  }, [code.content]);
+  }, [activeContent]);
 
   // Client-side fallback compiler (used if hosted on static GitHub Pages without Node backend)
   const executeClientFallback = async (
@@ -385,7 +480,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
 
   // Compile & Run Code via Backend Compiler API (with automatic Cloud Compiler fallback for GitHub Pages)
   const handleRunCode = async () => {
-    if (code.language === 'html') {
+    if (activeLanguage === 'html') {
       setShowHtmlPreview(true);
     }
 
@@ -395,8 +490,8 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          code: code.content,
-          language: code.language,
+          code: activeContent,
+          language: activeLanguage,
           stdin: stdinText,
           roomId,
         }),
@@ -412,8 +507,8 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
       // Fallback for static GitHub Pages hosting where /api/code/execute is not on local server
       try {
         const fallbackResult = await executeClientFallback(
-          code.content,
-          code.language,
+          activeContent,
+          activeLanguage,
           stdinText
         );
         setExecResult(fallbackResult);
@@ -424,7 +519,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
           exitCode: 1,
           executionTimeMs: 0,
           engine: 'Cloud Compiler',
-          language: code.language,
+          language: activeLanguage,
         });
       }
     } finally {
@@ -435,10 +530,10 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   const handleCopy = async () => {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(code.content);
+        await navigator.clipboard.writeText(activeContent);
       } else {
         const textarea = document.createElement('textarea');
-        textarea.value = code.content;
+        textarea.value = activeContent;
         textarea.style.position = 'fixed';
         textarea.style.opacity = '0';
         document.body.appendChild(textarea);
@@ -454,13 +549,13 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   };
 
   const handleDownload = () => {
-    const langObj = LANGUAGES.find((l) => l.id === code.language);
+    const langObj = LANGUAGES.find((l) => l.id === activeLanguage);
     const ext = langObj?.ext || 'txt';
-    const blob = new Blob([code.content], { type: 'text/plain' });
+    const blob = new Blob([activeContent], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `collab-code-${roomId}-${Date.now()}.${ext}`;
+    a.download = activeExtraFile ? activeExtraFile.name : `collab-code-${roomId}-${Date.now()}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -473,10 +568,11 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
       const el = e.currentTarget;
       const start = el.selectionStart;
       const end = el.selectionEnd;
-      const nextVal = code.content.substring(0, start) + '  ' + code.content.substring(end);
-      onUpdateCode(nextVal, code.language);
+      const indent = ' '.repeat(editorSettings.tabSize || 2);
+      const nextVal = activeContent.substring(0, start) + indent + activeContent.substring(end);
+      onUpdateCode(nextVal, activeLanguage);
       requestAnimationFrame(() => {
-        el.selectionStart = el.selectionEnd = start + 2;
+        el.selectionStart = el.selectionEnd = start + indent.length;
       });
     } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -493,7 +589,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   // Compile & Run Code with optional new terminal input line
   const handleRunWithStdin = async (overrideStdin?: string) => {
     const effectiveStdin = overrideStdin !== undefined ? overrideStdin : stdinText;
-    if (code.language === 'html') {
+    if (activeLanguage === 'html') {
       setShowHtmlPreview(true);
     }
 
@@ -504,8 +600,8 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          code: code.content,
-          language: code.language,
+          code: activeContent,
+          language: activeLanguage,
           stdin: effectiveStdin,
           roomId,
         }),
@@ -520,8 +616,8 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
     } catch {
       try {
         const fallbackResult = await executeClientFallback(
-          code.content,
-          code.language,
+          activeContent,
+          activeLanguage,
           effectiveStdin
         );
         setExecResult(fallbackResult);
@@ -532,7 +628,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
           exitCode: 1,
           executionTimeMs: 0,
           engine: 'Cloud Compiler',
-          language: code.language,
+          language: activeLanguage,
         });
       }
     } finally {
@@ -566,13 +662,14 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   };
 
   // Generate line numbers
-  const codeLines = code.content.split('\n');
+  const codeLines = activeContent.split('\n');
   const linesCount = codeLines.length;
   const lineNumbers = Array.from({ length: Math.max(linesCount, 1) }, (_, i) => i + 1);
   const remoteCursors = codeCursors.filter((c) => c.userId !== currentUserId);
 
   return (
     <div
+      ref={panelRef}
       className={`fixed bg-slate-900 flex flex-col overflow-hidden transition-all duration-200 ${
         isFullscreen
           ? 'inset-0 z-50 w-screen h-screen rounded-none border-0 shadow-none'
@@ -594,9 +691,9 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
               Salt Okunur
             </span>
           )}
-          {code.lastUpdatedBy && (
+          {activeLastUpdatedBy && (
             <span className="text-slate-500 text-[11px] hidden sm:inline truncate">
-              · Son yazan: <strong className="text-slate-300">{code.lastUpdatedBy}</strong>
+              · Son yazan: <strong className="text-slate-300">{activeLastUpdatedBy}</strong>
             </span>
           )}
         </div>
@@ -604,11 +701,11 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
         <div className="flex items-center gap-2 shrink-0">
           {/* Language Selector */}
           <select
-            value={code.language}
+            value={activeLanguage}
             disabled={!canEdit}
             onChange={(e) => {
               const nextLang = e.target.value;
-              onUpdateCode(code.content, nextLang);
+              onUpdateCode(activeContent, nextLang);
               if (nextLang === 'html') setShowHtmlPreview(true);
             }}
             className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs font-medium focus:outline-hidden disabled:opacity-50"
@@ -620,7 +717,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             ))}
           </select>
 
-          {code.language === 'html' && (
+          {activeLanguage === 'html' && (
             <button
               onClick={() => setShowHtmlPreview((v) => !v)}
               className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${
@@ -633,6 +730,34 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
               <Layout className="w-3.5 h-3.5" />
             </button>
           )}
+
+          {/* Editor settings */}
+          <div className="relative">
+            <button
+              onClick={() => setShowEditorSettings((v) => !v)}
+              className={`p-1.5 rounded-lg transition-colors ${
+                showEditorSettings
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
+              }`}
+              title={t('code.settings')}
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+            </button>
+            {showEditorSettings && onChangeEditorSettings && (
+              <div className="absolute right-0 top-full mt-2 w-80 z-50 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3.5 max-h-[70vh] overflow-y-auto">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2.5">
+                  {t('editor.title')}
+                </div>
+                <EditorSettingsForm
+                  value={editorSettings}
+                  onChange={onChangeEditorSettings}
+                  isDark
+                  compact
+                />
+              </div>
+            )}
+          </div>
 
           {/* Fullscreen Toggle */}
           <button
@@ -688,7 +813,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
                   const el = textareaRef.current;
                   if (!el) return;
                   el.focus();
-                  const targetPos = Math.min(rc.selectionStart, code.content.length);
+                  const targetPos = Math.min(rc.selectionStart, activeContent.length);
                   el.setSelectionRange(targetPos, targetPos);
                 }}
                 className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[10px] font-semibold text-white shadow-xs transition-transform hover:scale-105"
@@ -717,12 +842,82 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
         </div>
       </div>
 
+      {/* Multi-file tab bar */}
+      <div className="bg-slate-950/80 border-b border-slate-800/80 px-2 flex items-center gap-1 overflow-x-auto shrink-0 select-none">
+        {[
+          { id: 'main', name: `main.${LANGUAGES.find((l) => l.id === code.language)?.ext || 'txt'}` },
+          ...codeFiles,
+        ].map((f) => {
+          const isActive = f.id === activeFileId;
+          return (
+            <div
+              key={f.id}
+              className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 text-[11px] font-mono border-b-2 cursor-pointer whitespace-nowrap ${
+                isActive
+                  ? 'border-blue-500 text-slate-100 bg-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+              onClick={() => setActiveFileId(f.id)}
+            >
+              <FileCode2 className="w-3 h-3 shrink-0" />
+              <span>{f.name}</span>
+              {f.id !== 'main' && canEdit && onDeleteCodeFile && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteCodeFile(f.id);
+                  }}
+                  className="p-0.5 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800"
+                  title={t('code.deleteFile')}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+        {canEdit && onUpsertCodeFile && (
+          <>
+            <button
+              type="button"
+              onClick={handleNewFile}
+              className="ml-1 p-1.5 rounded text-slate-400 hover:text-white hover:bg-slate-800 shrink-0"
+              title={t('code.newFile')}
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-slate-800 shrink-0"
+              title={t('code.importFiles')}
+            >
+              <Upload className="w-3.5 h-3.5" />
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              multiple
+              accept=".js,.mjs,.ts,.py,.cpp,.c,.h,.java,.cs,.go,.rs,.sql,.html,.css,.json,.txt,.md"
+              className="hidden"
+              onChange={(e) => {
+                const list = Array.from(e.target.files || []);
+                e.target.value = '';
+                if (list.length) void handleImportFiles(list);
+              }}
+            />
+          </>
+        )}
+      </div>
+
       {/* Main Split Body: Code Editor + Optional Live HTML Preview */}
       <div className="flex-1 flex overflow-hidden bg-slate-900 relative min-h-[180px]">
         {/* Line Numbers Gutter */}
         <div
           ref={lineGutterRef}
-          className="w-14 py-3 bg-slate-950/60 text-slate-600 font-mono text-xs select-none text-right pr-3 shrink-0 overflow-hidden border-r border-slate-800/60"
+          style={{ fontSize: editorFs }}
+          className="w-14 py-3 bg-slate-950/60 text-slate-600 font-mono select-none text-right pr-3 shrink-0 overflow-hidden border-r border-slate-800/60"
         >
           {lineNumbers.map((num) => {
             const peerOnLine = remoteCursors.find((c) => c.line === num);
@@ -730,16 +925,17 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             return (
               <div
                 key={num}
-                className={`leading-6 relative flex items-center justify-end gap-1 ${
+                className={`relative flex items-center justify-end gap-1 ${
                   isLocalLine ? 'text-slate-200 font-bold' : ''
                 }`}
                 style={
                   peerOnLine
                     ? {
+                        lineHeight: `${editorLineH}px`,
                         color: peerOnLine.userColor,
                         fontWeight: 700,
                       }
-                    : undefined
+                    : { lineHeight: `${editorLineH}px` }
                 }
               >
                 {peerOnLine && (
@@ -756,7 +952,10 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
         </div>
 
         {/* Code Text Area + Live Remote Cursors Overlay */}
-        <div className="flex-1 relative overflow-hidden flex">
+        <div
+          className="flex-1 relative overflow-hidden flex"
+          style={{ backgroundColor: editorSettings.editorBgColor }}
+        >
           {/* Remote Active Line Highlights & Cursor Carets Overlay */}
           <div
             className="absolute inset-0 pointer-events-none overflow-hidden z-10"
@@ -765,15 +964,16 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             {remoteCursors.map((rc) => {
               const lineIdx = Math.max(0, rc.line - 1);
               const colIdx = Math.max(0, rc.column - 1);
-              const topPx = 12 + lineIdx * 24 - scrollOffset.top;
-              const leftPx = 12 + colIdx * 7.22 - scrollOffset.left;
+              const topPx = 12 + lineIdx * editorLineH - scrollOffset.top;
+              const leftPx = 12 + colIdx * editorCharW - scrollOffset.left;
 
               return (
                 <React.Fragment key={rc.userId}>
                   {/* Remote User Active Line Highlight */}
                   <div
-                    className="absolute left-0 right-0 h-6 transition-all duration-75"
+                    className="absolute left-0 right-0 transition-all duration-75"
                     style={{
+                      height: editorLineH,
                       top: `${topPx}px`,
                       backgroundColor: `${rc.userColor}18`,
                       borderLeft: `3px solid ${rc.userColor}`,
@@ -788,8 +988,8 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
                     }}
                   >
                     <div
-                      className="w-0.5 h-6 animate-pulse shadow-sm"
-                      style={{ backgroundColor: rc.userColor }}
+                      className="w-0.5 animate-pulse shadow-sm"
+                      style={{ backgroundColor: rc.userColor, height: editorLineH }}
                     />
                     <div
                       className="absolute -top-4 left-0 px-1.5 py-0.2 rounded text-[9px] font-bold text-white whitespace-nowrap shadow-md"
@@ -805,7 +1005,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
 
           <textarea
             ref={textareaRef}
-            value={code.content}
+            value={activeContent}
             readOnly={!canEdit}
             onKeyDown={handleTextareaKeyDown}
             onKeyUp={(e) => broadcastCurrentSelection(e.currentTarget)}
@@ -821,17 +1021,23 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             onChange={(e) => {
               const nextVal = e.target.value;
               broadcastCurrentSelection(e.currentTarget, nextVal);
-              if (canEdit) onUpdateCode(nextVal, code.language);
+              if (canEdit) onUpdateCode(nextVal, activeLanguage);
             }}
             spellCheck={false}
             wrap="off"
-            className="flex-1 p-3 bg-transparent text-emerald-400 font-mono text-xs leading-6 outline-none resize-none overflow-auto selection:bg-blue-600/40 select-text relative z-20"
+            style={{
+              fontSize: editorFs,
+              lineHeight: `${editorLineH}px`,
+              color: editorSettings.editorTextColor,
+              tabSize: editorSettings.tabSize,
+            }}
+            className="flex-1 p-3 bg-transparent font-mono outline-none resize-none overflow-auto selection:bg-blue-600/40 select-text relative z-20"
             placeholder="// Bu odaya özel ortak kod alanına kodunuzu yazın ve Derle & Çalıştır (Ctrl+Enter) butonuna tıklayın..."
           />
         </div>
 
         {/* Live HTML/CSS Preview Pane */}
-        {code.language === 'html' && showHtmlPreview && (
+        {activeLanguage === 'html' && showHtmlPreview && (
           <div className="w-1/2 border-l border-slate-800 bg-white flex flex-col">
             <div className="h-7 bg-slate-100 border-b border-slate-200 px-3 flex items-center justify-between text-[11px] font-semibold text-slate-600">
               <span>Canlı Tarayıcı Önizlemesi</span>
@@ -845,7 +1051,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             <iframe
               title="HTML Live Preview"
               sandbox="allow-scripts"
-              srcDoc={code.content}
+              srcDoc={activeContent}
               className="flex-1 w-full border-none"
             />
           </div>
@@ -854,10 +1060,39 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
 
       {/* Interactive Terminal & Compiler Console (Always accessible, supports direct stdin typing) */}
       <div
-        className={`${
-          isTerminalCollapsed ? 'h-9' : isFullscreen ? 'h-64' : 'h-52'
-        } bg-slate-950 border-t border-slate-800 flex flex-col shrink-0 transition-all duration-150`}
+        style={{
+          height: isTerminalCollapsed ? 36 : editorSettings.consoleHeight,
+          backgroundColor: editorSettings.consoleBgColor,
+        }}
+        className="relative border-t border-slate-800 flex flex-col shrink-0"
       >
+        {/* Drag handle: resize the terminal up/down */}
+        {!isTerminalCollapsed && (
+          <div
+            onPointerDown={(e) => {
+              if (!onChangeEditorSettings) return;
+              e.preventDefault();
+              const startY = e.clientY;
+              const startH = editorSettings.consoleHeight;
+              const panelH = panelRef.current?.clientHeight ?? window.innerHeight;
+              const maxH = Math.max(120, panelH - 260);
+              const move = (ev: PointerEvent) => {
+                const next = Math.round(Math.max(80, Math.min(maxH, startH + (startY - ev.clientY))));
+                onChangeEditorSettings({ consoleHeight: next });
+              };
+              const up = () => {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', up);
+              };
+              window.addEventListener('pointermove', move);
+              window.addEventListener('pointerup', up);
+            }}
+            className="absolute -top-1 left-0 right-0 h-2 z-10 cursor-row-resize group flex items-center justify-center"
+            title={t('code.terminalResize')}
+          >
+            <div className="w-12 h-1 rounded-full bg-slate-700 group-hover:bg-blue-500 transition-colors" />
+          </div>
+        )}
         <div
           onClick={() => terminalInputRef.current?.focus()}
           className="h-9 px-4 flex items-center justify-between text-xs text-slate-400 border-b border-slate-900 select-none shrink-0"
@@ -922,7 +1157,8 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             <div
               ref={terminalOutputRef}
               onClick={() => terminalInputRef.current?.focus()}
-              className="flex-1 px-4 py-2.5 font-mono text-xs overflow-y-auto space-y-1.5 select-text cursor-text"
+              style={{ fontSize: consoleFs }}
+              className="flex-1 px-4 py-2.5 font-mono overflow-y-auto space-y-1.5 select-text cursor-text"
             >
               {terminalInputLines.length > 0 && (
                 <div className="space-y-0.5 pb-1 border-b border-slate-900">
@@ -945,12 +1181,18 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
               {execResult ? (
                 <>
                   {execResult.stdout && (
-                    <pre className="whitespace-pre-wrap text-emerald-300 leading-relaxed">
+                    <pre
+                      style={{ color: editorSettings.consoleTextColor }}
+                      className="whitespace-pre-wrap leading-relaxed"
+                    >
                       {execResult.stdout}
                     </pre>
                   )}
                   {execResult.stderr && (
-                    <pre className="whitespace-pre-wrap text-rose-400 bg-rose-950/30 border border-rose-900/50 rounded-lg p-2.5 leading-relaxed">
+                    <pre
+                      style={{ color: editorSettings.consoleErrorColor }}
+                      className="whitespace-pre-wrap bg-rose-950/30 border border-rose-900/50 rounded-lg p-2.5 leading-relaxed"
+                    >
                       {execResult.stderr}
                     </pre>
                   )}

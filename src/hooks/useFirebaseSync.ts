@@ -2,11 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   auth,
   db,
-  firebaseConfig,
   googleProvider,
-  GoogleAuthProvider,
   signInWithPopup,
-  signInWithCredential,
   signOut,
   onAuthStateChanged,
   doc,
@@ -25,17 +22,6 @@ import {
 } from '../firebase';
 import { CanvasElement, RoomSettings } from '../types';
 
-const AUTHORIZED_CLOUD_HANDLER_URL =
-  'https://ais-dev-pgawidvphgkvicx3jrz4eo-969030572827.europe-west2.run.app/__/auth/handler';
-
-interface OAuthPopupResult {
-  type?: string;
-  idToken?: string;
-  accessToken?: string;
-  error?: string;
-  errorDescription?: string;
-}
-
 interface UseFirebaseSyncOptions {
   roomId: string;
   roomName: string;
@@ -50,6 +36,14 @@ interface UseFirebaseSyncOptions {
     notesContent?: string;
     elements?: CanvasElement[];
   }) => void;
+}
+
+export interface CloudRoomSummary {
+  id: string;
+  name: string;
+  isLocked: boolean;
+  maxUsers: number;
+  updatedAtMs: number;
 }
 
 export function useFirebaseSync({
@@ -68,6 +62,7 @@ export function useFirebaseSync({
   const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
   const [lastCloudSyncAt, setLastCloudSyncAt] = useState<number | null>(null);
   const loadedRoomRef = useRef<string | null>(null);
+  const [cloudRooms, setCloudRooms] = useState<CloudRoomSummary[]>([]);
 
   // Sanitize roomId to match ^[a-zA-Z0-9_\-]+$ and max 128 chars
   const safeRoomId =
@@ -91,10 +86,82 @@ export function useFirebaseSync({
     return () => unsubscribe();
   }, []);
 
+  // Persist the Google profile (name, e-mail, photo) in Firestore under users/{uid}
+  useEffect(() => {
+    if (!firebaseUser) {
+      setCloudRooms([]);
+      return;
+    }
+    const uid = firebaseUser.uid;
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(uid)) return;
+    const userRef = doc(db, 'users', uid);
+    const profile = {
+      uid,
+      displayName: (firebaseUser.displayName || firebaseUser.email || 'Kullanıcı').slice(0, 120),
+      email: (firebaseUser.email || '').slice(0, 200),
+      photoURL: (firebaseUser.photoURL || '').slice(0, 2000),
+    };
+    (async () => {
+      try {
+        const snap = await getDoc(userRef);
+        if (!snap.exists()) {
+          await setDoc(userRef, {
+            ...profile,
+            createdAt: serverTimestamp(),
+            lastLoginAt: serverTimestamp(),
+          });
+        } else {
+          await updateDoc(userRef, {
+            ...profile,
+            createdAt: snap.data().createdAt,
+            lastLoginAt: serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        try {
+          handleFirestoreError(err, OperationType.WRITE, `users/${uid}`);
+        } catch {}
+      }
+    })();
+  }, [firebaseUser]);
+
+  // Live list of every room this Google account owns (survives server restarts and refreshes)
+  useEffect(() => {
+    if (!firebaseUser || !isAuthReady) return;
+    const q = query(collection(db, 'rooms'), where('ownerId', '==', firebaseUser.uid));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: CloudRoomSummary[] = [];
+        snap.forEach((d) => {
+          const data = d.data();
+          const ts = data.updatedAt as { toMillis?: () => number } | undefined;
+          list.push({
+            id: String(data.roomId || d.id),
+            name: String(data.roomName || d.id),
+            isLocked: Boolean(data.isLocked),
+            maxUsers: Number(data.maxUsers || 12),
+            updatedAtMs: ts && typeof ts.toMillis === 'function' ? ts.toMillis() : 0,
+          });
+        });
+        list.sort((x, y) => y.updatedAtMs - x.updatedAtMs);
+        setCloudRooms(list);
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'rooms');
+        } catch {}
+      }
+    );
+    return () => unsub();
+  }, [firebaseUser, isAuthReady]);
+
   const clearAuthError = useCallback(() => {
     setAuthError(null);
   }, []);
 
+  // Sign in through Firebase Auth's own Google popup (this project's authDomain), so the account
+  // is created/identified in *this* Firebase project rather than any hosted preview environment.
   const signInWithGoogle = useCallback(async (_preferredName?: string): Promise<User | null> => {
     setAuthError(null);
     try {
@@ -102,154 +169,9 @@ export function useFirebaseSync({
       localStorage.removeItem('collab_google_oauth_result');
     } catch {}
 
-    const oauthClientId = (
-      firebaseConfig as { oAuthClientId?: string }
-    )?.oAuthClientId;
-
-    // Primary path: Direct Google OAuth 2.0 Popup -> Firebase signInWithCredential
-    // Works reliably inside AI Studio (ais-dev), Shared App URL (ais-pre), browsers blocking
-    // third-party firebaseapp.com iframes, AND localhost without closing prematurely after 200ms.
-    if (oauthClientId && typeof window !== 'undefined') {
-      try {
-        const hostname = window.location.hostname;
-        const isAuthorizedRunApp =
-          hostname.endsWith('.run.app') ||
-          hostname.endsWith('.firebaseapp.com') ||
-          hostname.endsWith('.web.app');
-
-        const redirectUri = isAuthorizedRunApp
-          ? `${window.location.origin}/__/auth/handler`
-          : AUTHORIZED_CLOUD_HANDLER_URL;
-
-        const nonce = `${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 10)}`;
-        const statePayload = JSON.stringify({
-          origin: window.location.origin,
-          nonce,
-        });
-
-        const params = new URLSearchParams({
-          client_id: oauthClientId,
-          redirect_uri: redirectUri,
-          response_type: 'token id_token',
-          scope: 'openid email profile',
-          prompt: 'select_account',
-          nonce,
-          state: statePayload,
-        });
-
-        const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-        const width = 500;
-        const height = 620;
-        const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
-        const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
-
-        const popup = window.open(
-          oauthUrl,
-          'CollabBoardGoogleAuth',
-          `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=yes,status=no,resizable=yes,scrollbars=yes`
-        );
-
-        if (popup) {
-          const oauthResult = await new Promise<OAuthPopupResult | null>((resolve) => {
-            let settled = false;
-            let bc: BroadcastChannel | null = null;
-
-            const finish = (val: OAuthPopupResult | null) => {
-              if (settled) return;
-              settled = true;
-              window.removeEventListener('message', onMessage);
-              window.removeEventListener('storage', onStorage);
-              if (bc) {
-                try {
-                  bc.close();
-                } catch {}
-              }
-              clearInterval(closeWatchTimer);
-              clearTimeout(timeoutTimer);
-              resolve(val);
-            };
-
-            const handleIncomingPayload = (data: unknown) => {
-              if (!data || typeof data !== 'object') return;
-              const msg = data as OAuthPopupResult;
-              if (msg.type !== 'COLLAB_GOOGLE_OAUTH_RESULT') return;
-              finish(msg);
-            };
-
-            const onMessage = (event: MessageEvent) => {
-              handleIncomingPayload(event.data);
-            };
-
-            const onStorage = (event: StorageEvent) => {
-              if (event.key === 'collab_google_oauth_result' && event.newValue) {
-                try {
-                  handleIncomingPayload(JSON.parse(event.newValue));
-                } catch {}
-              }
-            };
-
-            window.addEventListener('message', onMessage);
-            window.addEventListener('storage', onStorage);
-
-            try {
-              bc = new BroadcastChannel('collab_google_oauth_channel');
-              bc.onmessage = (event) => handleIncomingPayload(event.data);
-            } catch {}
-
-            const closeWatchTimer = setInterval(() => {
-              try {
-                if (popup.closed) {
-                  // Wait briefly in case postMessage/storage event is arriving right as popup closes
-                  setTimeout(() => finish(null), 350);
-                }
-              } catch {}
-            }, 400);
-
-            const timeoutTimer = setTimeout(() => {
-              finish({ error: 'timeout', errorDescription: 'Google giriş işlemi zaman aşımına uğradı.' });
-            }, 180000);
-          });
-
-          if (!oauthResult) {
-            // User closed the popup manually
-            return null;
-          }
-
-          if (oauthResult.error) {
-            if (oauthResult.error === 'access_denied') {
-              return null;
-            }
-            setAuthError(
-              oauthResult.errorDescription ||
-                `Google ile giriş yapılamadı (${oauthResult.error}).`
-            );
-            return null;
-          }
-
-          if (oauthResult.idToken || oauthResult.accessToken) {
-            const credential = GoogleAuthProvider.credential(
-              oauthResult.idToken || null,
-              oauthResult.accessToken || null
-            );
-            const userCredential = await signInWithCredential(auth, credential);
-            if (userCredential?.user) {
-              setFirebaseUser(userCredential.user);
-              return userCredential.user;
-            }
-          }
-        }
-      } catch (oauthErr: unknown) {
-        const msg =
-          (oauthErr as { message?: string })?.message ||
-          'Google kimlik doğrulaması sırasında bir hata oluştu.';
-        console.error('Google OAuth credential sign-in error:', oauthErr);
-        setAuthError(msg);
-        return null;
-      }
-    }
-
-    // Standard Firebase signInWithPopup fallback (if oAuthClientId is absent or popup was blocked)
     try {
+      googleProvider.addScope('profile');
+      googleProvider.addScope('email');
       googleProvider.setCustomParameters({ prompt: 'select_account' });
       const result = await signInWithPopup(auth, googleProvider);
       if (result?.user) {
@@ -264,11 +186,15 @@ export function useFirebaseSync({
       console.error('Firebase Google Sign-In error:', err);
       if (code === 'auth/unauthorized-domain') {
         setAuthError(
-          `Bu alan adı (${window.location.hostname}) Firebase Auth yetkili alan adları listesinde bulunmuyor.`
+          `Bu alan adı (${window.location.hostname}) Firebase Auth yetkili alan adları listesinde yok. Firebase Console → Authentication → Settings → Authorized domains bölümüne ekleyin.`
         );
       } else if (code === 'auth/popup-blocked') {
         setAuthError(
           'Tarayıcınız açılır pencereyi (pop-up) engelledi. Lütfen pop-up izni verip tekrar deneyin.'
+        );
+      } else if (code === 'auth/operation-not-allowed') {
+        setAuthError(
+          'Firebase projesinde Google ile giriş etkin değil. Firebase Console → Authentication → Sign-in method bölümünden Google sağlayıcısını etkinleştirin.'
         );
       } else {
         setAuthError('Google ile giriş yapılırken bir hata oluştu. Lütfen tekrar deneyin.');
@@ -369,8 +295,9 @@ export function useFirebaseSync({
   }, [enabled, isAuthReady, firebaseUser, safeRoomId, onCloudStateLoaded, elements.length]);
 
   // Save current room state & canvas elements to Firestore
-  const syncRoomToCloud = useCallback(async () => {
+  const syncRoomToCloud = useCallback(async (opts?: { includeElements?: boolean }) => {
     if (!firebaseUser) return false;
+    const includeElements = opts?.includeElements !== false;
     setIsSyncingCloud(true);
     const roomPath = `rooms/${safeRoomId}`;
     const roomRef = doc(db, 'rooms', safeRoomId);
@@ -430,9 +357,9 @@ export function useFirebaseSync({
       }
 
       // Sync up to 35 structured elements into the subcollection
-      const persistableElements = elements
-        .filter((el) => el.type !== 'image')
-        .slice(0, 35);
+      const persistableElements = includeElements
+        ? elements.filter((el) => el.type !== 'image').slice(0, 35)
+        : [];
 
       for (const el of persistableElements) {
         const safeElId =
@@ -521,5 +448,6 @@ export function useFirebaseSync({
     signOutFirebase,
     syncRoomToCloud,
     deleteCloudElement,
+    cloudRooms,
   };
 }

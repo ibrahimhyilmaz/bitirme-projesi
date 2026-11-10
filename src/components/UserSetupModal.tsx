@@ -257,6 +257,21 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       return;
     }
 
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(finalSeed.toLowerCase())}/status`);
+      if (res.ok) {
+        const info = await res.json();
+        if (info && info.exists === true) {
+          setLocalValidationError(
+            `#${finalSeed} oda kodu zaten kullanılıyor. Lütfen farklı bir kod seçin (yeni kod üretebilirsiniz).`
+          );
+          return;
+        }
+      }
+    } catch {
+      // offline/serverless: server/mesh will validate
+    }
+
     const clampedMax = Math.min(30, Math.max(2, Number(createMaxUsers) || 8));
     setIsCreateModalOpen(false);
     onJoin({
@@ -286,35 +301,30 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     setLocalValidationError(null);
     setIsCheckingRoom(true);
     try {
-      const res = await fetch(`/api/rooms/${encodeURIComponent(cleanCode.toLowerCase())}`);
-      if (res.status === 404) {
-        const errData = await res.json().catch(() => ({}));
-        setLocalValidationError(
-          errData.error ||
-            `#${cleanCode} kodlu bir çalışma odası bulunamadı. Lütfen oda kodunu kontrol edin veya yeni bir oda oluşturun.`
-        );
-        setIsCheckingRoom(false);
-        return;
-      }
+      const res = await fetch(
+        `/api/rooms/${encodeURIComponent(cleanCode.toLowerCase())}/status?ownerKey=${encodeURIComponent(ownerKey)}`
+      );
       if (res.ok) {
-        const roomData = await res.json();
-        if (roomData.settings?.isLocked) {
+        const info = await res.json();
+        if (info && info.exists === false) {
           setLocalValidationError(
-            `"${roomData.name}" (#${cleanCode}) odası şu anda kilitli. Oda yöneticisi yeni katılımları kapattı.`
+            `#${cleanCode} kodlu bir çalışma odası bulunamadı. Lütfen oda kodunu kontrol edin veya yeni bir oda oluşturun.`
           );
-          setIsCheckingRoom(false);
           return;
         }
-        if (
-          typeof roomData.userCount === 'number' &&
-          typeof roomData.settings?.maxUsers === 'number' &&
-          roomData.userCount >= roomData.settings.maxUsers
-        ) {
-          setLocalValidationError(
-            `"${roomData.name}" (#${cleanCode}) odası maksimum kapasiteye ulaştı (${roomData.userCount}/${roomData.settings.maxUsers} kişi). Bu odaya giriş yapılamaz.`
-          );
-          setIsCheckingRoom(false);
-          return;
+        if (info && info.exists === true && !info.isOwner && !info.canResume) {
+          if (info.isLocked) {
+            setLocalValidationError(
+              `"${info.name}" (#${cleanCode}) odası şu anda kilitli. Oda yöneticisi yeni katılımları kapattı.`
+            );
+            return;
+          }
+          if (info.userCount >= info.maxUsers) {
+            setLocalValidationError(
+              `"${info.name}" (#${cleanCode}) odası maksimum kapasiteye ulaştı (${info.userCount}/${info.maxUsers} kişi). Bu odaya giriş yapılamaz.`
+            );
+            return;
+          }
         }
       }
     } catch {

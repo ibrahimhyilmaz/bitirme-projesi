@@ -16,18 +16,30 @@ import {
   Grid,
   Volume2,
   Sliders,
+  Languages,
+  Clock,
+  FolderOpen,
+  Code2,
+  Map as MapIcon,
+  EyeOff as EyeOffIcon,
 } from 'lucide-react';
-import { AppSettings, ThemeMode } from '../types';
+import { AppSettings, EditorSettings, LanguageCode, ThemeMode } from '../types';
+import { LANGUAGE_OPTIONS, setLanguage, useI18n } from '../i18n';
+import { EditorSettingsForm } from './EditorSettingsForm';
 
 interface SettingsModalProps {
   settings: AppSettings;
   onUpdateSettings: (partial: Partial<AppSettings>) => void;
+  editorSettings: EditorSettings;
+  onUpdateEditorSettings: (partial: Partial<EditorSettings>) => void;
+  onFullyShow: () => void;
+  onFullyHide: () => void;
   onResetFloatingPositions: () => void;
   onResetAllSettings: () => void;
   onClose: () => void;
 }
 
-type SettingsTab = 'appearance' | 'panels' | 'drawing' | 'shortcuts';
+type SettingsTab = 'appearance' | 'language' | 'panels' | 'editor' | 'drawing' | 'shortcuts';
 
 const THEME_OPTIONS: {
   id: ThemeMode;
@@ -79,10 +91,15 @@ const THEME_OPTIONS: {
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onUpdateSettings,
+  editorSettings,
+  onUpdateEditorSettings,
+  onFullyShow,
+  onFullyHide,
   onResetFloatingPositions,
   onResetAllSettings,
   onClose,
 }) => {
+  const { t, lang } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const [positionsResetFeedback, setPositionsResetFeedback] = useState(false);
 
@@ -118,9 +135,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold tracking-tight">Uygulama & Çalışma Alanı Ayarları</h2>
+              <h2 className="text-base font-bold tracking-tight">{t('settings.title')}</h2>
               <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Tema, yüzen araç kutucukları (Gizle/Göster), çoklu seçim alanı ve çizim tercihleri
+                {t('settings.subtitle')}
               </p>
             </div>
           </div>
@@ -129,7 +146,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             className={`p-1.5 rounded-lg transition-colors ${
               isDark ? 'text-slate-400 hover:bg-slate-800 hover:text-white' : 'text-slate-500 hover:bg-slate-200/70'
             }`}
-            title="Kapat"
+            title={t('settings.close')}
           >
             <X className="w-5 h-5" />
           </button>
@@ -152,7 +169,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <Palette className="w-4 h-4" />
-            <span>Görünüm & Tema</span>
+            <span>{t('tab.appearance')}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('language')}
+            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'language'
+                ? 'border-blue-600 text-blue-600'
+                : isDark
+                ? 'border-transparent text-slate-400 hover:text-slate-200'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Languages className="w-4 h-4" />
+            <span>{t('tab.language')}</span>
           </button>
 
           <button
@@ -166,7 +197,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <Layout className="w-4 h-4" />
-            <span>Kutucuklar (Gizle / Göster)</span>
+            <span>{t('tab.panels')}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('editor')}
+            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'editor'
+                ? 'border-blue-600 text-blue-600'
+                : isDark
+                ? 'border-transparent text-slate-400 hover:text-slate-200'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Code2 className="w-4 h-4" />
+            <span>{t('tab.editor')}</span>
           </button>
 
           <button
@@ -180,7 +225,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <MousePointerClick className="w-4 h-4" />
-            <span>Çoklu Seçim & Çizim</span>
+            <span>{t('tab.drawing')}</span>
           </button>
 
           <button
@@ -194,7 +239,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <Keyboard className="w-4 h-4" />
-            <span>Ses & Kısayollar</span>
+            <span>{t('tab.shortcuts')}</span>
           </button>
         </div>
 
@@ -289,171 +334,128 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </>
           )}
 
-          {activeTab === 'panels' && (
+          {activeTab === 'language' && (
             <div className="space-y-4">
-              <div
-                className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
-                  isDark
-                    ? 'bg-blue-950/30 border-blue-800/50 text-blue-200'
-                    : 'bg-blue-50/80 border-blue-200 text-blue-900'
-                }`}
-              >
-                Çalışma alanındaki <strong>3 yüzen kutucuğu</strong> buradan veya doğrudan her kutucuğun sağındaki{' '}
-                <strong>Göz (Gizle/Göster)</strong> ikonuna tıklayarak istediğiniz an gizleyip açabilirsiniz.
-              </div>
-
-              {/* 1. Ana Araç Çubuğu */}
-              <div
-                className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
-                  isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50/60'
-                }`}
-              >
-                <div>
-                  <div className="text-sm font-bold flex items-center gap-2">
-                    <span>1. Ana Araç Çubuğu (Seç, Kaydır, AI Çizim, Şekiller)</span>
-                  </div>
-                  <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Seçim imleci, kalem, silgi, şekiller ve yakınlaştırma araçlarını içeren ana bar.
-                  </p>
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-1.5">
+                  {t('lang.title')}
+                </h3>
+                <p className={`text-xs mb-3 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  {t('lang.desc')}
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  {LANGUAGE_OPTIONS.map((opt) => {
+                    const selected = lang === opt.code;
+                    return (
+                      <button
+                        key={opt.code}
+                        type="button"
+                        onClick={() => {
+                          setLanguage(opt.code as LanguageCode);
+                          onUpdateSettings({ language: opt.code as LanguageCode });
+                        }}
+                        className={`p-3 rounded-xl border-2 text-left transition-all flex items-center justify-between ${
+                          selected
+                            ? 'border-blue-600 bg-blue-600/10 text-blue-600'
+                            : isDark
+                            ? 'border-slate-800 hover:border-slate-700'
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div>
+                          <div className="text-sm font-bold">{opt.label}</div>
+                          <div className="text-[10px] uppercase tracking-wider opacity-60">{opt.code}</div>
+                        </div>
+                        {selected && <Check className="w-4 h-4" />}
+                      </button>
+                    );
+                  })}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onUpdateSettings({ showToolbar: !settings.showToolbar })}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
-                    settings.showToolbar
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : isDark
-                      ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                  }`}
-                >
-                  {settings.showToolbar ? (
-                    <>
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Açık (Gösteriliyor)</span>
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-3.5 h-3.5" />
-                      <span>Gizli (Göster)</span>
-                    </>
-                  )}
-                </button>
               </div>
+            </div>
+          )}
 
-              {/* 2. Stil & Renk Çubuğu */}
-              <div
-                className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
-                  isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50/60'
-                }`}
-              >
-                <div>
-                  <div className="text-sm font-bold flex items-center gap-2">
-                    <span>2. Stil, Renk & Döndürme Çubuğu</span>
-                  </div>
-                  <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Çizgi rengi, iç dolgu rengi, kalınlık, döndürme ve aynalama ayarlarını içeren alt kutucuk.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onUpdateSettings({ showStyleBar: !settings.showStyleBar })}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
-                    settings.showStyleBar
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : isDark
-                      ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                  }`}
-                >
-                  {settings.showStyleBar ? (
-                    <>
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Açık (Gösteriliyor)</span>
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-3.5 h-3.5" />
-                      <span>Gizli (Göster)</span>
-                    </>
-                  )}
-                </button>
-              </div>
+          {activeTab === 'panels' && (
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                {t('panels.title')}
+              </h3>
 
-              {/* 3. Sesli Kanal Kutusu */}
-              <div
-                className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
-                  isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50/60'
-                }`}
-              >
-                <div>
-                  <div className="text-sm font-bold flex items-center gap-2">
-                    <span>3. Sesli Kanal & Katılımcı Kutucuğu</span>
-                  </div>
-                  <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Sağ üstteki Sesli Kanal durumu, mikrofon/hoparlör ve kişi ses düzeyi kutucuğu.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onUpdateSettings({ showVoiceBar: !settings.showVoiceBar })}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
-                    settings.showVoiceBar
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : isDark
-                      ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                  }`}
-                >
-                  {settings.showVoiceBar ? (
-                    <>
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Açık (Gösteriliyor)</span>
-                    </>
-                  ) : (
-                    <>
-                      <EyeOff className="w-3.5 h-3.5" />
-                      <span>Gizli (Göster)</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Quick Show All / Hide All & Reset Positions */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onUpdateSettings({
-                        showToolbar: true,
-                        showStyleBar: true,
-                        showVoiceBar: true,
-                      })
-                    }
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
-                  >
-                    3 Kutucuğu da Göster
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onUpdateSettings({
-                        showToolbar: false,
-                        showStyleBar: false,
-                        showVoiceBar: false,
-                      })
-                    }
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                      isDark
-                        ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
-                        : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+              {(
+                [
+                  { key: 'showToolbar', label: t('panels.toolbar'), icon: <Layout className="w-4 h-4" /> },
+                  { key: 'showStyleBar', label: t('panels.stylebar'), icon: <Palette className="w-4 h-4" /> },
+                  { key: 'showVoiceBar', label: t('panels.voicebar'), icon: <Volume2 className="w-4 h-4" /> },
+                  { key: 'showMinimap', label: t('panels.minimap'), icon: <MapIcon className="w-4 h-4" /> },
+                  { key: 'showClock', label: t('panels.clock'), icon: <Clock className="w-4 h-4" /> },
+                  { key: 'showFolder', label: t('panels.folder'), icon: <FolderOpen className="w-4 h-4" /> },
+                ] as const
+              ).map((row) => {
+                const on = Boolean(settings[row.key]);
+                return (
+                  <div
+                    key={row.key}
+                    className={`px-4 py-3 rounded-xl border flex items-center justify-between gap-4 ${
+                      isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50/60'
                     }`}
                   >
-                    3 Kutucuğu da Gizle (Tam Ekran Tuval)
-                  </button>
-                </div>
+                    <div className="flex items-center gap-2.5 text-sm font-bold">
+                      <span className="text-blue-600">{row.icon}</span>
+                      <span>{row.label}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onUpdateSettings({ [row.key]: !on } as Partial<AppSettings>)}
+                      className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
+                        on
+                          ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          : isDark
+                          ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                          : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                      }`}
+                    >
+                      {on ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                      <span>{on ? t('panels.shown') : t('panels.hidden')}</span>
+                    </button>
+                  </div>
+                );
+              })}
 
+              {/* Fully hide / fully show everything */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={onFullyShow}
+                  className="p-3.5 rounded-xl text-left bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                >
+                  <div className="flex items-center gap-2 text-sm font-bold">
+                    <Eye className="w-4 h-4" />
+                    <span>{t('panels.fullyShow')}</span>
+                  </div>
+                  <p className="text-[11px] mt-1 text-blue-100">{t('panels.fullyShowDesc')}</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={onFullyHide}
+                  className={`p-3.5 rounded-xl text-left border-2 transition-colors ${
+                    settings.uiHidden
+                      ? 'border-blue-600 bg-blue-600/10'
+                      : isDark
+                      ? 'border-slate-700 hover:bg-slate-800'
+                      : 'border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-sm font-bold">
+                    <EyeOffIcon className="w-4 h-4" />
+                    <span>{t('panels.fullyHide')}</span>
+                  </div>
+                  <p className={`text-[11px] mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    {t('panels.fullyHideDesc')}
+                  </p>
+                </button>
+              </div>
+
+              <div className="flex justify-end pt-1">
                 <button
                   type="button"
                   onClick={handleResetPositions}
@@ -466,18 +468,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   }`}
                 >
                   {positionsResetFeedback ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Konumlar Sıfırlandı</span>
-                    </>
+                    <Check className="w-3.5 h-3.5" />
                   ) : (
-                    <>
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Sürüklenen Konumları Sıfırla</span>
-                    </>
+                    <RotateCcw className="w-3.5 h-3.5" />
                   )}
+                  <span>{t('panels.resetPositions')}</span>
                 </button>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'editor' && (
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                {t('editor.title')}
+              </h3>
+              <EditorSettingsForm
+                value={editorSettings}
+                onChange={onUpdateEditorSettings}
+                isDark={isDark}
+              />
             </div>
           )}
 
@@ -656,14 +666,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           }`}
         >
           <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-            Ayarlarınız tarayıcı belleğine otomatik kaydedilir.
+            {t('settings.footer')}
           </span>
           <button
             type="button"
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
           >
-            Tamam
+            {t('settings.done')}
           </button>
         </div>
       </div>

@@ -14,6 +14,7 @@ import {
   UserPresence,
   UserReaction,
   UserRole,
+  CodeFile,
 } from '../types';
 import { soundEffects } from '../utils/audio';
 
@@ -23,6 +24,9 @@ interface UseWebSocketOptions {
   enabled?: boolean;
   customMaxUsers?: number;
   isCreatingRoom?: boolean;
+  restoreRoom?: boolean;
+  onJoined?: (roomId: string) => void;
+  onSessionTimeout?: (roomId: string, roomName: string) => void;
   user: {
     id: string;
     name: string;
@@ -96,6 +100,9 @@ export function useWebSocket({
   enabled = true,
   customMaxUsers,
   isCreatingRoom = false,
+  restoreRoom = false,
+  onJoined,
+  onSessionTimeout,
   user,
   onWebRTCSignal,
   onKicked,
@@ -146,6 +153,7 @@ export function useWebSocket({
     lastUpdatedBy: 'Sistem',
   }));
   const [files, setFiles] = useState<SharedFile[]>([]);
+  const [codeFiles, setCodeFiles] = useState<CodeFile[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [pings, setPings] = useState<UserPing[]>([]);
   const [reactions, setReactions] = useState<UserReaction[]>([]);
@@ -195,6 +203,12 @@ export function useWebSocket({
   customMaxUsersRef.current = customMaxUsers;
   const isCreatingRoomRef = useRef(isCreatingRoom);
   isCreatingRoomRef.current = isCreatingRoom;
+  const restoreRoomRef = useRef(restoreRoom);
+  restoreRoomRef.current = restoreRoom;
+  const onJoinedRef = useRef(onJoined);
+  onJoinedRef.current = onJoined;
+  const onSessionTimeoutRef = useRef(onSessionTimeout);
+  onSessionTimeoutRef.current = onSessionTimeout;
 
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
   const httpFallbackBaseRef = useRef<string>('');
@@ -554,6 +568,7 @@ export function useWebSocket({
           // --- Standard Room & Workspace Events ---
           case 'init-room': {
             setRoomError(null);
+            if (onJoinedRef.current) onJoinedRef.current(msg.roomId || roomId);
             setSyncedRoomName(msg.roomName || roomNameRef.current);
             if (msg.settings) {
               setRoomSettings(msg.settings);
@@ -576,6 +591,7 @@ export function useWebSocket({
             if (Array.isArray(msg.files)) {
               setFiles(msg.files);
             }
+            setCodeFiles(Array.isArray(msg.codeFiles) ? msg.codeFiles : []);
             if (Array.isArray(msg.messages)) {
               setChatMessages(
                 [...msg.messages].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
@@ -629,7 +645,8 @@ export function useWebSocket({
               errObj.code === 'MAX_ROOMS_REACHED' ||
               errObj.code === 'ROOM_NOT_FOUND' ||
               errObj.code === 'USER_MAX_ROOMS_REACHED' ||
-              errObj.code === 'INVALID_ROOM_CODE'
+              errObj.code === 'INVALID_ROOM_CODE' ||
+              errObj.code === 'ROOM_CODE_TAKEN'
             ) {
               rejectedRoomRef.current = true;
               setIsConnected(false);
@@ -664,6 +681,14 @@ export function useWebSocket({
               setUsers((prev) =>
                 prev.map((u) => (u.id === targetId ? { ...u, role: nextRole } : u))
               );
+            }
+            break;
+          }
+
+          case 'session-timeout': {
+            rejectedRoomRef.current = true;
+            if (onSessionTimeoutRef.current) {
+              onSessionTimeoutRef.current(msg.roomId || roomId, msg.roomName || syncedRoomNameRef.current);
             }
             break;
           }
@@ -850,6 +875,29 @@ export function useWebSocket({
                 language: msg.language || prev.language,
                 lastUpdatedBy: msg.userName || 'Kullanıcı',
               }));
+            }
+            break;
+          }
+
+          case 'code-file-updated': {
+            const f = msg.file as CodeFile | undefined;
+            if (f && f.id) {
+              setCodeFiles((prev) => {
+                const idx = prev.findIndex((x) => x.id === f.id);
+                if (idx >= 0) {
+                  const next = [...prev];
+                  next[idx] = f;
+                  return next;
+                }
+                return [...prev, f];
+              });
+            }
+            break;
+          }
+
+          case 'code-file-deleted': {
+            if (msg.fileId) {
+              setCodeFiles((prev) => prev.filter((x) => x.id !== msg.fileId));
             }
             break;
           }
@@ -1323,6 +1371,7 @@ export function useWebSocket({
             roomName: roomNameRef.current,
             maxUsers: targetMaxUsers,
             isCreatingRoom: isCreatingRoomRef.current,
+            restoreRoom: restoreRoomRef.current,
             ownerKey: getOrCreateOwnerKey(),
             user: userRef.current,
           })
@@ -1472,6 +1521,14 @@ export function useWebSocket({
   const canManage = currentUserRole === 'owner' || currentUserRole === 'admin';
 
   // Public Actions
+  const sendActivity = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'user-activity' }));
+      } catch {}
+    }
+  }, []);
+
   const requestRoomsList = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
@@ -1727,6 +1784,33 @@ export function useWebSocket({
     [sendMessage, code.language, canEdit]
   );
 
+  const upsertCodeFile = useCallback(
+    (file: CodeFile) => {
+      if (!canEdit) return;
+      const withMeta = { ...file, lastUpdatedBy: userRef.current.name };
+      setCodeFiles((prev) => {
+        const idx = prev.findIndex((x) => x.id === file.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = withMeta;
+          return next;
+        }
+        return [...prev, withMeta];
+      });
+      sendMessage({ type: 'code-file-upsert', file: withMeta, userName: userRef.current.name });
+    },
+    [sendMessage, canEdit]
+  );
+
+  const deleteCodeFile = useCallback(
+    (fileId: string) => {
+      if (!canEdit) return;
+      setCodeFiles((prev) => prev.filter((x) => x.id !== fileId));
+      sendMessage({ type: 'code-file-delete', fileId });
+    },
+    [sendMessage, canEdit]
+  );
+
   const sendCodeCursor = useCallback(
     (cursor: { line: number; column: number; selectionStart: number; selectionEnd: number }) => {
       sendMessage({
@@ -1978,7 +2062,11 @@ export function useWebSocket({
     reactions,
     remoteLaserPoints,
     codeCursors,
+    codeFiles,
+    upsertCodeFile,
+    deleteCodeFile,
     requestRoomsList,
+    sendActivity,
     deleteRoom,
     updateRoomSettings,
     updateUserRole,

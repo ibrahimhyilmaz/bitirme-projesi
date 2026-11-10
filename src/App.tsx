@@ -2,7 +2,16 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { AlertTriangle, X, DoorOpen } from 'lucide-react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { VoiceManager } from './utils/audio';
-import { ToolType, Point, CanvasElement, StrokeStyle, AppSettings, ThemeMode } from './types';
+import {
+  ToolType,
+  Point,
+  CanvasElement,
+  StrokeStyle,
+  AppSettings,
+  ThemeMode,
+  EditorSettings,
+  DEFAULT_EDITOR_SETTINGS,
+} from './types';
 import { TopNav } from './components/TopNav';
 import { Toolbar } from './components/Toolbar';
 import { StyleBar } from './components/StyleBar';
@@ -19,6 +28,9 @@ import { AIPromptModal } from './components/AIPromptModal';
 import { RoomsModal, decodeRoomSnapshot } from './components/RoomsModal';
 import { OnboardingTour } from './components/OnboardingTour';
 import { SettingsModal } from './components/SettingsModal';
+import { ClockWidget } from './components/ClockWidget';
+import { FolderWidget } from './components/FolderWidget';
+import { getLanguage, translate, useI18n } from './i18n';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 
@@ -104,14 +116,84 @@ function extractRoomInfoFromLocation(): {
   }
 }
 
+const SESSION_KEY = 'collab_session_v1';
+const SESSION_IDLE_MS = 60 * 60 * 1000;
+
+interface SavedSession {
+  roomId: string;
+  roomName: string;
+  maxUsers?: number;
+  wasOwner: boolean;
+  lastActivityAt: number;
+}
+
+function readSavedSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (
+      p &&
+      typeof p.roomId === 'string' &&
+      /^[a-z0-9_-]{1,32}$/.test(p.roomId) &&
+      typeof p.lastActivityAt === 'number'
+    ) {
+      return {
+        roomId: p.roomId,
+        roomName: typeof p.roomName === 'string' ? p.roomName : '',
+        maxUsers: typeof p.maxUsers === 'number' ? p.maxUsers : undefined,
+        wasOwner: Boolean(p.wasOwner),
+        lastActivityAt: p.lastActivityAt,
+      };
+    }
+  } catch {}
+  return null;
+}
+
+function writeSavedSession(session: SavedSession) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch {}
+}
+
+function clearSavedSession() {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch {}
+}
+
 export default function App() {
+  const { t } = useI18n();
   const initialRoomInfo = useMemo(() => extractRoomInfoFromLocation(), []);
-  const [roomId, setRoomId] = useState<string>(initialRoomInfo.roomId);
-  const [customRoomName, setCustomRoomName] = useState<string>(initialRoomInfo.roomName);
-  const [customMaxUsers, setCustomMaxUsers] = useState<number | undefined>(undefined);
+
+  // Restore the previous workspace after a page refresh (unless it was idle for over an hour,
+  // or the URL explicitly points to a different room).
+  const sessionBootstrap = useMemo(() => {
+    const saved = readSavedSession();
+    const hasName = Boolean(localStorage.getItem('collab_username'));
+    if (!saved) return { session: null as SavedSession | null, expired: false };
+    const urlConflict = initialRoomInfo.hasUrlRoomParam && initialRoomInfo.roomId !== saved.roomId;
+    if (urlConflict || !hasName) return { session: null, expired: false };
+    if (Date.now() - saved.lastActivityAt >= SESSION_IDLE_MS) {
+      clearSavedSession();
+      return { session: null, expired: true };
+    }
+    return { session: saved, expired: false };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const savedSession = sessionBootstrap.session;
+  const [roomId, setRoomId] = useState<string>(savedSession?.roomId ?? initialRoomInfo.roomId);
+  const [customRoomName, setCustomRoomName] = useState<string>(
+    savedSession ? savedSession.roomName : initialRoomInfo.roomName
+  );
+  const [customMaxUsers, setCustomMaxUsers] = useState<number | undefined>(savedSession?.maxUsers);
   const [isCreatingRoom, setIsCreatingRoom] = useState<boolean>(false);
-  const [hasEnteredWorkspace, setHasEnteredWorkspace] = useState<boolean>(false);
-  const [joinGateError, setJoinGateError] = useState<string | null>(null);
+  const [restoreRoom, setRestoreRoom] = useState<boolean>(Boolean(savedSession?.wasOwner));
+  const [hasEnteredWorkspace, setHasEnteredWorkspace] = useState<boolean>(Boolean(savedSession));
+  const [joinGateError, setJoinGateError] = useState<string | null>(
+    sessionBootstrap.expired ? translate(getLanguage(), 'session.timeout') : null
+  );
+  const lastActivityRef = useRef<number>(savedSession?.lastActivityAt ?? Date.now());
   const lastValidRoomRef = useRef<{
     roomId: string;
     roomName: string;
@@ -162,8 +244,8 @@ export default function App() {
     };
   });
 
-  const [isUserSetupOpen, setIsUserSetupOpen] = useState<boolean>(true);
-  const [isInitialSetup, setIsInitialSetup] = useState<boolean>(true);
+  const [isUserSetupOpen, setIsUserSetupOpen] = useState<boolean>(!savedSession);
+  const [isInitialSetup, setIsInitialSetup] = useState<boolean>(!savedSession);
 
   // Sync user profile to localStorage
   useEffect(() => {
@@ -259,6 +341,24 @@ export default function App() {
   });
   const [layoutResetCounter, setLayoutResetCounter] = useState<number>(0);
 
+  // Code editor preferences (console colors/size, fonts, tab width ...)
+  const [editorSettings, setEditorSettings] = useState<EditorSettings>(() => {
+    try {
+      const raw = localStorage.getItem('collab_editor_settings');
+      if (raw) return { ...DEFAULT_EDITOR_SETTINGS, ...JSON.parse(raw) };
+    } catch {}
+    return DEFAULT_EDITOR_SETTINGS;
+  });
+  const handleChangeEditorSettings = useCallback((partial: Partial<EditorSettings>) => {
+    setEditorSettings((prev) => {
+      const next = { ...prev, ...partial };
+      try {
+        localStorage.setItem('collab_editor_settings', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
   // Settings & Theme State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -278,6 +378,10 @@ export default function App() {
       autoSmoothFreehand: true,
     };
   });
+
+  const uiHidden = Boolean(settings.uiHidden);
+  const showClock = settings.showClock !== false;
+  const showFolder = settings.showFolder !== false;
 
   // Sync theme class to document element for Tailwind dark: variants
   useEffect(() => {
@@ -305,6 +409,41 @@ export default function App() {
         [widget]: maxZ + 1,
       };
     });
+  }, []);
+
+  // Central updater used by SettingsModal and the widgets' own "hide" buttons
+  const updateAppSettings = useCallback((partial: Partial<AppSettings>) => {
+    setSettings((prev) => {
+      const updated = { ...prev, ...partial };
+      try {
+        localStorage.setItem('collab_app_settings', JSON.stringify(updated));
+        if (partial.theme) {
+          localStorage.setItem('collab_theme', partial.theme);
+        }
+      } catch {}
+      return updated;
+    });
+    const persistHide = (key: string, visible: boolean) => {
+      try {
+        localStorage.setItem(key, String(!visible));
+      } catch {}
+    };
+    if (partial.showToolbar !== undefined) {
+      setShowToolbar(partial.showToolbar);
+      persistHide('collab_hide_toolbar', partial.showToolbar);
+    }
+    if (partial.showStyleBar !== undefined) {
+      setShowStyleBar(partial.showStyleBar);
+      persistHide('collab_hide_stylebar', partial.showStyleBar);
+    }
+    if (partial.showVoiceBar !== undefined) {
+      setShowVoiceBar(partial.showVoiceBar);
+      persistHide('collab_hide_voicebar', partial.showVoiceBar);
+    }
+    if (partial.showMinimap !== undefined) {
+      setShowMinimap(partial.showMinimap);
+      persistHide('collab_hide_minimap', partial.showMinimap);
+    }
   }, []);
 
   const handleToggleToolbar = useCallback(() => {
@@ -467,12 +606,30 @@ export default function App() {
     kickUser,
     deleteRoom,
     sendWebRTCSignal,
+    codeFiles,
+    upsertCodeFile,
+    deleteCodeFile,
+    sendActivity,
   } = useWebSocket({
     roomId,
     roomName: fallbackRoomName,
     enabled: hasEnteredWorkspace,
     customMaxUsers,
     isCreatingRoom,
+    restoreRoom,
+    onJoined: () => {
+      // Joined successfully: from now on reconnects must never be treated as a "create" request
+      setIsCreatingRoom(false);
+      setRestoreRoom(false);
+    },
+    onSessionTimeout: () => {
+      clearSavedSession();
+      lastValidRoomRef.current = null;
+      setJoinGateError(translate(getLanguage(), 'session.timeout'));
+      setHasEnteredWorkspace(false);
+      setIsInitialSetup(true);
+      setIsUserSetupOpen(true);
+    },
     user: {
       ...currentUser,
       name: currentUser.name || 'Misafir Kullanıcı',
@@ -487,6 +644,7 @@ export default function App() {
         `"${kickedRoomName}" odasından ${by} tarafından çıkarıldınız. Lütfen başka bir odaya katılın veya yeni oda oluşturun.`
       );
       lastValidRoomRef.current = null;
+      clearSavedSession();
       setHasEnteredWorkspace(false);
       setIsInitialSetup(true);
       setIsUserSetupOpen(true);
@@ -502,6 +660,7 @@ export default function App() {
         setRoomId(prevValid.roomId);
       } else {
         // Block entry and keep the user on the Pre-Welcome Gate Screen
+        clearSavedSession();
         setHasEnteredWorkspace(false);
         setIsInitialSetup(true);
         setIsUserSetupOpen(true);
@@ -538,6 +697,7 @@ export default function App() {
       clearRoomError();
       setJoinGateError(null);
       setIsCreatingRoom(Boolean(creating));
+      setRestoreRoom(false);
       setCustomMaxUsers(targetMaxUsers);
       setCustomRoomName(targetRoomName || '');
       setRoomId(cleanTarget);
@@ -555,6 +715,7 @@ export default function App() {
     signInWithGoogle,
     signOutFirebase,
     syncRoomToCloud,
+    cloudRooms,
   } = useFirebaseSync({
     roomId,
     roomName: effectiveRoomName,
@@ -578,6 +739,109 @@ export default function App() {
       [updateCode, updateNotes, loadTemplate]
     ),
   });
+
+  // ---- Activity tracking: 1 hour without any interaction ends the session ----
+  const handleSessionTimeoutLocal = useCallback(() => {
+    clearSavedSession();
+    lastValidRoomRef.current = null;
+    setJoinGateError(translate(getLanguage(), 'session.timeout'));
+    setHasEnteredWorkspace(false);
+    setIsInitialSetup(true);
+    setIsUserSetupOpen(true);
+  }, []);
+
+  const sendActivityRef = useRef(sendActivity);
+  sendActivityRef.current = sendActivity;
+
+  useEffect(() => {
+    if (!hasEnteredWorkspace) return;
+    let lastSentToServer = 0;
+    let dirtySinceSent = false;
+
+    const mark = () => {
+      lastActivityRef.current = Date.now();
+      dirtySinceSent = true;
+    };
+    const events: (keyof WindowEventMap)[] = [
+      'pointerdown',
+      'pointermove',
+      'keydown',
+      'wheel',
+      'touchstart',
+    ];
+    events.forEach((ev) => window.addEventListener(ev, mark, { passive: true }));
+
+    const tick = window.setInterval(() => {
+      const now = Date.now();
+      if (now - lastActivityRef.current >= SESSION_IDLE_MS) {
+        handleSessionTimeoutLocal();
+        return;
+      }
+      // Keep the stored timestamp fresh so a refresh knows how long the user was idle
+      const stored = readSavedSession();
+      if (stored) writeSavedSession({ ...stored, lastActivityAt: lastActivityRef.current });
+      if (dirtySinceSent && now - lastSentToServer >= 60 * 1000) {
+        sendActivityRef.current();
+        lastSentToServer = now;
+        dirtySinceSent = false;
+      }
+    }, 15 * 1000);
+
+    const persistOnLeave = () => {
+      const stored = readSavedSession();
+      if (stored) writeSavedSession({ ...stored, lastActivityAt: lastActivityRef.current });
+    };
+    window.addEventListener('pagehide', persistOnLeave);
+
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, mark));
+      window.clearInterval(tick);
+      window.removeEventListener('pagehide', persistOnLeave);
+    };
+  }, [hasEnteredWorkspace, handleSessionTimeoutLocal]);
+
+  // Remember the active room so a page refresh lands back in the same workspace
+  useEffect(() => {
+    if (!hasEnteredWorkspace || roomError) return;
+    writeSavedSession({
+      roomId,
+      roomName: syncedRoomName || customRoomName,
+      maxUsers: roomSettings.maxUsers,
+      wasOwner: currentUserRole === 'owner' || isCreatingRoom || restoreRoom,
+      lastActivityAt: lastActivityRef.current,
+    });
+  }, [
+    hasEnteredWorkspace,
+    roomError,
+    roomId,
+    syncedRoomName,
+    customRoomName,
+    roomSettings.maxUsers,
+    currentUserRole,
+    isCreatingRoom,
+    restoreRoom,
+  ]);
+
+  // Keep a Firestore record of every room this signed-in owner runs (debounced)
+  useEffect(() => {
+    if (!hasEnteredWorkspace || !firebaseUser || roomError) return;
+    if (currentUserRole !== 'owner' || roomId === 'ana-oda') return;
+    const timer = window.setTimeout(() => {
+      Promise.resolve(syncRoomToCloud({ includeElements: false })).catch(() => {});
+    }, 6000);
+    return () => window.clearTimeout(timer);
+  }, [
+    hasEnteredWorkspace,
+    firebaseUser,
+    roomError,
+    currentUserRole,
+    roomId,
+    syncRoomToCloud,
+    effectiveRoomName,
+    roomSettings.isLocked,
+    roomSettings.maxUsers,
+    roomSettings.defaultRole,
+  ]);
 
   // Restore embedded snapshot from invite URL (?snap=...) if present on initial load
   const appliedUrlSnapRef = useRef(false);
@@ -1262,7 +1526,9 @@ export default function App() {
         color: payload.color,
         avatar: payload.name.charAt(0).toUpperCase(),
       }));
+      lastActivityRef.current = Date.now();
       setIsCreatingRoom(Boolean(payload.isCreatingRoom));
+      setRestoreRoom(false);
       setCustomMaxUsers(payload.maxUsers);
       setCustomRoomName(payload.roomName || '');
       setRoomId(payload.roomId);
@@ -1399,6 +1665,7 @@ export default function App() {
         className="relative flex-1 w-full h-full overflow-hidden"
       >
         {/* Main Floating Toolbar (Top Center by default, freely draggable anywhere) */}
+        {!uiHidden && (
         <Toolbar
           activeTool={activeTool}
           onSelectTool={(tool) => {
@@ -1427,8 +1694,10 @@ export default function App() {
           zIndex={widgetZIndexes.toolbar}
           onFocus={() => bringWidgetToFront('toolbar')}
         />
+        )}
 
         {/* Voice Chat Floating Bar (Top Right by default, freely draggable anywhere) */}
+        {!uiHidden && (
         <VoiceChatBar
           users={users}
           currentUser={currentUser}
@@ -1445,9 +1714,28 @@ export default function App() {
           zIndex={widgetZIndexes.voice}
           onFocus={() => bringWidgetToFront('voice')}
         />
+        )}
+
+        {/* Floating Clock (draggable + resizable) */}
+        {!uiHidden && showClock && (
+          <ClockWidget
+            onHide={() => updateAppSettings({ showClock: false })}
+            layoutResetCounter={layoutResetCounter}
+            zIndex={23}
+          />
+        )}
+
+        {/* Folder tool: parks files and lets you drag them onto the board */}
+        {!uiHidden && showFolder && (
+          <FolderWidget
+            onHide={() => updateAppSettings({ showFolder: false })}
+            layoutResetCounter={layoutResetCounter}
+            zIndex={24}
+          />
+        )}
 
         {/* Contextual Style & Transform Bar (Draggable, Bottom Center by default) */}
-        {canEdit && (
+        {canEdit && !uiHidden && (
           <StyleBar
             selectedElement={selectedElement}
             selectedElements={selectedElements}
@@ -1633,7 +1921,7 @@ export default function App() {
           pan={pan}
           setPan={setPan}
           canEdit={canEdit}
-          showMinimap={showMinimap}
+          showMinimap={showMinimap && !uiHidden}
           onToggleMinimap={handleToggleMinimap}
           onResetWidgetLayout={handleResetWidgetLayout}
           theme={settings.theme}
@@ -1660,6 +1948,11 @@ export default function App() {
             codeCursors={codeCursors}
             currentUserId={currentUser.id}
             onUpdateCode={updateCode}
+            codeFiles={codeFiles}
+            onUpsertCodeFile={upsertCodeFile}
+            onDeleteCodeFile={deleteCodeFile}
+            editorSettings={editorSettings}
+            onChangeEditorSettings={handleChangeEditorSettings}
             onCursorMove={sendCodeCursor}
             onClose={() => setActivePanel('none')}
           />
@@ -1785,6 +2078,7 @@ export default function App() {
           elements={elements}
           code={code}
           firebaseUserEmail={firebaseUser?.email}
+          cloudRooms={cloudRooms}
           isSyncingCloud={isSyncingCloud}
           lastCloudSyncAt={lastCloudSyncAt}
           onSignInGoogle={async () => {
@@ -1909,22 +2203,33 @@ export default function App() {
             showToolbar,
             showStyleBar,
             showVoiceBar,
+            showMinimap,
+            showClock,
+            showFolder,
+            uiHidden,
           }}
           onUpdateSettings={(partial) => {
-            setSettings((prev) => {
-              const updated = { ...prev, ...partial };
-              try {
-                localStorage.setItem('collab_app_settings', JSON.stringify(updated));
-                if (partial.theme) {
-                  localStorage.setItem('collab_theme', partial.theme);
-                }
-              } catch {}
-              return updated;
-            });
-            if (partial.showToolbar !== undefined) setShowToolbar(partial.showToolbar);
-            if (partial.showStyleBar !== undefined) setShowStyleBar(partial.showStyleBar);
-            if (partial.showVoiceBar !== undefined) setShowVoiceBar(partial.showVoiceBar);
+            // Turning any single widget back on leaves the "everything hidden" mode
+            const turnsOnWidget = Object.entries(partial).some(
+              ([k, v]) => k.startsWith('show') && v === true
+            );
+            updateAppSettings(turnsOnWidget ? { ...partial, uiHidden: false } : partial);
           }}
+          editorSettings={editorSettings}
+          onUpdateEditorSettings={handleChangeEditorSettings}
+          onFullyShow={() => {
+            updateAppSettings({
+              showToolbar: true,
+              showStyleBar: true,
+              showVoiceBar: true,
+              showMinimap: true,
+              showClock: true,
+              showFolder: true,
+              uiHidden: false,
+            });
+            handleResetWidgetLayout();
+          }}
+          onFullyHide={() => updateAppSettings({ uiHidden: true })}
           onResetFloatingPositions={handleResetWidgetLayout}
           onResetAllSettings={() => {
             const defaults: AppSettings = {
@@ -1937,8 +2242,12 @@ export default function App() {
               soundEffectsEnabled: true,
               showRemoteCursors: true,
               autoSmoothFreehand: true,
+              showClock: true,
+              showFolder: true,
+              uiHidden: false,
             };
             setSettings(defaults);
+            handleChangeEditorSettings({ ...DEFAULT_EDITOR_SETTINGS });
             try {
               localStorage.setItem('collab_app_settings', JSON.stringify(defaults));
               localStorage.setItem('collab_theme', 'light');
