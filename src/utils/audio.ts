@@ -115,17 +115,20 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun3.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
-  // Public relay (best effort): lets two devices on different networks / behind strict NATs still hear each other
-  {
-    urls: [
-      'turn:openrelay.metered.ca:80',
-      'turn:openrelay.metered.ca:443',
-      'turn:openrelay.metered.ca:443?transport=tcp',
-    ],
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
 ];
+
+// Optional TURN relay baked in at build time (needed when two devices sit behind different NATs,
+// e.g. static hosting without the Node server): VITE_TURN_URL, VITE_TURN_USERNAME, VITE_TURN_CREDENTIAL
+const BUILD_TURN_URL = (import.meta.env?.VITE_TURN_URL as string | undefined) || '';
+const BUILD_TURN_USER = (import.meta.env?.VITE_TURN_USERNAME as string | undefined) || '';
+const BUILD_TURN_CRED = (import.meta.env?.VITE_TURN_CREDENTIAL as string | undefined) || '';
+if (BUILD_TURN_URL && BUILD_TURN_USER && BUILD_TURN_CRED) {
+  DEFAULT_ICE_SERVERS.push({
+    urls: BUILD_TURN_URL.split(',').map((u) => u.trim()),
+    username: BUILD_TURN_USER,
+    credential: BUILD_TURN_CRED,
+  });
+}
 
 export class VoiceManager {
   private localStream: MediaStream | null = null;
@@ -147,6 +150,7 @@ export class VoiceManager {
   private lastSpeakingReported: boolean = false;
   private unlockGestureHandler: (() => void) | null = null;
   private iceServers: RTCIceServer[] = DEFAULT_ICE_SERVERS;
+  private peerCreatedAt: Map<string, number> = new Map();
 
   constructor(
     onSpeakingChange: (isSpeaking: boolean, volume: number) => void,
@@ -488,6 +492,7 @@ export class VoiceManager {
       });
 
       this.peerConnections.set(remoteUserId, pc);
+      this.peerCreatedAt.set(remoteUserId, Date.now());
       if (!this.pendingCandidates.has(remoteUserId)) {
         this.pendingCandidates.set(remoteUserId, []);
       }
@@ -672,7 +677,24 @@ export class VoiceManager {
     }
   }
 
+  /**
+   * Offers/answers travel over best-effort channels (public MQTT, QoS 0). If the first offer is lost
+   * because the other side was not subscribed yet, the connection would hang forever. Drop peers that
+   * did not reach 'connected' in time so the next syncPeers() re-creates them with a fresh offer.
+   */
+  pruneStalePeers(maxAgeMs = 9000) {
+    const now = Date.now();
+    for (const [id, pc] of Array.from(this.peerConnections.entries())) {
+      const age = now - (this.peerCreatedAt.get(id) ?? now);
+      if (pc.connectionState !== 'connected' && age > maxAgeMs) {
+        console.info('[voice] retrying stale peer', id, pc.connectionState);
+        this.removePeer(id);
+      }
+    }
+  }
+
   removePeer(remoteUserId: string) {
+    this.peerCreatedAt.delete(remoteUserId);
     const dc = this.dataChannels.get(remoteUserId);
     if (dc) {
       try {

@@ -990,6 +990,7 @@ export default function App() {
   });
   useEffect(() => {
     const timer = window.setInterval(() => {
+      voiceManagerRef.current?.pruneStalePeers();
       const states = voiceManagerRef.current?.getPeerStates() ?? [];
       const connected = states.filter((s) => s.state === 'connected').length;
       setVoiceLinks((prev) =>

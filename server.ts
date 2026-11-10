@@ -2070,16 +2070,6 @@ app.get('/api/rtc-config', (_req, res) => {
       credential: process.env.TURN_CREDENTIAL,
     });
   }
-  // Public best-effort relay so voice works across different networks out of the box
-  iceServers.push({
-    urls: [
-      'turn:openrelay.metered.ca:80',
-      'turn:openrelay.metered.ca:443',
-      'turn:openrelay.metered.ca:443?transport=tcp',
-    ],
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  });
   res.json({ iceServers });
 });
 
