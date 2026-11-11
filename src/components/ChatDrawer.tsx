@@ -28,6 +28,10 @@ interface ChatDrawerProps {
     recipientName?: string
   ) => void;
   onDeleteMessage?: (messageId: string) => void;
+  /** Room-level chat history saving (decided by the room owner) */
+  saveChatEnabled?: boolean;
+  canManageChatSave?: boolean;
+  onToggleSaveChat?: () => void;
   onSendReaction: (emoji: string) => void;
   onClose: () => void;
   theme?: string;
@@ -250,6 +254,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   reactions = [],
   onSendMessage,
   onDeleteMessage,
+  saveChatEnabled = true,
+  canManageChatSave = false,
+  onToggleSaveChat,
   onSendReaction,
   onClose,
   theme = 'light',
@@ -556,6 +563,46 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
             </button>
           );
         })}
+      </div>
+
+      {/* Chat history saving status (the room owner decides) */}
+      <div
+        className={`px-3.5 py-1.5 border-b flex items-center justify-between gap-2 text-[11px] shrink-0 ${
+          saveChatEnabled
+            ? isDark
+              ? 'bg-emerald-950/40 border-emerald-900/60 text-emerald-300'
+              : 'bg-emerald-50/70 border-emerald-100 text-emerald-800'
+            : isDark
+            ? 'bg-slate-800/70 border-slate-700 text-slate-300'
+            : 'bg-slate-50 border-slate-200 text-slate-600'
+        }`}
+      >
+        <span className="font-medium truncate">
+          {saveChatEnabled
+            ? 'Sohbet kaydı açık: mesajlar odada saklanır, tekrar girdiğinizde görürsünüz.'
+            : 'Sohbet kaydı kapalı: mesajlar saklanmaz.'}
+        </span>
+        {canManageChatSave && onToggleSaveChat && (
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                saveChatEnabled &&
+                !window.confirm('Sohbet kaydı kapatılırsa odadaki mevcut sohbet geçmişi herkes için silinir. Devam edilsin mi?')
+              ) {
+                return;
+              }
+              onToggleSaveChat();
+            }}
+            className={`px-2 py-0.5 rounded-md font-semibold shrink-0 transition-colors ${
+              saveChatEnabled
+                ? 'bg-white/80 text-emerald-700 hover:bg-white border border-emerald-200'
+                : 'bg-slate-900 text-white hover:bg-slate-800'
+            }`}
+          >
+            {saveChatEnabled ? 'Kapat' : 'Aç'}
+          </button>
+        )}
       </div>
 
       {/* Private Chat Banner Notice if in DM tab */}

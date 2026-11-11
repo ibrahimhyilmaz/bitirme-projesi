@@ -337,3 +337,22 @@ body {
 .safe-top {
   padding-top: env(safe-area-inset-top, 0px);
 }
+
+/* Toolbar / style-bar popovers become full-width sheets above their bar on phones */
+@media (max-width: 767px) {
+  [data-floating-bar='true'] [data-popover='true'] {
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: auto !important;
+    bottom: calc(100% + 8px) !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    transform: none !important;
+    translate: none !important;
+    max-height: 55dvh;
+    overflow-y: auto;
+  }
+}

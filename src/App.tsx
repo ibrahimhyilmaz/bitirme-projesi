@@ -2110,6 +2110,9 @@ export default function App() {
             reactions={reactions}
             onSendMessage={sendChatMessage}
             onDeleteMessage={deleteChatMessage}
+            saveChatEnabled={roomSettings.saveChat !== false}
+            canManageChatSave={canManage}
+            onToggleSaveChat={() => updateRoomSettings({ saveChat: roomSettings.saveChat === false })}
             onSendReaction={(emoji) => {
               const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom;
               const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom;

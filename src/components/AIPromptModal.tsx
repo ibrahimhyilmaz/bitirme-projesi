@@ -19,6 +19,8 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { CanvasElement } from '../types';
+import { buildFallbackCanvasElements } from '../server/aiVectorPresets';
+import { buildFallbackSvg } from '../server/aiSvgTemplates';
 
 interface AIPromptModalProps {
   centerX: number;
@@ -388,23 +390,38 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
 
     const endpoint = activeMode === 'image' ? '/api/ai/generate-image' : '/api/ai/generate-canvas';
 
+    const unreachableError = (): StructuredAIError => ({
+      message:
+        'Sunucu yanıtı okunamadı veya AI servisine ulaşılamadı. Sahte yıldızlı çıktı üretmek yerine işlem güvenli şekilde durduruldu.',
+      code: 'SERVER_UNREACHABLE',
+      retryable: true,
+      suggestion: 'Sunucu bağlantısını kontrol edip "Tekrar Çözmeyi Dene" butonuna tıklayın.',
+      attemptsMade: 1,
+    });
+
     const executeRequest = async (attemptFlag: boolean) => {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          prompt: targetPrompt,
-          centerX,
-          centerY,
-          author: authorName,
-          thinkingLevel: stage.id,
-          targetDuration: stage.durationSeconds,
-          quotaSource,
-          clientId,
-          isRetryAttempt: attemptFlag,
-        }),
-      });
+      let response: Response;
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            prompt: targetPrompt,
+            centerX,
+            centerY,
+            author: authorName,
+            thinkingLevel: stage.id,
+            targetDuration: stage.durationSeconds,
+            quotaSource,
+            clientId,
+            isRetryAttempt: attemptFlag,
+          }),
+        });
+      } catch (netErr) {
+        if (netErr instanceof Error && netErr.name === 'AbortError') throw netErr;
+        throw unreachableError();
+      }
 
       let payload: Record<string, unknown> = {};
       try {
@@ -456,6 +473,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           structured.retryable !== false &&
           structured.code !== 'QUOTA_LIMIT_REACHED' &&
           structured.code !== 'API_KEY_UNAVAILABLE' &&
+          structured.code !== 'SERVER_UNREACHABLE' &&
           !controller.signal.aborted
         ) {
           setRetryStatusMessage(
@@ -503,6 +521,71 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           suggestion:
             'Aşağıdaki "Tekrar Çözmeyi Dene" veya "Hızlı Modda (10 sn) Tekrar Çöz" butonunu kullanabilirsiniz.',
           attemptsMade: 2,
+        });
+        return;
+      }
+
+      const failure = err as Partial<StructuredAIError> | null;
+      const serverMissing =
+        !!failure &&
+        typeof failure === 'object' &&
+        (failure.code === 'SERVER_UNREACHABLE' || failure.code === 'API_KEY_UNAVAILABLE');
+
+      if (serverMissing) {
+        // No AI backend (static hosting / no API key): use the built-in vector library when it knows the subject
+        try {
+          if (activeMode === 'image') {
+            const svg = buildFallbackSvg(targetPrompt, stage.id, true);
+            if (svg) {
+              const now = Date.now();
+              onElementsGenerated([
+                {
+                  id: `ai-img-${now}-${Math.random().toString(36).substring(2, 6)}`,
+                  type: 'image',
+                  x: Math.round(centerX - 150),
+                  y: Math.round(centerY - 150),
+                  width: 300,
+                  height: 300,
+                  strokeWidth: 0,
+                  color: 'transparent',
+                  fillColor: 'transparent',
+                  imageUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
+                  rotation: 0,
+                  flipX: false,
+                  flipY: false,
+                  createdBy: authorName,
+                  updatedAt: now,
+                } as CanvasElement,
+              ]);
+              onClose();
+              return;
+            }
+          } else {
+            const local = buildFallbackCanvasElements(
+              targetPrompt,
+              centerX,
+              centerY,
+              authorName,
+              stage.id,
+              true
+            ) as unknown as CanvasElement[];
+            if (local.length > 0) {
+              onElementsGenerated(local);
+              onClose();
+              return;
+            }
+          }
+        } catch {
+          // fall through to the explanatory error below
+        }
+        setErrorState({
+          message:
+            'Canlı yapay zeka sunucusuna ulaşılamadı (uygulama sunucusuz/statik barındırmada çalışıyor olabilir). Bu istek için hazır çizim kütüphanesinde karşılık yok.',
+          code: 'SERVER_UNREACHABLE',
+          retryable: true,
+          suggestion:
+            'Hazır çizimler: elma, araba, kedi, köpek, ağaç, roket, ev veya "mimari şeması" yazın. Canlı yapay zeka için uygulamayı Node sunucusuyla ve GEMINI_API_KEY ile çalıştırın.',
+          attemptsMade: 1,
         });
         return;
       }
