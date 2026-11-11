@@ -42,7 +42,7 @@ export interface SaveBoardInput {
 }
 
 export type SaveBoardResult =
-  | { ok: true; skipped: number }
+  | { ok: true; skipped: number; compressed: number }
   | { ok: false; reason: 'signed-out' | 'too-large' | 'failed' };
 
 const safeId = (id: string) =>
@@ -188,7 +188,7 @@ export function useCloudBoards(firebaseUser: User | null) {
         setLastSavedAt(Date.now());
         setLastSkipped(encoded.skipped);
         setStatus('saved');
-        return { ok: true, skipped: encoded.skipped };
+        return { ok: true, skipped: encoded.skipped, compressed: encoded.compressed };
       } catch (err) {
         console.warn('Cloud board save failed', err);
         setStatus('error');

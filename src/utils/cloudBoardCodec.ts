@@ -76,33 +76,97 @@ export async function decodeSnapshot(data: string): Promise<BoardSnapshot | null
  * Serialises a board for Firestore. When it does not fit into one document, the heaviest elements
  * (large images / PDFs / videos) are dropped first and counted in `skipped`.
  */
-export async function encodeSnapshot(
-  snap: BoardSnapshot
-): Promise<{ data: string; skipped: number } | null> {
+const RASTER = /^data:image\/(png|jpe?g|webp|gif|bmp);/i;
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image decode failed'));
+    img.src = src;
+  });
+}
+
+/** Re-encodes a raster image smaller (max side + quality); returns the original if that is not smaller. */
+async function recompressImage(dataUrl: string, maxSide: number, quality: number): Promise<string> {
+  try {
+    const img = await loadImage(dataUrl);
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight, 1));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return dataUrl;
+    ctx.drawImage(img, 0, 0, w, h);
+    let out = canvas.toDataURL('image/webp', quality); // keeps transparency, small
+    if (!out.startsWith('data:image/webp')) out = canvas.toDataURL('image/jpeg', quality);
+    return out.length < dataUrl.length ? out : dataUrl;
+  } catch {
+    return dataUrl;
+  }
+}
+
+export interface EncodedSnapshot {
+  data: string;
+  /** Elements that could not fit and were left out */
+  skipped: number;
+  /** Images that were made smaller to fit */
+  compressed: number;
+}
+
+export async function encodeSnapshot(snap: BoardSnapshot): Promise<EncodedSnapshot | null> {
   let elements = snap.elements;
   let skipped = 0;
-  const sizes = new Map<string, number>();
-  const sizeOf = (el: CanvasElement) => {
-    let s = sizes.get(el.id);
-    if (s === undefined) {
-      s = JSON.stringify(el).length;
-      sizes.set(el.id, s);
-    }
-    return s;
+  const fits = async (els: CanvasElement[]) => {
+    const data = await encodeText(JSON.stringify({ ...snap, elements: els }));
+    return byteLength(data) <= MAX_SNAPSHOT_BYTES ? data : null;
   };
 
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const data = await encodeText(JSON.stringify({ ...snap, elements }));
-    if (byteLength(data) <= MAX_SNAPSHOT_BYTES) return { data, skipped };
-    // drop the single heaviest element that is worth dropping, then try again
-    let heaviest: CanvasElement | null = null;
-    for (const el of elements) {
-      if (!heaviest || sizeOf(el) > sizeOf(heaviest)) heaviest = el;
+  let data = await fits(elements);
+  if (data) return { data, skipped, compressed: 0 };
+
+  // 1) shrink big photos first: a board with pictures should still be saved, just lighter
+  const originals = new Map(elements.map((e) => [e.id, e.imageUrl]));
+  for (const [maxSide, quality] of [
+    [1600, 0.8],
+    [1100, 0.65],
+    [800, 0.5],
+  ] as const) {
+    elements = await Promise.all(
+      elements.map(async (el) =>
+        el.imageUrl && RASTER.test(el.imageUrl) && el.imageUrl.length > 60_000
+          ? { ...el, imageUrl: await recompressImage(el.imageUrl, maxSide, quality) }
+          : el
+      )
+    );
+    data = await fits(elements);
+    if (data) {
+      const compressed = elements.filter((e) => e.imageUrl !== originals.get(e.id)).length;
+      return { data, skipped, compressed };
     }
-    if (!heaviest || sizeOf(heaviest) < 4000) return null;
+  }
+  const compressed = elements.filter((e) => e.imageUrl !== originals.get(e.id)).length;
+
+  // 2) still too big: drop the heaviest elements (videos, PDFs, huge files), one at a time
+  const sizeOf = (el: CanvasElement) => JSON.stringify(el).length;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    let heaviest: CanvasElement | null = null;
+    let heaviestSize = 0;
+    for (const el of elements) {
+      const s = sizeOf(el);
+      if (s > heaviestSize) {
+        heaviest = el;
+        heaviestSize = s;
+      }
+    }
+    if (!heaviest || heaviestSize < 4000) return null;
     const dropId = heaviest.id;
     elements = elements.filter((e) => e.id !== dropId);
     skipped++;
+    data = await fits(elements);
+    if (data) return { data, skipped, compressed };
   }
   return null;
 }

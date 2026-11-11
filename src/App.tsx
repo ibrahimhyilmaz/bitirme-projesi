@@ -1305,6 +1305,10 @@ export default function App() {
 
   const pendingRestoreRef = useRef<{ roomId: string; snapshot: BoardSnapshot } | null>(null);
   const lastCloudSigRef = useRef<string>('');
+  const hadBoardContentRef = useRef<string>('');
+  const autoRestoredRef = useRef<string>('');
+  const roomNowRef = useRef(roomId);
+  roomNowRef.current = roomId;
   const elementsRef = useRef(elements);
   elementsRef.current = elements;
 
@@ -1335,8 +1339,17 @@ export default function App() {
   const saveBoardNow = useCallback(
     async (manual: boolean) => {
       if (!firebaseUser || !boardReady) return;
+      if (elements.length > 0) hadBoardContentRef.current = roomId;
       if (!manual) {
-        if (elements.length === 0 && !notes.content && codeFiles.length === 0) return;
+        // never overwrite a save with an empty board that was merely still loading
+        if (
+          elements.length === 0 &&
+          !notes.content &&
+          codeFiles.length === 0 &&
+          hadBoardContentRef.current !== roomId
+        ) {
+          return;
+        }
         if (boardSignature === lastCloudSigRef.current) return;
       }
       const res = await saveBoard({
@@ -1355,7 +1368,11 @@ export default function App() {
       });
       if (res.ok) {
         lastCloudSigRef.current = boardSignature;
-        if (manual) showCloudToast('Tahta buluta kaydedildi');
+        if (res.skipped > 0) {
+          showCloudToast('Boyut sınırı nedeniyle bazı büyük öğeler (video, PDF gibi) buluta kaydedilemedi');
+        } else if (manual) {
+          showCloudToast('Tahta buluta kaydedildi');
+        }
       } else if (res.reason === 'too-large') {
         showCloudToast('Tahta çok büyük olduğu için buluta kaydedilemedi');
       } else if (manual) {
@@ -1429,6 +1446,30 @@ export default function App() {
     }, 1200);
     return () => window.clearTimeout(timer);
   }, [boardReady, roomId, applyBoardSnapshot, showCloudToast]);
+
+  // Coming back to one of my rooms by any route (history, room list, code): bring my last save back
+  useEffect(() => {
+    if (!boardReady) {
+      autoRestoredRef.current = '';
+      return;
+    }
+    if (!firebaseUser || pendingRestoreRef.current) return;
+    const board = cloudBoards.find((b) => b.id === roomId);
+    if (!board || !board.hasSnapshot) return;
+    const key = `${firebaseUser.uid}:${roomId}`;
+    if (autoRestoredRef.current === key) return;
+    autoRestoredRef.current = key;
+    // not cancelled by re-renders (the board list updates often); guarded against having left the room
+    window.setTimeout(async () => {
+      if (roomNowRef.current !== roomId) return;
+      if (elementsRef.current.length > 0) return; // room already has live content
+      const snap = await loadBoard(roomId);
+      if (!snap || roomNowRef.current !== roomId || elementsRef.current.length > 0) return;
+      if (snap.elements.length === 0 && !snap.notesContent && snap.codeFiles.length === 0) return;
+      applyBoardSnapshot(snap);
+      showCloudToast('Son kayıttan devam ediliyorsunuz');
+    }, 2500);
+  }, [boardReady, firebaseUser, roomId, cloudBoards, loadBoard, applyBoardSnapshot, showCloudToast]);
 
   const handleRestoreBoardIntoCurrent = useCallback(
     async (board: CloudBoardSummary) => {
@@ -2724,6 +2765,7 @@ export default function App() {
           onSignOutFirebase={signOutFirebase}
           onSyncToCloud={() => {
             syncRoomToCloud();
+            void saveBoardNow(true);
           }}
           cloudBoards={cloudBoards}
           cloudAutoSave={cloudAutoSave}
