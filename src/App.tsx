@@ -32,6 +32,7 @@ import { ClockWidget } from './components/ClockWidget';
 import { FolderWidget } from './components/FolderWidget';
 import { getLanguage, translate, useI18n, useAutoTranslateDOM } from './i18n';
 import { recordRoomVisit } from './utils/roomHistory';
+import { isMobileViewport, useIsMobile } from './hooks/useIsMobile';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 
@@ -166,6 +167,7 @@ function clearSavedSession() {
 export default function App() {
   useI18n();
   useAutoTranslateDOM();
+  const isMobile = useIsMobile();
   const initialRoomInfo = useMemo(() => extractRoomInfoFromLocation(), []);
 
   // Restore the previous workspace after a page refresh (unless it was idle for over an hour,
@@ -326,7 +328,10 @@ export default function App() {
   });
   const [showStyleBar, setShowStyleBar] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('collab_hide_stylebar') !== 'true';
+      const stored = localStorage.getItem('collab_hide_stylebar');
+      // Phones start with the style bar collapsed to keep the canvas free
+      if (stored === null) return !isMobileViewport();
+      return stored !== 'true';
     } catch {
       return true;
     }
@@ -1983,7 +1988,7 @@ export default function App() {
         )}
 
         {/* Voice Chat Floating Bar (Top Right by default, freely draggable anywhere) */}
-        {!uiHidden && (
+        {!uiHidden && !isMobile && (
         <VoiceChatBar
           users={users}
           currentUser={currentUser}
