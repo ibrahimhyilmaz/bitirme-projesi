@@ -12,8 +12,17 @@ import {
   Lock,
   Globe,
   User,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { ChatMessage, UserReaction, UserPresence } from '../types';
+
+export function formatUnreadBadge(count: number): string {
+  if (count >= 1000) return '999+';
+  if (count >= 100) return '99+';
+  if (count >= 10) return '9+';
+  return String(count);
+}
 
 interface ChatDrawerProps {
   messages: ChatMessage[];
@@ -28,13 +37,12 @@ interface ChatDrawerProps {
     recipientName?: string
   ) => void;
   onDeleteMessage?: (messageId: string) => void;
-  /** Room-level chat history saving (decided by the room owner) */
-  saveChatEnabled?: boolean;
-  canManageChatSave?: boolean;
-  onToggleSaveChat?: () => void;
   onSendReaction: (emoji: string) => void;
   onClose: () => void;
   theme?: string;
+  activeTab?: 'general' | string;
+  onTabChange?: (tab: 'general' | string) => void;
+  unreadByChannel?: Record<string, number>;
 }
 
 const QUICK_REACTIONS = ['❤️', '👍', '🚀', '🎉', '🔥', '💡', '👏', '😂'];
@@ -254,15 +262,21 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   reactions = [],
   onSendMessage,
   onDeleteMessage,
-  saveChatEnabled = true,
-  canManageChatSave = false,
-  onToggleSaveChat,
   onSendReaction,
   onClose,
   theme = 'light',
+  activeTab: controlledActiveTab,
+  onTabChange,
+  unreadByChannel = {},
 }) => {
   const isDark = theme === 'dark' || theme === 'midnight';
-  const [activeTab, setActiveTab] = useState<'general' | string>('general');
+  const [internalActiveTab, setInternalActiveTab] = useState<'general' | string>('general');
+  const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab;
+  const setActiveTab = (nextTab: 'general' | string) => {
+    setInternalActiveTab(nextTab);
+    onTabChange?.(nextTab);
+  };
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [inputText, setInputText] = useState('');
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [mediaPickerTab, setMediaPickerTab] = useState<'emoji' | 'gif'>('emoji');
@@ -459,9 +473,15 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     return list;
   }, [selectedGifCategory, searchQuery]);
 
+  const generalUnread = unreadByChannel['general'] || 0;
+
   return (
     <div
-      className={`fixed inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[420px] md:max-w-[calc(100vw-32px)] z-[60] border md:rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none cb-anim-scale-in ${
+      className={`fixed flex flex-col overflow-hidden select-none cb-anim-scale-in transition-all duration-200 ${
+        isFullscreen
+          ? 'inset-0 w-screen h-screen max-w-none z-[70] border-0 rounded-none shadow-none'
+          : 'top-16 right-4 bottom-6 w-[420px] max-w-[calc(100vw-32px)] z-[60] border rounded-2xl shadow-2xl'
+      } ${
         isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
       }`}
     >
@@ -482,15 +502,29 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           </span>
         </div>
 
-        <button
-          onClick={onClose}
-          className={`p-1.5 rounded-lg transition-colors ${
-            isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-          }`}
-          title="Kapat"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setIsFullscreen((prev) => !prev)}
+            className={`p-1.5 rounded-lg transition-colors ${
+              isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+            }`}
+            title={isFullscreen ? 'Tam Ekrandan Çık' : 'Tam Ekran Yap'}
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className={`p-1.5 rounded-lg transition-colors ${
+              isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+            }`}
+            title="Kapat"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Conversation Scope Tabs (Genel Sohbet & Odadaki Kişilerle Özel Birebir Sohbetler) */}
@@ -512,22 +546,29 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         >
           <Globe className="w-3.5 h-3.5" />
           <span>Genel Sohbet</span>
-          <span
-            className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-              activeTab === 'general'
-                ? 'bg-white/25 text-white'
-                : isDark
-                ? 'bg-slate-700 text-slate-300'
-                : 'bg-slate-100 text-slate-600'
-            }`}
-          >
-            {generalCount}
-          </span>
+          {generalUnread > 0 ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono tabular-nums font-bold bg-rose-600 text-white animate-pulse">
+              {formatUnreadBadge(generalUnread)}
+            </span>
+          ) : (
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                activeTab === 'general'
+                  ? 'bg-white/25 text-white'
+                  : isDark
+                  ? 'bg-slate-700 text-slate-300'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {generalCount}
+            </span>
+          )}
         </button>
 
         {otherUsers.map((u) => {
           const isSelected = activeTab === u.id;
           const count = privateCounts[u.id] || 0;
+          const unreadForPeer = unreadByChannel[u.id] || 0;
           return (
             <button
               key={u.id}
@@ -547,62 +588,28 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
               />
               <Lock className="w-3 h-3 opacity-60" />
               <span>{u.name}</span>
-              {count > 0 && (
-                <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                    isSelected
-                      ? 'bg-white/25 text-white'
-                      : isDark
-                      ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-800'
-                      : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                  }`}
-                >
-                  {count}
+              {unreadForPeer > 0 ? (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono tabular-nums font-bold bg-rose-600 text-white animate-pulse">
+                  {formatUnreadBadge(unreadForPeer)}
                 </span>
+              ) : (
+                count > 0 && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                      isSelected
+                        ? 'bg-white/25 text-white'
+                        : isDark
+                        ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-800'
+                        : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                )
               )}
             </button>
           );
         })}
-      </div>
-
-      {/* Chat history saving status (the room owner decides) */}
-      <div
-        className={`px-3.5 py-1.5 border-b flex items-center justify-between gap-2 text-[11px] shrink-0 ${
-          saveChatEnabled
-            ? isDark
-              ? 'bg-emerald-950/40 border-emerald-900/60 text-emerald-300'
-              : 'bg-emerald-50/70 border-emerald-100 text-emerald-800'
-            : isDark
-            ? 'bg-slate-800/70 border-slate-700 text-slate-300'
-            : 'bg-slate-50 border-slate-200 text-slate-600'
-        }`}
-      >
-        <span className="font-medium truncate">
-          {saveChatEnabled
-            ? 'Sohbet kaydı açık: mesajlar odada saklanır, tekrar girdiğinizde görürsünüz.'
-            : 'Sohbet kaydı kapalı: mesajlar saklanmaz.'}
-        </span>
-        {canManageChatSave && onToggleSaveChat && (
-          <button
-            type="button"
-            onClick={() => {
-              if (
-                saveChatEnabled &&
-                !window.confirm('Sohbet kaydı kapatılırsa odadaki mevcut sohbet geçmişi herkes için silinir. Devam edilsin mi?')
-              ) {
-                return;
-              }
-              onToggleSaveChat();
-            }}
-            className={`px-2 py-0.5 rounded-md font-semibold shrink-0 transition-colors ${
-              saveChatEnabled
-                ? 'bg-white/80 text-emerald-700 hover:bg-white border border-emerald-200'
-                : 'bg-slate-900 text-white hover:bg-slate-800'
-            }`}
-          >
-            {saveChatEnabled ? 'Kapat' : 'Aç'}
-          </button>
-        )}
       </div>
 
       {/* Private Chat Banner Notice if in DM tab */}
@@ -657,7 +664,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           </div>
         ) : (
           nonSystemMessages.map((msg) => {
-            const isSelf = msg.userId === currentUserId;
+            const isSelf =
+              msg.userId === currentUserId ||
+              (Boolean(currentUserName) && msg.userName === currentUserName);
 
             const hasGifOrImageAttachment =
               msg.fileAttachment?.url &&
@@ -691,12 +700,25 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                       minute: '2-digit',
                     })}
                   </span>
+                  {isSelf && onDeleteMessage && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteMessage(msg.id);
+                      }}
+                      className="ml-1 p-1 rounded-md text-slate-400 hover:text-rose-500 hover:bg-rose-500/15 transition-colors cursor-pointer"
+                      title="Mesajı sil"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
 
                 <div className="relative max-w-[85%]">
                   {/* Hover Quick Reaction Picker for this Message Bubble */}
                   <div
-                    className={`opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity absolute -top-7 ${
+                    className={`opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity absolute -top-6 ${
                       isSelf ? 'right-0' : 'left-0'
                     } z-20 flex items-center gap-0.5 border rounded-full px-1.5 py-0.5 shadow-md ${
                       isDark

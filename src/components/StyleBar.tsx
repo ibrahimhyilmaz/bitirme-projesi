@@ -1,4 +1,3 @@
-import { useIsMobile } from '../hooks/useIsMobile';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Copy,
@@ -161,7 +160,6 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   zIndex,
   onFocus,
 }) => {
-  const isMobile = useIsMobile();
   const [rotationMenuOpen, setRotationMenuOpen] = useState(false);
   const [advancedStyleOpen, setAdvancedStyleOpen] = useState(false);
   const [fontMenuOpen, setFontMenuOpen] = useState(false);
@@ -205,7 +203,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   };
 
   // Draggable position for StyleBar (persisted)
-  const [storedPosition, setPosition] = useState<{ x: number; y: number } | null>(() => {
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
     try {
       const saved = localStorage.getItem('collab_stylebar_pos');
       if (saved) {
@@ -235,7 +233,6 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     }
   });
 
-  const position = isMobile ? null : storedPosition;
   const effectiveHidden = isHidden !== undefined ? isHidden : internalHidden;
 
   const handleToggleMinimize = () => {
@@ -432,9 +429,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             : 'border-slate-200/90 shadow-lg'
         } rounded-xl select-none ${
           !position
-            ? isMobile
-              ? 'bottom-[88px] right-2 w-fit'
-              : 'bottom-3 right-3 w-fit'
+            ? 'bottom-3 right-3 w-fit'
             : ''
         }`}
       >
@@ -493,9 +488,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           : 'border-slate-200/90 shadow-lg'
       } rounded-xl select-none ${
         !position
-          ? isMobile
-            ? 'bottom-[88px] inset-x-2 w-auto'
-            : 'bottom-3 right-3 w-fit max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-48px)]'
+          ? 'bottom-3 right-3 w-fit max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-48px)]'
           : 'max-w-[95vw]'
       }`}
     >
@@ -692,7 +685,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             </button>
 
             {advancedStyleOpen && (
-              <div data-popover="true" className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 z-50 flex flex-row gap-3 w-[min(92vw,420px)] md:w-auto md:min-w-[360px] md:max-w-[420px]">
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 z-50 flex flex-row gap-3 min-w-[360px] max-w-[420px]">
                 {/* Left 2/3: Controls (Stil, Saydamlık, Kalınlık Barı) */}
                 <div className="flex-1 flex flex-col justify-between gap-2.5 pr-2.5 border-r border-slate-100">
                   {/* Çizgi Stili */}
@@ -830,7 +823,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             </button>
 
             {fontMenuOpen && (
-              <div data-popover="true" className="absolute bottom-full mb-2 left-0 bg-white border border-slate-200 rounded-xl shadow-2xl p-1.5 w-60 z-50 max-h-72 overflow-y-auto space-y-0.5">
+              <div className="absolute bottom-full mb-2 left-0 bg-white border border-slate-200 rounded-xl shadow-2xl p-1.5 w-60 z-50 max-h-72 overflow-y-auto space-y-0.5">
                 <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 mb-1">
                   Google Fonts Yazı Tipleri
                 </div>
@@ -895,7 +888,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             </button>
 
             {sizeMenuOpen && (
-              <div data-popover="true" className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-xl shadow-2xl p-1.5 w-32 z-50 grid grid-cols-2 gap-1">
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-xl shadow-2xl p-1.5 w-32 z-50 grid grid-cols-2 gap-1">
                 {TEXT_FONT_SIZES.map((fs) => (
                   <button
                     key={fs}
@@ -1017,7 +1010,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             </button>
 
             {rotationMenuOpen && (
-              <div data-popover="true" className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-56 z-50 flex flex-col gap-2.5">
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-56 z-50 flex flex-col gap-2.5">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                   <span>Döndürme Açısı</span>
                   <span className="font-mono tabular-nums text-blue-600">{currentRotation}°</span>

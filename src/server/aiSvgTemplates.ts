@@ -1,12 +1,8 @@
-export function buildFallbackSvg(
-  prompt: string,
-  _thinkingLevel: string = 'standard',
-  strict: boolean = false
-): string {
+export function buildFallbackSvg(prompt: string, _thinkingLevel: string = 'standard'): string {
   const lower = prompt.toLowerCase().trim();
 
   // 1. Apple (Elma)
-  if ((lower.includes('elma') || lower.includes('apple')) && !/ağaç|agac|tree|orman/.test(lower)) {
+  if (lower.includes('elma') || lower.includes('apple')) {
     return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="appleGrad" cx="35%" cy="35%" r="65%">
@@ -268,9 +264,6 @@ export function buildFallbackSvg(
   <ellipse cx="250" cy="220" rx="10" ry="6" transform="rotate(40 250 220)" fill="#15803d"/>
 </svg>`;
   }
-
-  // In strict mode (client-side offline fallback) never invent a generic sticker
-  if (strict) return '';
 
   // 11. Generic Aesthetic Vector Sticker
   return `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">

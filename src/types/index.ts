@@ -95,6 +95,7 @@ export interface AppSettings {
   showStyleBar: boolean;
   showVoiceBar: boolean;
   soundEffectsEnabled: boolean;
+  chatNotificationsEnabled?: boolean;
   showRemoteCursors: boolean;
   autoSmoothFreehand: boolean;
   language?: LanguageCode;
@@ -135,7 +136,6 @@ export interface RoomSettings {
   maxUsers: number;
   defaultRole: 'editor' | 'viewer';
   allowGuestDraw: boolean;
-  saveChat?: boolean;
   ownerId: string;
 }
 

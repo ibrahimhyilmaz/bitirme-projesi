@@ -266,15 +266,15 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
     <>
       {/* 1. Unified Bottom-Left Flex Dock (Minimap stacked above Grid Selector & Layout Reset — Zero Overlap) */}
       <div
-        data-floating-bar="true"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
-        className="fixed bottom-3 left-3 z-20 pointer-events-none hidden md:flex flex-col items-start gap-2 select-none max-w-[calc(100vw-24px)]"
+        className="fixed bottom-3 left-3 z-20 pointer-events-none bg-transparent flex flex-col items-start gap-2 select-none max-w-[calc(100vw-24px)]"
       >
         {/* Minimap Widget or Compact Restore Pill */}
         {showMinimap ? (
           <div
             data-tour="minimap"
+            data-floating-bar="true"
             className={`pointer-events-auto w-[276px] backdrop-blur-md border rounded-2xl shadow-lg overflow-hidden transition-all duration-200 cb-anim-scale-in ${
               isDark
                 ? 'bg-slate-900/95 border-slate-700/80 text-slate-100'
@@ -451,6 +451,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
             <button
               type="button"
               data-tour="minimap"
+              data-floating-bar="true"
               onClick={onToggleMinimap}
               className={`pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 backdrop-blur-md border rounded-xl shadow-md text-xs font-semibold transition-colors cb-anim-scale-in ${
                 isDark
@@ -469,6 +470,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
         {/* Docked Grid Pattern Selector & Layout Reset Bar */}
         {onChangeGridStyle && (
           <div
+            data-floating-bar="true"
             className={`pointer-events-auto flex items-center gap-1 backdrop-blur-md p-1 rounded-xl border text-xs shadow-lg cb-anim-scale-in ${
               isDark
                 ? 'bg-slate-900/95 border-slate-700 text-slate-300'

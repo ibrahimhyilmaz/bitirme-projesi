@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { AlertTriangle, X, DoorOpen } from 'lucide-react';
+import { AlertTriangle, X, DoorOpen, MessageSquare, Lock } from 'lucide-react';
 import { useWebSocket, getOrCreateOwnerKey } from './hooks/useWebSocket';
 import { VoiceManager } from './utils/audio';
 import {
@@ -20,7 +20,7 @@ import { VoiceChatBar } from './components/VoiceChatBar';
 import { CodeEditorPanel } from './components/CodeEditorPanel';
 import { NotesPanel } from './components/NotesPanel';
 import { FileShareModal } from './components/FileShareModal';
-import { ChatDrawer } from './components/ChatDrawer';
+import { ChatDrawer, formatUnreadBadge } from './components/ChatDrawer';
 import { TemplatesModal } from './components/TemplatesModal';
 import { ExportModal } from './components/ExportModal';
 import { UserSetupModal, generateRoomCodeSeed, RoomJoinPayload } from './components/UserSetupModal';
@@ -32,7 +32,6 @@ import { ClockWidget } from './components/ClockWidget';
 import { FolderWidget } from './components/FolderWidget';
 import { getLanguage, translate, useI18n, useAutoTranslateDOM } from './i18n';
 import { recordRoomVisit } from './utils/roomHistory';
-import { isMobileViewport, useIsMobile } from './hooks/useIsMobile';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 
@@ -167,7 +166,6 @@ function clearSavedSession() {
 export default function App() {
   useI18n();
   useAutoTranslateDOM();
-  const isMobile = useIsMobile();
   const initialRoomInfo = useMemo(() => extractRoomInfoFromLocation(), []);
 
   // Restore the previous workspace after a page refresh (unless it was idle for over an hour,
@@ -307,12 +305,15 @@ export default function App() {
 
   // Panels and Modals
   const [activePanel, setActivePanel] = useState<'none' | 'code' | 'notes' | 'files' | 'chat'>('none');
+  const [activeChatTab, setActiveChatTab] = useState<'general' | string>('general');
+  const [unreadIdsByChannel, setUnreadIdsByChannel] = useState<Record<string, string[]>>({});
+  const [chatToastTimeByChannel, setChatToastTimeByChannel] = useState<Record<string, number>>({});
+  const [toastNow, setToastNow] = useState<number>(() => Date.now());
   const [isTemplatesOpen, setIsTemplatesOpen] = useState<boolean>(false);
   const [isAIPromptOpen, setIsAIPromptOpen] = useState<boolean>(false);
   const [isRoomsModalOpen, setIsRoomsModalOpen] = useState<boolean>(false);
   const [roomsModalTab, setRoomsModalTab] = useState<'rooms' | 'permissions' | 'invite'>('rooms');
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
-  const [unreadChatCount, setUnreadChatCount] = useState<number>(0);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
 
   // Workspace Widget Visibility & Layout States (Synced across TopNav Kutucuklar, Toolbar, StyleBar, VoiceBar, Minimap)
@@ -325,10 +326,7 @@ export default function App() {
   });
   const [showStyleBar, setShowStyleBar] = useState<boolean>(() => {
     try {
-      const stored = localStorage.getItem('collab_hide_stylebar');
-      // Phones start with the style bar collapsed to keep the canvas free
-      if (stored === null) return !isMobileViewport();
-      return stored !== 'true';
+      return localStorage.getItem('collab_hide_stylebar') !== 'true';
     } catch {
       return true;
     }
@@ -382,6 +380,7 @@ export default function App() {
       showStyleBar: true,
       showVoiceBar: true,
       soundEffectsEnabled: true,
+      chatNotificationsEnabled: true,
       showRemoteCursors: true,
       autoSmoothFreehand: true,
     };
@@ -939,19 +938,196 @@ export default function App() {
     }
   }, [canEdit, activeTool]);
 
-  // Track unread chat messages when chat drawer is closed (only actual user messages, ignore system announcements)
-  const prevChatCountRef = useRef(
-    chatMessages.filter((m) => m.userId !== 'system' && m.userColor !== 'system').length
-  );
+  // Track unread chat messages per conversation channel ('general' vs private sender userId)
+  // Unread badge counts persist until the specific conversation tab is opened, while popup notifications fade out after 2s.
+  const seenChatIdsRef = useRef<Set<string>>(new Set());
+  const chatSeededRoomRef = useRef<string | null>(null);
+
   useEffect(() => {
-    const userMsgsCount = chatMessages.filter(
-      (m) => m.userId !== 'system' && m.userColor !== 'system'
-    ).length;
-    if (activePanel !== 'chat' && userMsgsCount > prevChatCountRef.current) {
-      setUnreadChatCount((prev) => prev + (userMsgsCount - prevChatCountRef.current));
+    if (chatSeededRoomRef.current !== roomId) {
+      chatSeededRoomRef.current = roomId;
+      seenChatIdsRef.current = new Set(chatMessages.map((m) => m.id));
+      setUnreadIdsByChannel({});
+      setChatToastTimeByChannel({});
+      setActiveChatTab('general');
+      return;
     }
-    prevChatCountRef.current = userMsgsCount;
-  }, [chatMessages, activePanel]);
+
+    const existingMsgIds = new Set(chatMessages.map((m) => m.id));
+    const newlyArrivedByChannel: Record<string, string[]> = {};
+
+    for (const m of chatMessages) {
+      if (m.userId === 'system' || m.userColor === 'system') {
+        seenChatIdsRef.current.add(m.id);
+        continue;
+      }
+      if (!seenChatIdsRef.current.has(m.id)) {
+        seenChatIdsRef.current.add(m.id);
+        const isFromMe = m.userId === currentUser.id;
+        if (isFromMe) continue;
+
+        // Ignore private messages not meant for this user
+        if (m.isPrivate && m.recipientId && m.recipientId !== currentUser.id) {
+          continue;
+        }
+
+        const channel = m.isPrivate ? m.userId : 'general';
+        const isThisConversationOpen = activePanel === 'chat' && activeChatTab === channel;
+        if (!isThisConversationOpen) {
+          if (!newlyArrivedByChannel[channel]) {
+            newlyArrivedByChannel[channel] = [];
+          }
+          newlyArrivedByChannel[channel].push(m.id);
+        }
+      }
+    }
+
+    const arrivedChannels = Object.keys(newlyArrivedByChannel);
+    if (arrivedChannels.length > 0) {
+      const now = Date.now();
+      setToastNow(now);
+      setChatToastTimeByChannel((prev) => {
+        const next = { ...prev };
+        for (const ch of arrivedChannels) {
+          next[ch] = now;
+        }
+        return next;
+      });
+    }
+
+    setUnreadIdsByChannel((prev) => {
+      let changed = false;
+      const next: Record<string, string[]> = {};
+
+      // Prune any deleted messages from existing unread lists
+      for (const [ch, ids] of Object.entries(prev)) {
+        const filtered = ids.filter((id) => existingMsgIds.has(id));
+        if (filtered.length !== ids.length) changed = true;
+        if (filtered.length > 0) {
+          next[ch] = filtered;
+        }
+      }
+
+      // Append newly arrived unread messages
+      for (const [ch, newIds] of Object.entries(newlyArrivedByChannel)) {
+        const currentList = next[ch] || [];
+        const merged = [...currentList];
+        for (const id of newIds) {
+          if (!merged.includes(id)) {
+            merged.push(id);
+            changed = true;
+          }
+        }
+        if (merged.length > 0) {
+          next[ch] = merged;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [chatMessages, activePanel, activeChatTab, currentUser.id, roomId]);
+
+  // Timer for 2-second display + 500ms smooth fade-out of popup chat notifications
+  useEffect(() => {
+    if (Object.keys(chatToastTimeByChannel).length === 0) return;
+    const interval = window.setInterval(() => {
+      const now = Date.now();
+      setToastNow(now);
+      setChatToastTimeByChannel((prev) => {
+        let changed = false;
+        const next: Record<string, number> = {};
+        for (const [ch, ts] of Object.entries(prev)) {
+          if (now - ts < 2500) {
+            next[ch] = ts;
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 100);
+    return () => window.clearInterval(interval);
+  }, [chatToastTimeByChannel]);
+
+  // Clear unread messages ONLY for the currently open conversation tab when ChatDrawer is open
+  useEffect(() => {
+    if (activePanel !== 'chat') return;
+    setUnreadIdsByChannel((prev) => {
+      if (!prev[activeChatTab] || prev[activeChatTab].length === 0) return prev;
+      const next = { ...prev };
+      delete next[activeChatTab];
+      return next;
+    });
+    setChatToastTimeByChannel((prev) => {
+      if (!(activeChatTab in prev)) return prev;
+      const next = { ...prev };
+      delete next[activeChatTab];
+      return next;
+    });
+  }, [activePanel, activeChatTab]);
+
+  const unreadCountsByChannel = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const [ch, ids] of Object.entries(unreadIdsByChannel)) {
+      if (ids.length > 0) counts[ch] = ids.length;
+    }
+    return counts;
+  }, [unreadIdsByChannel]);
+
+  const unreadChatCount = useMemo(() => {
+    return Object.values(unreadCountsByChannel).reduce((sum, c) => sum + c, 0);
+  }, [unreadCountsByChannel]);
+
+  const unreadChannelDetails = useMemo(() => {
+    if (settings.chatNotificationsEnabled === false) return [];
+
+    const list: {
+      channel: string;
+      count: number;
+      isPrivate: boolean;
+      title: string;
+      lastMessageText: string;
+      senderColor?: string;
+      isFadingOut: boolean;
+    }[] = [];
+
+    for (const [channel, ids] of Object.entries(unreadIdsByChannel)) {
+      if (!ids || ids.length === 0) continue;
+      // Do not show floating notification if this exact conversation is currently open
+      if (activePanel === 'chat' && activeChatTab === channel) continue;
+
+      const shownAt = chatToastTimeByChannel[channel];
+      if (!shownAt) continue;
+      const elapsed = toastNow - shownAt;
+      if (elapsed >= 2500) continue;
+
+      const lastMsgId = ids[ids.length - 1];
+      const lastMsg = chatMessages.find((m) => m.id === lastMsgId);
+      const isPrivate = channel !== 'general';
+      const peerUser = isPrivate ? users.find((u) => u.id === channel) : undefined;
+      const senderName = lastMsg?.userName || peerUser?.name || 'Kullanıcı';
+
+      list.push({
+        channel,
+        count: ids.length,
+        isPrivate,
+        title: isPrivate ? `${senderName} (Özel Mesaj)` : `Genel Sohbet · ${senderName}`,
+        lastMessageText: lastMsg?.text || 'Yeni bir mesaj gönderdi',
+        senderColor: lastMsg?.userColor || peerUser?.color,
+        isFadingOut: elapsed >= 2000,
+      });
+    }
+    return list;
+  }, [
+    settings.chatNotificationsEnabled,
+    unreadIdsByChannel,
+    activePanel,
+    activeChatTab,
+    chatToastTimeByChannel,
+    toastNow,
+    chatMessages,
+    users,
+  ]);
 
   // Initialize Voice Manager
   // The VoiceManager must live for the whole session: re-creating it (because a callback identity
@@ -1498,9 +1674,6 @@ export default function App() {
 
   // Panel Toggle
   const handleTogglePanel = (panel: 'code' | 'notes' | 'files' | 'chat') => {
-    if (panel === 'chat') {
-      setUnreadChatCount(0);
-    }
     setActivePanel((prev) => (prev === panel ? 'none' : panel));
   };
 
@@ -1810,7 +1983,7 @@ export default function App() {
         )}
 
         {/* Voice Chat Floating Bar (Top Right by default, freely draggable anywhere) */}
-        {!uiHidden && !isMobile && (
+        {!uiHidden && (
         <VoiceChatBar
           users={users}
           currentUser={currentUser}
@@ -2100,6 +2273,64 @@ export default function App() {
           />
         )}
 
+        {/* Unread Chat Popup Notifications (fades out smoothly after 2 seconds; disabled if chatNotificationsEnabled === false) */}
+        {unreadChannelDetails.length > 0 && (
+          <div className="fixed top-16 right-4 z-[65] flex flex-col gap-2 max-w-xs w-80 pointer-events-none">
+            {unreadChannelDetails.map((item) => {
+              const isDarkTheme = settings.theme === 'dark' || settings.theme === 'midnight';
+              return (
+                <button
+                  key={item.channel}
+                  type="button"
+                  onClick={() => {
+                    setActiveChatTab(item.channel);
+                    setActivePanel('chat');
+                  }}
+                  className={`w-full text-left p-3 rounded-2xl border shadow-2xl flex items-start gap-3 transition-all duration-500 ease-out cursor-pointer hover:scale-[1.01] ${
+                    item.isFadingOut
+                      ? 'opacity-0 -translate-y-1 pointer-events-none'
+                      : 'opacity-100 translate-y-0 pointer-events-auto'
+                  } ${
+                    isDarkTheme
+                      ? 'bg-slate-900/95 border-slate-700 text-slate-100 hover:bg-slate-800'
+                      : 'bg-white/95 border-slate-200 text-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-white shadow-xs ${
+                      item.isPrivate ? 'bg-indigo-600' : 'bg-blue-600'
+                    }`}
+                  >
+                    {item.isPrivate ? (
+                      <Lock className="w-4 h-4" />
+                    ) : (
+                      <MessageSquare className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold truncate">{item.title}</span>
+                      <span className="px-1.5 py-0.5 bg-rose-600 text-white text-[10px] font-mono tabular-nums font-bold rounded-full shrink-0">
+                        {formatUnreadBadge(item.count)}
+                      </span>
+                    </div>
+                    <p
+                      className={`text-[11px] truncate mt-0.5 ${
+                        isDarkTheme ? 'text-slate-300' : 'text-slate-600'
+                      }`}
+                    >
+                      {item.lastMessageText}
+                    </p>
+                    <span className="text-[10px] text-blue-500 font-semibold mt-1 inline-block">
+                      Sohbeti açmak için tıklayın →
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Real-Time Chat Drawer */}
         {activePanel === 'chat' && (
           <ChatDrawer
@@ -2110,9 +2341,6 @@ export default function App() {
             reactions={reactions}
             onSendMessage={sendChatMessage}
             onDeleteMessage={deleteChatMessage}
-            saveChatEnabled={roomSettings.saveChat !== false}
-            canManageChatSave={canManage}
-            onToggleSaveChat={() => updateRoomSettings({ saveChat: roomSettings.saveChat === false })}
             onSendReaction={(emoji) => {
               const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom;
               const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom;
@@ -2120,6 +2348,9 @@ export default function App() {
             }}
             onClose={() => setActivePanel('none')}
             theme={settings.theme}
+            activeTab={activeChatTab}
+            onTabChange={setActiveChatTab}
+            unreadByChannel={unreadCountsByChannel}
           />
         )}
       </div>
@@ -2364,6 +2595,7 @@ export default function App() {
               showStyleBar: true,
               showVoiceBar: true,
               soundEffectsEnabled: true,
+              chatNotificationsEnabled: true,
               showRemoteCursors: true,
               autoSmoothFreehand: true,
               showClock: true,

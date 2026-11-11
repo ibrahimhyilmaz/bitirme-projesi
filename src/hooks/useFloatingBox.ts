@@ -62,7 +62,7 @@ export function useFloatingBox({
   const clamp = useCallback(
     (r: FloatingRect): FloatingRect => {
       const { pw, ph } = parentSize();
-      const w = Math.max(Math.min(minW, pw - 8), Math.min(maxW, pw - 8, r.w));
+      const w = Math.max(minW, Math.min(maxW, r.w));
       const h = Math.max(minH, Math.min(maxH, r.h));
       return {
         w,

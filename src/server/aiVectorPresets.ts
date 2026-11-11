@@ -23,8 +23,7 @@ export function buildFallbackCanvasElements(
   centerX: number,
   centerY: number,
   author: string,
-  thinkingLevel: string = 'standard',
-  strict: boolean = false
+  thinkingLevel: string = 'standard'
 ): CanvasElement[] {
   const now = Date.now();
   let counter = 0;
@@ -50,8 +49,7 @@ export function buildFallbackCanvasElements(
     }));
 
   // 1. Apple (Elma)
-  const mentionsTree = /ağaç|agac|tree|orman/.test(lower);
-  if ((lower.includes('elma') || lower.includes('apple')) && !mentionsTree) {
+  if (lower.includes('elma') || lower.includes('apple')) {
     const quick: ShapeSpec[] = [
       ['rounded-rect', -6, -95, 12, 38, '#451a03', '#78350f', 2],
       ['triangle', 4, -95, 42, 28, '#15803d', '#22c55e', 2.5, 20],
@@ -201,9 +199,6 @@ export function buildFallbackCanvasElements(
     ];
     return compileSpecs(specs);
   }
-
-  // In strict mode (client-side offline fallback) never invent a generic composition
-  if (strict) return [];
 
   // 9. Generic Geometric Composition
   const genericSpecs: ShapeSpec[] = [

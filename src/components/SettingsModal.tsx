@@ -22,6 +22,8 @@ import {
   Code2,
   Map as MapIcon,
   EyeOff as EyeOffIcon,
+  Bell,
+  BellOff,
 } from 'lucide-react';
 import { AppSettings, EditorSettings, LanguageCode, ThemeMode } from '../types';
 import { LANGUAGE_OPTIONS, setLanguage, useI18n } from '../i18n';
@@ -154,7 +156,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Navigation Tabs */}
         <div
-          className={`px-3 md:px-6 pt-2 border-b flex flex-wrap md:flex-nowrap items-center gap-1 md:overflow-x-auto max-md:[&>button:not(.border-blue-600)>span]:hidden ${
+          className={`px-6 pt-2 border-b flex items-center gap-1 overflow-x-auto ${
             isDark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'
           }`}
         >
@@ -564,6 +566,88 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
+              {/* Chat Popup Notifications Toggle */}
+              <div className={`pt-3 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-2">
+                  Sohbet Bildirimleri
+                </h3>
+                <div
+                  className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                    settings.chatNotificationsEnabled !== false
+                      ? isDark
+                        ? 'border-blue-900/60 bg-blue-950/20'
+                        : 'border-blue-200/80 bg-blue-50/40'
+                      : isDark
+                      ? 'border-slate-800 bg-slate-800/40 opacity-75'
+                      : 'border-slate-200 bg-slate-50/60 opacity-85'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                    <span
+                      className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+                        settings.chatNotificationsEnabled !== false
+                          ? 'bg-blue-600 text-white'
+                          : isDark
+                          ? 'bg-slate-700 text-slate-400'
+                          : 'bg-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {settings.chatNotificationsEnabled !== false ? (
+                        <Bell className="w-4 h-4" />
+                      ) : (
+                        <BellOff className="w-4 h-4" />
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold truncate">Açılır Sohbet Bildirimleri</span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                            settings.chatNotificationsEnabled !== false
+                              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                          }`}
+                        >
+                          {settings.chatNotificationsEnabled !== false ? 'AÇIK' : 'KAPALI'}
+                        </span>
+                      </div>
+                      <p className={`text-[11px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        Kapatıldığında ekranda bildirim kutusu çıkmaz; yalnızca üstteki Sohbet butonunda kaç mesaj geldiği gözükür.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => onUpdateSettings({ chatNotificationsEnabled: true })}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                          settings.chatNotificationsEnabled !== false
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <Bell className="w-3 h-3" />
+                        <span>Aç</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateSettings({ chatNotificationsEnabled: false })}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                          settings.chatNotificationsEnabled === false
+                            ? 'bg-slate-700 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <BellOff className="w-3 h-3" />
+                        <span>Kapat</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex justify-end pt-1">
                 <button
                   type="button"
@@ -710,6 +794,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="checkbox"
                   checked={settings.soundEffectsEnabled}
                   onChange={(e) => onUpdateSettings({ soundEffectsEnabled: e.target.checked })}
+                  className="w-4 h-4 accent-blue-600 rounded cursor-pointer"
+                />
+              </div>
+
+              <div
+                className={`p-3.5 rounded-xl border flex items-center justify-between ${
+                  isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  {settings.chatNotificationsEnabled !== false ? (
+                    <Bell className="w-4 h-4 text-blue-600" />
+                  ) : (
+                    <BellOff className="w-4 h-4 text-slate-400" />
+                  )}
+                  <div>
+                    <div className="text-xs font-bold">Sohbet Bildirimlerini Göster</div>
+                    <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Kapatıldığında açılır bildirim kutusu gizlenir, yalnızca üstteki Sohbet butonunda mesaj sayısı gözükür
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.chatNotificationsEnabled !== false}
+                  onChange={(e) => onUpdateSettings({ chatNotificationsEnabled: e.target.checked })}
                   className="w-4 h-4 accent-blue-600 rounded cursor-pointer"
                 />
               </div>

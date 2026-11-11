@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Clock, GripVertical, X } from 'lucide-react';
 import { useFloatingBox } from '../hooks/useFloatingBox';
 import { useI18n } from '../i18n';
-import { isMobileViewport } from '../hooks/useIsMobile';
 
 interface ClockWidgetProps {
   onHide: () => void;
@@ -13,7 +12,6 @@ interface ClockWidgetProps {
 }
 
 const DEFAULT_RECT = { x: 16, y: 72, w: 190, h: 92 };
-const MOBILE_RECT = { x: 8, y: 8, w: 112, h: 40 };
 
 function loadPref(key: string, fallback: boolean): boolean {
   try {
@@ -34,10 +32,10 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
   const isDark = theme === 'dark' || theme === 'midnight';
   const { t, lang } = useI18n();
   const { rect, ref, startDrag, startResize, reset } = useFloatingBox({
-    storageKey: isMobileViewport() ? 'collab_clock_rect_m' : 'collab_clock_rect',
-    defaultRect: isMobileViewport() ? MOBILE_RECT : DEFAULT_RECT,
-    minW: isMobileViewport() ? 96 : 120,
-    minH: isMobileViewport() ? 36 : 56,
+    storageKey: 'collab_clock_rect',
+    defaultRect: DEFAULT_RECT,
+    minW: 120,
+    minH: 56,
     maxW: 560,
     maxH: 320,
   });

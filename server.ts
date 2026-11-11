@@ -1,6 +1,5 @@
 import express from 'express';
 import http from 'http';
-import fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -63,7 +62,6 @@ interface RoomSettings {
   maxUsers: number;
   defaultRole: 'editor' | 'viewer';
   allowGuestDraw: boolean;
-  saveChat: boolean;
   ownerId: string;
 }
 
@@ -175,63 +173,6 @@ const rooms = new Map<string, RoomState>();
 // Idle policy: a room with no user activity for this long is locked; empty rooms are kept this long
 const ROOM_IDLE_LOCK_MS = 60 * 60 * 1000;
 const EMPTY_ROOM_RETENTION_MS = 24 * 60 * 60 * 1000;
-
-// ---- Chat history persistence (only when the room owner keeps "save chat" on) ----
-const CHAT_DIR = path.join(process.cwd(), 'data', 'chats');
-const chatSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function chatFilePath(roomId: string): string {
-  return path.join(CHAT_DIR, `${roomId.replace(/[^a-z0-9_-]/g, '')}.json`);
-}
-
-function loadSavedChat(roomId: string, ownerKey: string): unknown[] {
-  if (roomId === 'ana-oda' || !ownerKey) return [];
-  try {
-    const parsed = JSON.parse(fs.readFileSync(chatFilePath(roomId), 'utf-8'));
-    // Only the owner who saved the history gets it back (a reused room code never leaks old chats)
-    if (parsed && parsed.ownerKey === ownerKey && Array.isArray(parsed.messages)) {
-      return parsed.messages.slice(-200);
-    }
-  } catch {
-    // no saved history
-  }
-  return [];
-}
-
-function scheduleChatSave(room: { id: string; ownerKey?: string; settings: { saveChat: boolean }; messages: ChatMessage[] }) {
-  if (room.id === 'ana-oda' || room.settings.saveChat === false) return;
-  const existing = chatSaveTimers.get(room.id);
-  if (existing) clearTimeout(existing);
-  chatSaveTimers.set(
-    room.id,
-    setTimeout(async () => {
-      chatSaveTimers.delete(room.id);
-      try {
-        await fs.promises.mkdir(CHAT_DIR, { recursive: true });
-        const messages = room.messages
-          .filter((m) => m.userId !== 'system')
-          .map((m) =>
-            m.fileAttachment && typeof m.fileAttachment.url === 'string' && m.fileAttachment.url.length > 150000
-              ? { ...m, fileAttachment: { ...m.fileAttachment, url: '' } }
-              : m
-          );
-        await fs.promises.writeFile(
-          chatFilePath(room.id),
-          JSON.stringify({ ownerKey: room.ownerKey, savedAt: Date.now(), messages })
-        );
-      } catch (err) {
-        console.warn('Chat history could not be saved:', (err as Error).message);
-      }
-    }, 1500)
-  );
-}
-
-function deleteSavedChat(roomId: string) {
-  const timer = chatSaveTimers.get(roomId);
-  if (timer) clearTimeout(timer);
-  chatSaveTimers.delete(roomId);
-  fs.promises.rm(chatFilePath(roomId), { force: true }).catch(() => {});
-}
 
 function canEditWorkspace(role: UserRole): boolean {
   return role === 'owner' || role === 'admin' || role === 'editor';
@@ -421,7 +362,6 @@ calculateSprintMetrics(sampleTasks);
         maxUsers: clampedMax,
         defaultRole: 'editor',
         allowGuestDraw: true,
-        saveChat: true,
         ownerId,
       },
       roleAssignments: roleMap,
@@ -438,7 +378,6 @@ calculateSprintMetrics(sampleTasks);
       },
       files: [],
       messages: [
-        ...(loadSavedChat(roomId, ownerKey || creatorId || '') as ChatMessage[]),
         {
           id: `welcome-${Date.now()}`,
           userId: 'system',
@@ -665,7 +604,6 @@ wss.on('connection', (ws: WebSocket) => {
             }
           }
           rooms.delete(targetRoomId);
-          deleteSavedChat(targetRoomId);
           broadcastGlobalRoomsList();
           break;
         }
@@ -936,17 +874,6 @@ wss.on('connection', (ws: WebSocket) => {
             }
             if (typeof changes.roomName === 'string' && changes.roomName.trim()) {
               room.name = sanitizeRoomDisplayName(changes.roomName, room.id);
-            }
-            if (typeof changes.saveChat === 'boolean' && changes.saveChat !== room.settings.saveChat) {
-              room.settings.saveChat = changes.saveChat;
-              if (changes.saveChat) {
-                scheduleChatSave(room);
-              } else {
-                // Turning saving off erases what was stored (memory, disk and every client's copy)
-                room.messages = room.messages.filter((m) => m.userId === 'system');
-                deleteSavedChat(room.id);
-                broadcastToRoom(room.id, { type: 'chat-history-cleared' });
-              }
             }
           }
 
@@ -1472,13 +1399,9 @@ wss.on('connection', (ws: WebSocket) => {
             isPrivate,
           };
 
-          // The owner decides whether this room keeps its chat history
-          if (room.settings.saveChat !== false) {
-            room.messages.push(chatMessage);
-            if (room.messages.length > 200) {
-              room.messages.shift();
-            }
-            scheduleChatSave(room);
+          room.messages.push(chatMessage);
+          if (room.messages.length > 200) {
+            room.messages.shift();
           }
 
           if (isPrivate && recipientId) {
@@ -1519,14 +1442,20 @@ wss.on('connection', (ws: WebSocket) => {
 
           const targetMsg = room.messages[msgIndex];
           const sender = room.users.get(currentUserId);
-          const isAuthor = targetMsg.userId === currentUserId;
-          const isAdmin = sender && (sender.presence.role === 'admin' || sender.presence.role === 'editor');
+          const isAuthor =
+            targetMsg.userId === currentUserId ||
+            targetMsg.userId === msg._senderId ||
+            Boolean(sender && targetMsg.userName === sender.presence.name);
+          const isAdmin =
+            sender &&
+            (sender.presence.role === 'owner' ||
+              sender.presence.role === 'admin' ||
+              sender.presence.role === 'editor');
 
-          // Only message author or room admin/editor can delete
+          // Only message author or room owner/admin/editor can delete
           if (!isAuthor && !isAdmin) return;
 
           room.messages.splice(msgIndex, 1);
-          scheduleChatSave(room);
 
           if (targetMsg.isPrivate && targetMsg.recipientId) {
             // Notify recipient
@@ -1756,7 +1685,6 @@ wss.on('connection', (ws: WebSocket) => {
             const r = rooms.get(targetRoomId);
             if (r && r.users.size === 0 && targetRoomId !== 'ana-oda') {
               rooms.delete(targetRoomId);
-              deleteSavedChat(targetRoomId);
               broadcastGlobalRoomsList();
             }
           }, EMPTY_ROOM_RETENTION_MS);
@@ -2315,7 +2243,6 @@ app.delete('/api/rooms/:roomId', (req, res) => {
     }
   }
   rooms.delete(targetRoomId);
-  deleteSavedChat(targetRoomId);
   broadcastGlobalRoomsList();
   res.json({
     ok: true,

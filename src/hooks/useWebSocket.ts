@@ -178,6 +178,7 @@ export function useWebSocket({
   filesRef.current = files;
   const chatMessagesRef = useRef(chatMessages);
   chatMessagesRef.current = chatMessages;
+  const deletedMessageIdsRef = useRef<Set<string>>(new Set());
   const localVoiceRef = useRef<{ isMuted: boolean; isDeafened: boolean; isSpeaking: boolean }>({
     isMuted: true,
     isDeafened: false,
@@ -514,9 +515,13 @@ export function useWebSocket({
               setChatMessages((prev) => {
                 const map = new Map(prev.map((m) => [m.id, m]));
                 for (const m of msg.messages) {
-                  if (m && m.id) map.set(m.id, m);
+                  if (m && m.id && !deletedMessageIdsRef.current.has(m.id)) {
+                    map.set(m.id, m);
+                  }
                 }
-                return Array.from(map.values()).sort((a, b) => a.timestamp - b.timestamp);
+                return Array.from(map.values())
+                  .filter((m) => !deletedMessageIdsRef.current.has(m.id))
+                  .sort((a, b) => a.timestamp - b.timestamp);
               });
             }
 
@@ -595,7 +600,9 @@ export function useWebSocket({
             setCodeFiles(Array.isArray(msg.codeFiles) ? msg.codeFiles : []);
             if (Array.isArray(msg.messages)) {
               setChatMessages(
-                [...msg.messages].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+                [...msg.messages]
+                  .filter((m) => m && m.id && !deletedMessageIdsRef.current.has(m.id))
+                  .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
               );
             }
             if (Array.isArray(msg.users)) {
@@ -683,11 +690,6 @@ export function useWebSocket({
                 prev.map((u) => (u.id === targetId ? { ...u, role: nextRole } : u))
               );
             }
-            break;
-          }
-
-          case 'chat-history-cleared': {
-            setChatMessages((prev) => prev.filter((m) => m.userId === 'system'));
             break;
           }
 
@@ -994,20 +996,12 @@ export function useWebSocket({
               recipientName,
               isPrivate,
             };
+            if (deletedMessageIdsRef.current.has(chatMsg.id)) {
+              break;
+            }
             setChatMessages((prev) => {
+              if (deletedMessageIdsRef.current.has(chatMsg.id)) return prev;
               if (prev.some((m) => m.id === chatMsg.id)) return prev;
-              // Secondary deduplication: same author & text within 3000ms
-              if (
-                prev.some(
-                  (m) =>
-                    m.userId === chatMsg.userId &&
-                    m.text === chatMsg.text &&
-                    m.recipientId === chatMsg.recipientId &&
-                    Math.abs((m.timestamp || 0) - (chatMsg.timestamp || 0)) < 3000
-                )
-              ) {
-                return prev;
-              }
               return [...prev, chatMsg];
             });
             if (chatMsg.userId !== userRef.current.id) {
@@ -1016,9 +1010,11 @@ export function useWebSocket({
             break;
           }
 
+          case 'chat-message-delete':
           case 'chat-message-deleted': {
-            const delId = msg.messageId;
+            const delId = msg.messageId || msg.id;
             if (delId) {
+              deletedMessageIdsRef.current.add(String(delId));
               setChatMessages((prev) => prev.filter((m) => m.id !== delId));
             }
             break;
@@ -1645,7 +1641,6 @@ export function useWebSocket({
       maxUsers?: number;
       defaultRole?: 'editor' | 'viewer';
       roomName?: string;
-      saveChat?: boolean;
     }) => {
       if (changes.roomName) {
         setSyncedRoomName(changes.roomName);
@@ -1971,6 +1966,8 @@ export function useWebSocket({
 
   const deleteChatMessage = useCallback(
     (messageId: string) => {
+      if (!messageId) return;
+      deletedMessageIdsRef.current.add(messageId);
       setChatMessages((prev) => prev.filter((m) => m.id !== messageId));
       sendMessage({
         type: 'chat-message-delete',

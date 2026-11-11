@@ -673,15 +673,15 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
       className={`fixed bg-slate-900 flex flex-col overflow-hidden transition-all duration-200 ${
         isFullscreen
           ? 'inset-0 z-50 w-screen h-screen rounded-none border-0 shadow-none'
-          : 'inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[680px] md:max-w-[calc(100vw-32px)] z-30 border border-slate-700/80 md:rounded-2xl shadow-2xl'
+          : 'top-16 right-4 bottom-6 w-[680px] max-w-[calc(100vw-32px)] z-30 border border-slate-700/80 rounded-2xl shadow-2xl'
       }`}
     >
       {/* Editor Header */}
-      <div className="h-12 bg-slate-950 border-b border-slate-800 px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-3 text-xs select-none shrink-0">
+      <div className="h-12 bg-slate-950 border-b border-slate-800 px-4 flex items-center justify-between gap-3 text-xs select-none shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="hidden sm:block w-3 h-3 rounded-full bg-rose-500/80 shrink-0" />
-          <span className="hidden sm:block w-3 h-3 rounded-full bg-amber-500/80 shrink-0" />
-          <span className="hidden sm:block w-3 h-3 rounded-full bg-emerald-500/80 shrink-0" />
+          <span className="w-3 h-3 rounded-full bg-rose-500/80 shrink-0" />
+          <span className="w-3 h-3 rounded-full bg-amber-500/80 shrink-0" />
+          <span className="w-3 h-3 rounded-full bg-emerald-500/80 shrink-0" />
           <span className="font-semibold text-slate-200 ml-1.5 truncate">
             {roomName} <span className="font-mono text-slate-500">(#{roomId})</span>
           </span>
@@ -708,7 +708,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
               onUpdateCode(activeContent, nextLang);
               if (nextLang === 'html') setShowHtmlPreview(true);
             }}
-            className="max-w-[104px] sm:max-w-none bg-slate-800 border border-slate-700 rounded-lg px-1.5 sm:px-2.5 py-1 text-slate-200 text-xs font-medium focus:outline-hidden disabled:opacity-50"
+            className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs font-medium focus:outline-hidden disabled:opacity-50"
           >
             {LANGUAGES.map((l) => (
               <option key={l.id} value={l.id}>
@@ -762,7 +762,7 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
           {/* Fullscreen Toggle */}
           <button
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className={`hidden md:flex px-2 py-1.5 rounded-lg text-xs font-medium items-center gap-1 transition-colors ${
+            className={`px-2 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors ${
               isFullscreen
                 ? 'bg-blue-600 text-white hover:bg-blue-500'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800'

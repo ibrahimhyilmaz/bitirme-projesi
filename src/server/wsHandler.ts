@@ -640,13 +640,19 @@ export function setupWebSocketHandler(wss: WebSocketServer): void {
             if (!room) return;
 
             const chatMessage: ChatMessage = {
-              id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-              userId: currentUserId || 'unknown',
+              id:
+                typeof msg.id === 'string' && msg.id.length > 0
+                  ? msg.id
+                  : `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+              userId: currentUserId || msg.userId || 'unknown',
               userName: msg.userName || 'Kullanıcı',
               userColor: msg.userColor || '#2563eb',
               text: msg.text,
-              timestamp: Date.now(),
+              timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
               fileAttachment: msg.fileAttachment,
+              recipientId: msg.recipientId ? String(msg.recipientId) : undefined,
+              recipientName: msg.recipientName ? String(msg.recipientName) : undefined,
+              isPrivate: Boolean(msg.isPrivate || msg.recipientId),
             };
 
             room.messages.push(chatMessage);
@@ -657,6 +663,20 @@ export function setupWebSocketHandler(wss: WebSocketServer): void {
             roomManager.broadcastToRoom(currentRoomId, {
               type: 'chat-received',
               message: chatMessage,
+            });
+            break;
+          }
+
+          case 'chat-message-delete': {
+            if (!currentRoomId) return;
+            const room = roomManager.rooms.get(currentRoomId);
+            if (!room) return;
+            const messageId = msg.messageId || msg.id;
+            if (!messageId) return;
+            room.messages = room.messages.filter((m) => m.id !== messageId);
+            roomManager.broadcastToRoom(currentRoomId, {
+              type: 'chat-message-deleted',
+              messageId,
             });
             break;
           }

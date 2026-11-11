@@ -201,7 +201,6 @@ interface RoomsModalProps {
     maxUsers?: number;
     defaultRole?: 'editor' | 'viewer';
     roomName?: string;
-    saveChat?: boolean;
   }) => void;
   onUpdateUserRole: (targetUserId: string, newRole: UserRole) => void;
   onKickUser: (targetUserId: string) => void;
@@ -589,7 +588,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="px-3 md:px-6 pt-3 border-b border-slate-200 bg-slate-50/50 flex flex-wrap md:flex-nowrap items-center gap-x-2 gap-y-0 md:overflow-x-auto">
+        <div className="px-6 pt-3 border-b border-slate-200 bg-slate-50/50 flex items-center gap-2 overflow-x-auto">
           <button
             onClick={() => setActiveTab('rooms')}
             className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
@@ -632,7 +631,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
         {/* Tab 1: Active Rooms & Create Room */}
         {activeTab === 'rooms' && (
-          <div className="p-4 md:p-6 space-y-5 max-h-[68vh] overflow-y-auto">
+          <div className="p-6 space-y-5 max-h-[68vh] overflow-y-auto">
             {modalError && (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center justify-between gap-2">
                 <span className="font-semibold">{modalError}</span>
@@ -984,7 +983,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
         {/* Tab 2: Room Lock, Capacity & User Roles */}
         {activeTab === 'permissions' && (
-          <div className="p-4 md:p-6 space-y-5 max-h-[68vh] overflow-y-auto">
+          <div className="p-6 space-y-5 max-h-[68vh] overflow-y-auto">
             {!canManage && (
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
                 Bu odada rolünüz <strong>{getRoleLabel(currentUserRole)}</strong>. Oda ayarlarını ve
@@ -1021,37 +1020,6 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                   }`}
                 >
                   {roomSettings.isLocked ? 'Kilidi Aç' : 'Odayı Kilitle'}
-                </button>
-              </div>
-
-              {/* Save chat history (owner decides) */}
-              <div className="p-4 rounded-xl border border-slate-200 flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs font-bold text-slate-800">
-                    {roomSettings.saveChat === false ? 'Sohbet Kaydı Kapalı' : 'Sohbet Kaydı Açık'}
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Açıkken sohbet mesajları odada saklanır; kapatınca mevcut geçmiş silinir.
-                  </p>
-                </div>
-                <button
-                  disabled={!canManage}
-                  onClick={() => {
-                    if (
-                      roomSettings.saveChat !== false &&
-                      !window.confirm('Sohbet kaydı kapatılırsa odadaki mevcut sohbet geçmişi herkes için silinir. Devam edilsin mi?')
-                    ) {
-                      return;
-                    }
-                    onUpdateRoomSettings({ saveChat: roomSettings.saveChat === false });
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 ${
-                    roomSettings.saveChat === false
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : 'bg-slate-900 text-white hover:bg-slate-800'
-                  }`}
-                >
-                  {roomSettings.saveChat === false ? 'Kaydı Aç' : 'Kaydı Kapat'}
                 </button>
               </div>
 
@@ -1205,7 +1173,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
         {/* Tab 3: QR Code Invite, Multi-Device Link Builder & Cloud Sync */}
         {activeTab === 'invite' && (
-          <div className="p-4 md:p-6 space-y-4 overflow-y-auto max-h-[68vh]">
+          <div className="p-6 space-y-4 overflow-y-auto max-h-[68vh]">
             {/* Section 1: Prominent QR Code & Quick Scan Card */}
             <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950 text-white border border-slate-800 shadow-lg">
               <div className="flex flex-col sm:flex-row items-center gap-5">
@@ -1317,7 +1285,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   Oda Davet Bağlantısı (#{currentRoomId})
                 </label>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="flex items-center gap-2">
                   <input
                     type="text"
                     readOnly
@@ -1327,7 +1295,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                   <button
                     type="button"
                     onClick={() => copyText(shareUrl, 'link')}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0 shadow-xs"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow-xs"
                   >
                     {copiedShareLink ? (
                       <>

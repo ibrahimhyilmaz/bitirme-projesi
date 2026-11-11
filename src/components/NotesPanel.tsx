@@ -6,6 +6,8 @@ import {
   X,
   Check,
   Sparkles,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 interface NotesPanelProps {
@@ -68,6 +70,7 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
   onClose,
 }) => {
   const [copied, setCopied] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(notes.content);
@@ -86,7 +89,13 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
   };
 
   return (
-    <div className="fixed inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[480px] md:max-w-[calc(100vw-32px)] z-40 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 md:rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none cb-anim-scale-in">
+    <div
+      className={`fixed bg-white dark:bg-slate-900 flex flex-col overflow-hidden select-none cb-anim-scale-in ${
+        isFullscreen
+          ? 'inset-0 z-[70] w-screen h-screen rounded-none border-0 shadow-none'
+          : 'top-16 right-4 bottom-6 w-[480px] max-w-[calc(100vw-32px)] z-40 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl'
+      }`}
+    >
       {/* Header */}
       <div className="h-12 bg-slate-50 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 px-4 flex items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2 min-w-0">
@@ -137,6 +146,28 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
             title="Markdown Olarak İndir"
           >
             <Download className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setIsFullscreen((v) => !v)}
+            className={`px-2 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors ${
+              isFullscreen
+                ? 'bg-blue-600 text-white hover:bg-blue-500'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+            }`}
+            title={isFullscreen ? 'Tam Ekrandan Çık' : 'Tam Ekran Yap'}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Küçült</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Tam Ekran</span>
+              </>
+            )}
           </button>
 
           <button

@@ -28,9 +28,9 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[92dvh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="min-h-14 px-4 md:px-6 py-2 gap-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
+        <div className="h-14 px-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center">
               <Sparkles className="w-4 h-4" />
@@ -52,7 +52,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
         </div>
 
         {/* Templates Grid */}
-        <div className="p-4 md:p-6 grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0 overflow-y-auto">
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto">
           {BOARD_TEMPLATES.map((tmpl) => {
             const isSelected = selectedTemplate.id === tmpl.id;
             return (
@@ -90,10 +90,10 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-3 px-4 md:p-4 md:px-6 bg-slate-50 dark:bg-slate-900/90 border-t border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="p-4 px-6 bg-slate-50 dark:bg-slate-900/90 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs">
             <span className="text-slate-600 dark:text-slate-400 font-medium">Yükleme Modu:</span>
-            <div className="flex flex-wrap items-center gap-1 bg-white dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center gap-1 bg-white dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
               <button
                 onClick={() => setLoadMode('append')}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
@@ -115,7 +115,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center gap-2">
             <button
               onClick={onClose}
               className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-xl transition-colors"

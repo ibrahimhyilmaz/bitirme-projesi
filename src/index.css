@@ -177,7 +177,7 @@
 }
 
 /* Theme-Adaptive Floating Bars & Popovers (Dark, Midnight, Sepia) */
-[data-theme="dark"] [data-floating-bar="true"],
+[data-theme="dark"] [data-floating-bar="true"]:not(.pointer-events-none),
 [data-theme="dark"] [data-floating-bar="true"] .bg-white,
 [data-theme="dark"] [data-floating-bar="true"] .bg-white\/95,
 [data-theme="dark"] [data-floating-bar="true"] .bg-white\/98 {
@@ -186,7 +186,7 @@
   color: #f1f5f9 !important;
 }
 
-[data-theme="midnight"] [data-floating-bar="true"],
+[data-theme="midnight"] [data-floating-bar="true"]:not(.pointer-events-none),
 [data-theme="midnight"] [data-floating-bar="true"] .bg-white,
 [data-theme="midnight"] [data-floating-bar="true"] .bg-white\/95,
 [data-theme="midnight"] [data-floating-bar="true"] .bg-white\/98 {
@@ -195,7 +195,7 @@
   color: #e2e8f0 !important;
 }
 
-[data-theme="sepia"] [data-floating-bar="true"],
+[data-theme="sepia"] [data-floating-bar="true"]:not(.pointer-events-none),
 [data-theme="sepia"] [data-floating-bar="true"] .bg-white,
 [data-theme="sepia"] [data-floating-bar="true"] .bg-white\/95,
 [data-theme="sepia"] [data-floating-bar="true"] .bg-white\/98 {
@@ -304,55 +304,3 @@
 }
 
 
-
-
-/* ---- Mobile / touch support ---- */
-@supports (height: 100dvh) {
-  html,
-  body,
-  #root {
-    height: 100dvh;
-  }
-}
-
-html,
-body {
-  overscroll-behavior: none;
-  -webkit-text-size-adjust: 100%;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* iOS Safari zooms into inputs below 16px; keep text fields at 16px on phones */
-@media (max-width: 767px) {
-  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']),
-  textarea,
-  select {
-    font-size: 16px !important;
-  }
-}
-
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-.safe-top {
-  padding-top: env(safe-area-inset-top, 0px);
-}
-
-/* Toolbar / style-bar popovers become full-width sheets above their bar on phones */
-@media (max-width: 767px) {
-  [data-floating-bar='true'] [data-popover='true'] {
-    position: fixed !important;
-    left: 8px !important;
-    right: 8px !important;
-    top: auto !important;
-    bottom: calc(100% + 8px) !important;
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    margin: 0 !important;
-    transform: none !important;
-    translate: none !important;
-    max-height: 55dvh;
-    overflow-y: auto;
-  }
-}

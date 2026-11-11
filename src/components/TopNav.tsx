@@ -37,8 +37,6 @@ import {
   ChevronDown,
   PlusCircle,
   Clock,
-  Menu as MenuIcon,
-  X as XIcon,
 } from 'lucide-react';
 import { RoomSettings, ThemeMode, UserPresence, UserRole } from '../types';
 import { getShareableRoomUrl } from './RoomsModal';
@@ -149,7 +147,6 @@ export const TopNav: React.FC<TopNavProps> = ({
   const [copiedRoomCode, setCopiedRoomCode] = useState(false);
   const [showBoxesMenu, setShowBoxesMenu] = useState(false);
   const [showRoomQuickMenu, setShowRoomQuickMenu] = useState(false);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [quickSwitchCode, setQuickSwitchCode] = useState('');
   const boxesMenuRef = useRef<HTMLDivElement | null>(null);
   const roomMenuRef = useRef<HTMLDivElement | null>(null);
@@ -212,7 +209,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
   return (
     <header
-      className={`h-12 md:h-14 w-full max-w-full border-b px-2 sm:px-3 flex items-center justify-between gap-1 sm:gap-2 shrink-0 z-50 select-none overflow-visible transition-colors ${
+      className={`h-14 w-full max-w-full border-b px-2 sm:px-3 flex items-center justify-between gap-1 sm:gap-2 shrink-0 z-50 select-none overflow-visible transition-colors ${
         theme === 'dark'
           ? 'bg-slate-900 border-slate-800 text-slate-100'
           : theme === 'midnight'
@@ -257,11 +254,11 @@ export const TopNav: React.FC<TopNavProps> = ({
             ) : (
               <DoorOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
             )}
-            <span className="font-semibold truncate max-w-[64px] sm:max-w-[90px] xl:max-w-[125px]">{cleanRoomName}</span>
+            <span className="font-semibold truncate max-w-[90px] xl:max-w-[125px]">{cleanRoomName}</span>
             <span className={`font-mono text-[11px] font-bold px-1 rounded ${isDark ? 'bg-slate-800 text-blue-400' : 'bg-slate-100 text-blue-700'}`}>
               #{roomId.toUpperCase()}
             </span>
-            <span className={`font-mono text-[11px] shrink-0 hidden min-[400px]:inline ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            <span className={`font-mono text-[11px] shrink-0 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
               ({users.length}/{roomSettings.maxUsers})
             </span>
             <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
@@ -270,7 +267,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           {/* Quick Room Switcher & Room Info Popover */}
           {showRoomQuickMenu && (
             <div
-              className={`fixed md:absolute left-2 right-2 md:left-0 md:right-auto top-14 md:top-full mt-0 md:mt-2 md:w-76 rounded-2xl border shadow-2xl p-3.5 z-50 cb-anim-scale-in ${
+              className={`absolute left-0 top-full mt-2 w-76 rounded-2xl border shadow-2xl p-3.5 z-50 cb-anim-scale-in ${
                 isDark
                   ? 'bg-slate-900 border-slate-700 text-slate-100'
                   : 'bg-white border-slate-200 text-slate-900'
@@ -460,7 +457,7 @@ export const TopNav: React.FC<TopNavProps> = ({
       {/* Zone 2: Workspace View Toggles (All visible side-by-side) */}
       <nav
         data-tour="workspace-nav"
-        className={`hidden md:flex items-center gap-0.5 p-1 rounded-lg shrink-0 ${
+        className={`flex items-center gap-0.5 p-1 rounded-lg shrink-0 ${
           isDark ? 'bg-slate-800/90' : theme === 'sepia' ? 'bg-[#ebe2ce]' : 'bg-slate-100'
         }`}
       >
@@ -565,15 +562,21 @@ export const TopNav: React.FC<TopNavProps> = ({
           <MessageSquare className="w-3.5 h-3.5 shrink-0" />
           <span>Sohbet</span>
           {unreadChatCount > 0 && (
-            <span className="ml-0.5 px-1.5 py-0.2 bg-rose-600 text-white text-[10px] font-mono tabular-nums font-bold rounded-full">
-              {unreadChatCount}
+            <span className="ml-0.5 px-1.5 py-0.2 bg-rose-600 text-white text-[10px] font-mono tabular-nums font-bold rounded-full shadow-xs animate-pulse">
+              {unreadChatCount >= 1000
+                ? '999+'
+                : unreadChatCount >= 100
+                ? '99+'
+                : unreadChatCount >= 10
+                ? '9+'
+                : unreadChatCount}
             </span>
           )}
         </button>
       </nav>
 
       {/* Zone 3: Floating Boxes Visibility, Tour, Theme, Settings, Audio & Export */}
-      <div className="hidden md:flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
         {/* Interactive Onboarding Tour Trigger (Symbol Only) */}
         {onStartOnboardingTour && (
           <button
@@ -986,174 +989,6 @@ export const TopNav: React.FC<TopNavProps> = ({
           <span>Dışa Aktar</span>
         </button>
       </div>
-
-      {/* Zone M: phone controls (mic + menu) */}
-      <div className="flex md:hidden items-center gap-1 shrink-0">
-        <button
-          onClick={onToggleMute}
-          title={isMuted ? 'Mikrofonu Aç' : 'Mikrofonu Sustur'}
-          className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-            isMuted
-              ? 'bg-rose-500/15 text-rose-500'
-              : 'bg-emerald-500/15 text-emerald-500'
-          }`}
-        >
-          {isMuted ? <MicOff className="w-4.5 h-4.5" /> : <Mic className="w-4.5 h-4.5" />}
-        </button>
-        <button
-          onClick={() => setShowMobileMenu(true)}
-          title="Menü"
-          className={`relative w-9 h-9 rounded-lg border flex items-center justify-center ${
-            isDark
-              ? 'bg-slate-800 border-slate-700 text-slate-100'
-              : 'bg-slate-100 border-slate-200 text-slate-700'
-          }`}
-        >
-          <MenuIcon className="w-5 h-5" />
-          {unreadChatCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center">
-              {unreadChatCount}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Mobile menu: bottom sheet with every action of the desktop header */}
-      {showMobileMenu && (
-        <div
-          className="md:hidden fixed inset-0 z-[1000] bg-slate-950/55 flex items-end"
-          onClick={() => setShowMobileMenu(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className={`w-full max-h-[85dvh] overflow-y-auto rounded-t-3xl p-4 safe-bottom cb-anim-scale-in ${
-              isDark ? 'bg-slate-900 text-slate-100' : 'bg-white text-slate-900'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-bold">Menü</span>
-              <button
-                onClick={() => setShowMobileMenu(false)}
-                className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                  isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'
-                }`}
-              >
-                <XIcon className="w-4 h-4" />
-              </button>
-            </div>
-
-            {(() => {
-              const close = () => setShowMobileMenu(false);
-              const cell = (
-                icon: React.ReactNode,
-                label: string,
-                onClick: () => void,
-                opts?: { active?: boolean; disabled?: boolean; badge?: number }
-              ) => (
-                <button
-                  key={label}
-                  type="button"
-                  disabled={opts?.disabled}
-                  onClick={() => {
-                    close();
-                    onClick();
-                  }}
-                  className={`relative flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl border text-[11px] font-semibold transition-colors disabled:opacity-40 ${
-                    opts?.active
-                      ? 'bg-blue-600 border-blue-600 text-white'
-                      : isDark
-                      ? 'bg-slate-800 border-slate-700 text-slate-200'
-                      : 'bg-slate-50 border-slate-200 text-slate-700'
-                  }`}
-                >
-                  {icon}
-                  <span className="text-center leading-tight px-1">{label}</span>
-                  {opts?.badge ? (
-                    <span className="absolute top-1.5 right-2 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center">
-                      {opts.badge}
-                    </span>
-                  ) : null}
-                </button>
-              );
-              const viewer = currentUserRole === 'viewer';
-              return (
-                <>
-                  <div className="grid grid-cols-3 gap-2">
-                    {cell(<Wand2 className="w-5 h-5 text-violet-500" />, 'AI Çizim', onOpenAIPrompt, { disabled: viewer })}
-                    {cell(<Sparkles className="w-5 h-5 text-amber-500" />, 'Şablonlar', onOpenTemplates, { disabled: viewer })}
-                    {cell(<Code2 className="w-5 h-5" />, 'Kod', () => onTogglePanel('code'), { active: activePanel === 'code' })}
-                    {cell(<FileText className="w-5 h-5" />, 'Notlar', () => onTogglePanel('notes'), { active: activePanel === 'notes' })}
-                    {cell(<FolderOpen className="w-5 h-5" />, 'Dosyalar', () => onTogglePanel('files'), { active: activePanel === 'files' })}
-                    {cell(<MessageSquare className="w-5 h-5" />, 'Sohbet', () => onTogglePanel('chat'), {
-                      active: activePanel === 'chat',
-                      badge: unreadChatCount,
-                    })}
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    {cell(<QrCode className="w-5 h-5 text-blue-500" />, 'Davet / QR', () => {
-                      handleCopyLink();
-                      onOpenRoomsModal('invite');
-                    })}
-                    {cell(<DoorOpen className="w-5 h-5 text-blue-500" />, 'Odalar', () => onOpenRoomsModal('rooms'))}
-                    {cell(<Shield className="w-5 h-5 text-emerald-500" />, 'Yetkiler', () => onOpenRoomsModal('permissions'))}
-                    {cell(
-                      isDeafened ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />,
-                      isDeafened ? 'Sesi Aç' : 'Sesi Kapat',
-                      onToggleDeafen
-                    )}
-                    {onCycleTheme && cell(renderThemeIcon(), 'Tema', onCycleTheme)}
-                    {onToggleFullscreen &&
-                      cell(
-                        isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />,
-                        'Tam Ekran',
-                        onToggleFullscreen
-                      )}
-                    {onOpenSettings && cell(<Settings className="w-5 h-5" />, 'Ayarlar', () => onOpenSettings('appearance'))}
-                    {cell(<UserCog className="w-5 h-5" />, 'Profil', onOpenUserSetup)}
-                    {cell(<Download className="w-5 h-5" />, 'Dışa Aktar', onOpenExport)}
-                    {onStartOnboardingTour && cell(<Compass className="w-5 h-5 text-indigo-500" />, 'Tur', onStartOnboardingTour)}
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                      Kutucuklar
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(
-                        [
-                          ['Araç Çubuğu', showToolbar, onToggleToolbar],
-                          ['Stil Çubuğu', showStyleBar, onToggleStyleBar],
-                          ['Sesli Kanal', showVoiceBar, onToggleVoiceBar],
-                          ['Mini Harita', showMinimap, onToggleMinimap],
-                        ] as const
-                      ).map(([label, on, toggle]) => (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() => toggle && toggle()}
-                          className={`flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs font-semibold ${
-                            on
-                              ? isDark
-                                ? 'bg-blue-950/60 border-blue-800 text-blue-300'
-                                : 'bg-blue-50 border-blue-200 text-blue-700'
-                              : isDark
-                              ? 'bg-slate-800 border-slate-700 text-slate-400'
-                              : 'bg-slate-50 border-slate-200 text-slate-500'
-                          }`}
-                        >
-                          <span>{label}</span>
-                          {on ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        </div>
-      )}
     </header>
   );
 };

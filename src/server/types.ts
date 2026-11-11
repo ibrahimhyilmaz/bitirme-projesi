@@ -68,7 +68,11 @@ export interface ChatMessage {
   fileAttachment?: {
     name: string;
     url: string;
+    type?: string;
   };
+  recipientId?: string;
+  recipientName?: string;
+  isPrivate?: boolean;
 }
 
 export interface UserPresence {
