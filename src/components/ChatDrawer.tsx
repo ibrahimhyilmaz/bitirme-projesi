@@ -1,3 +1,4 @@
+import { getLanguage, translatePhrase } from '../i18n';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   MessageSquare,
@@ -642,7 +643,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
             onClick={() => {
               if (
                 saveChatEnabled &&
-                !window.confirm('Sohbet kaydı kapatılırsa odadaki mevcut sohbet geçmişi herkes için silinir. Devam edilsin mi?')
+                !window.confirm(translatePhrase('Sohbet kaydı kapatılırsa odadaki mevcut sohbet geçmişi herkes için silinir. Devam edilsin mi?', getLanguage()))
               ) {
                 return;
               }

@@ -1,3 +1,4 @@
+import { getLanguage, translatePhrase } from '../i18n';
 import React, { useState, useEffect, useMemo } from 'react';
 import QRCode from 'qrcode';
 import {
@@ -1039,7 +1040,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                   onClick={() => {
                     if (
                       roomSettings.saveChat !== false &&
-                      !window.confirm('Sohbet kaydı kapatılırsa odadaki mevcut sohbet geçmişi herkes için silinir. Devam edilsin mi?')
+                      !window.confirm(translatePhrase('Sohbet kaydı kapatılırsa odadaki mevcut sohbet geçmişi herkes için silinir. Devam edilsin mi?', getLanguage()))
                     ) {
                       return;
                     }

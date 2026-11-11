@@ -3,6 +3,7 @@ import type { LanguageCode } from './types';
 import { EXTRA_PHRASES } from './i18nExtra';
 import { EXTRA_PHRASES_2 } from './i18nExtra2';
 import { EXTRA_PHRASES_3 } from './i18nExtra3';
+import { translateDynamicPhrase } from './i18nPatterns';
 
 export const LANGUAGE_OPTIONS: { code: LanguageCode; label: string; dir: 'ltr' | 'rtl' }[] = [
   { code: 'tr', label: 'Türkçe', dir: 'ltr' },
@@ -1509,6 +1510,9 @@ export function translatePhrase(raw: string, lang: LanguageCode): string {
   if (exact && exact[idx]) {
     return raw.replace(trimmed, exact[idx]);
   }
+
+  const dynamic = translateDynamicPhrase(trimmed, lang);
+  if (dynamic) return raw.replace(trimmed, dynamic);
 
   // Dynamic patterns (e.g. "Yakınlaştırma: %100", "6/6 Açık", "1 kişi", "3 öğe seçildi", "Adım 1", "4 nesne", "2 dosya")
   if (trimmed.startsWith('Yakınlaştırma:')) {

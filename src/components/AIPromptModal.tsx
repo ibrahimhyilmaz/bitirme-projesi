@@ -21,6 +21,13 @@ import {
 import { CanvasElement } from '../types';
 import { buildFallbackCanvasElements } from '../server/aiVectorPresets';
 import { buildFallbackSvg } from '../server/aiSvgTemplates';
+import {
+  ClientGeminiError,
+  clientGenerateCanvas,
+  clientGenerateSvgImage,
+  getStoredGeminiKey,
+  setStoredGeminiKey,
+} from '../utils/clientGemini';
 
 interface AIPromptModalProps {
   centerX: number;
@@ -252,6 +259,8 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
     }
   });
   const [quotaStatus, setQuotaStatus] = useState<ClientQuotaResponse | null>(null);
+  const [geminiKey, setGeminiKey] = useState<string>(() => getStoredGeminiKey());
+  const [geminiKeyDraft, setGeminiKeyDraft] = useState<string>('');
   const [mode, setMode] = useState<GenerationMode>('vector');
   const [prompt, setPrompt] = useState('');
   const [selectedStageId, setSelectedStageId] = useState<ThinkingStageId>('standard');
@@ -400,6 +409,45 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
     });
 
     const executeRequest = async (attemptFlag: boolean) => {
+      // "Bring your own key": talk to Gemini straight from the browser (works on static hosting)
+      const userKey = getStoredGeminiKey();
+      if (userKey) {
+        try {
+          if (activeMode === 'image') {
+            const element = await clientGenerateSvgImage({
+              apiKey: userKey,
+              prompt: targetPrompt,
+              centerX,
+              centerY,
+              author: authorName,
+              signal: controller.signal,
+            });
+            return { element } as Record<string, unknown>;
+          }
+          const elements = await clientGenerateCanvas({
+            apiKey: userKey,
+            prompt: targetPrompt,
+            centerX,
+            centerY,
+            author: authorName,
+            thinkingLevel: stage.id,
+            signal: controller.signal,
+          });
+          return { elements } as Record<string, unknown>;
+        } catch (e) {
+          if (e instanceof ClientGeminiError) {
+            throw {
+              message: e.message,
+              code: e.code,
+              retryable: e.retryable,
+              suggestion: e.suggestion,
+              attemptsMade: 1,
+            } satisfies StructuredAIError;
+          }
+          throw e;
+        }
+      }
+
       let response: Response;
       try {
         response = await fetch(endpoint, {
@@ -474,6 +522,8 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           structured.code !== 'QUOTA_LIMIT_REACHED' &&
           structured.code !== 'API_KEY_UNAVAILABLE' &&
           structured.code !== 'SERVER_UNREACHABLE' &&
+          structured.code !== 'UNFULFILLABLE_PROMPT' &&
+          !getStoredGeminiKey() &&
           !controller.signal.aborted
         ) {
           setRetryStatusMessage(
@@ -527,6 +577,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
 
       const failure = err as Partial<StructuredAIError> | null;
       const serverMissing =
+        !getStoredGeminiKey() &&
         !!failure &&
         typeof failure === 'object' &&
         (failure.code === 'SERVER_UNREACHABLE' || failure.code === 'API_KEY_UNAVAILABLE');
@@ -584,7 +635,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           code: 'SERVER_UNREACHABLE',
           retryable: true,
           suggestion:
-            'Hazır çizimler: elma, araba, kedi, köpek, ağaç, roket, ev veya "mimari şeması" yazın. Canlı yapay zeka için uygulamayı Node sunucusuyla ve GEMINI_API_KEY ile çalıştırın.',
+            'Canlı yapay zeka için yukarıdaki "Tarayıcıda canlı yapay zeka" alanına kendi Gemini API anahtarınızı ekleyin (ücretsiz: aistudio.google.com/apikey). Anahtarsız hazır çizimler: elma, araba, kedi, köpek, ağaç, roket, ev veya "mimari şeması".',
           attemptsMade: 1,
         });
         return;
@@ -800,6 +851,57 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   Google AI Studio (Settings &gt; Secrets: <code className="font-mono">GEMINI_API_KEY</code>) bağlantınızı kullanır. Saatlik 100 yüksek öncelikli istek sağlar.
                 </p>
               </button>
+            </div>
+
+            {/* Browser-side Gemini key (static hosting / no server key) */}
+            <div className="mt-2.5 pt-2 border-t border-slate-200/80">
+              <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-violet-600" />
+                <span>Tarayıcıda canlı yapay zeka (kendi Gemini API anahtarım)</span>
+                {geminiKey && (
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-bold">
+                    Etkin
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                Sunucusuz sitelerde (GitHub Pages) çizim için gereklidir. Anahtar yalnızca bu tarayıcıda saklanır ve doğrudan Google’a gönderilir. Ücretsiz anahtar: aistudio.google.com/apikey
+              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={geminiKeyDraft}
+                  onChange={(e) => setGeminiKeyDraft(e.target.value)}
+                  placeholder={geminiKey ? 'Kayıtlı anahtar var (değiştirmek için yenisini yapıştırın)' : 'AIza... anahtarınızı yapıştırın'}
+                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-mono text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-violet-500"
+                />
+                <button
+                  type="button"
+                  disabled={!geminiKeyDraft.trim()}
+                  onClick={() => {
+                    setStoredGeminiKey(geminiKeyDraft);
+                    setGeminiKey(geminiKeyDraft.trim());
+                    setGeminiKeyDraft('');
+                    setErrorState(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-xs font-semibold shrink-0"
+                >
+                  Kaydet
+                </button>
+                {geminiKey && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStoredGeminiKey('');
+                      setGeminiKey('');
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 text-xs font-semibold shrink-0"
+                  >
+                    Sil
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Live Quota Progress Bar */}

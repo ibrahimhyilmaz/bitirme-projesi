@@ -120,7 +120,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-2xl rounded-2xl shadow-2xl border overflow-hidden flex flex-col max-h-[88vh] transition-colors ${
+        className={`w-full max-w-2xl md:max-w-4xl rounded-2xl shadow-2xl border overflow-hidden flex flex-col max-h-[88vh] md:h-[min(88vh,680px)] transition-colors ${
           isDark
             ? 'bg-slate-900 border-slate-700 text-slate-100'
             : 'bg-white border-slate-200 text-slate-900'
@@ -154,17 +154,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Navigation Tabs */}
+        <div className="flex flex-col md:flex-row flex-1 min-h-0">
+        {/* Navigation Tabs: vertical, left-aligned sidebar on desktop; compact strip on phones */}
         <div
-          className={`px-3 md:px-6 pt-2 border-b flex flex-wrap md:flex-nowrap items-center gap-1 md:overflow-x-auto max-md:[&>button:not(.border-blue-600)>span]:hidden ${
+          className={`px-3 pt-2 md:pt-3 md:pb-3 border-b md:border-b-0 md:border-r flex flex-wrap md:flex-col md:flex-nowrap items-center md:items-stretch gap-1 md:w-60 md:shrink-0 md:overflow-y-auto max-md:[&>button:not(.border-blue-600)>span]:hidden ${
             isDark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'
           }`}
         >
           <button
             onClick={() => setActiveTab('appearance')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'appearance'
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
                 ? 'border-transparent text-slate-400 hover:text-slate-200'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -176,9 +177,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('language')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'language'
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
                 ? 'border-transparent text-slate-400 hover:text-slate-200'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -190,9 +191,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('panels')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'panels'
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
                 ? 'border-transparent text-slate-400 hover:text-slate-200'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -204,9 +205,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('editor')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'editor'
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
                 ? 'border-transparent text-slate-400 hover:text-slate-200'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -218,9 +219,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('drawing')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'drawing'
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
                 ? 'border-transparent text-slate-400 hover:text-slate-200'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -232,9 +233,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('shortcuts')}
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'shortcuts'
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
                 ? 'border-transparent text-slate-400 hover:text-slate-200'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -246,7 +247,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab Content Body */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="p-4 md:p-6 overflow-y-auto space-y-6 flex-1 min-w-0">
           {activeTab === 'appearance' && (
             <>
               <div>
@@ -395,7 +396,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     <div className="flex items-center gap-2 text-xs font-bold">
                       <Eye className="w-4 h-4" />
-                      <span>{t('panels.fullyShow')} (Hepsini Aç)</span>
+                      <span>{t('panels.fullyShow')}</span>
                     </div>
                     <p className="text-[10px] mt-0.5 text-blue-100">{t('panels.fullyShowDesc')}</p>
                   </button>
@@ -412,7 +413,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     <div className="flex items-center gap-2 text-xs font-bold">
                       <EyeOffIcon className="w-4 h-4" />
-                      <span>{t('panels.fullyHide')} (Hepsini Gizle)</span>
+                      <span>{t('panels.fullyHide')}</span>
                     </div>
                     <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                       {t('panels.fullyHideDesc')}
@@ -876,6 +877,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           )}
+        </div>
         </div>
 
         {/* Footer */}
