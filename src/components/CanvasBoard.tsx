@@ -64,16 +64,21 @@ import {
 } from '../utils/fileValidation';
 import { CanvasQuickAccess, getRadialToolAtAngle } from './CanvasQuickAccess';
 
-// Custom Precision SVG Cursors for Pencil, Highlighter, Erasers, and Ping
+// Custom Precision SVG Cursors for Pencil, Fountain Pen (Dolma Kalem), Highlighter, Bucket, Erasers, and Ping
 const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z'/><path d='m15 5 4 4'/></g><path d='M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z' fill='%23dbeafe' stroke='%231d4ed8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/><path d='m15 5 4 4' stroke='%231d4ed8' stroke-width='1.8' stroke-linecap='round'/><circle cx='2' cy='22' r='1.5' fill='%23ef4444'/></svg>") 2 22, crosshair`;
 
+// Iconic Fountain Pen Nib cursor matching Toolbar FountainPenNibIcon (hotspot at nib tip 2,2)
+const FOUNTAIN_PEN_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.8' stroke-linecap='round' stroke-linejoin='round'><path d='M12 19l7-7 3 3-7 7-3-3z'/><path d='M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z'/><path d='M2 2l7.586 7.586'/><circle cx='11' cy='11' r='2'/></g><g stroke='%23312e81' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 19l7-7 3 3-7 7-3-3z' fill='%23c7d2fe'/><path d='M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z' fill='%23e0e7ff'/><path d='M2 2l7.586 7.586'/><circle cx='11' cy='11' r='2' fill='%23312e81'/></g></svg>") 2 2, crosshair`;
+
 const HIGHLIGHTER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h9l3-3'/><path d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/></g><g stroke='%23d97706' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m9 11-6 6v3h9l3-3' fill='%23fef08a'/><path d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4' fill='%23ffffff'/></g><circle cx='3' cy='20' r='1.5' fill='%23d97706'/></svg>") 3 20, crosshair`;
+
+const BUCKET_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z'/><path d='m5 2 5 5'/><path d='M2 13h15'/><path d='M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z'/></g><g stroke='%232563eb' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z' fill='%23dbeafe'/><path d='m5 2 5 5'/><path d='M2 13h15'/><path d='M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z' fill='%233b82f6'/></g></svg>") 20 20, crosshair`;
 
 const ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g><g stroke='%23e11d48' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21' fill='%23ffe4e6'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g></svg>") 7 20, crosshair`;
 
 const POINT_ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3'/><circle cx='6' cy='18' r='3'/><line x1='20' y1='4' x2='8.12' y2='15.88'/><line x1='14.47' y1='14.47' x2='20' y2='20'/><line x1='8.12' y1='8.12' x2='12' y2='12'/></g><g stroke='%23d97706' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3' fill='%23fef3c7'/><circle cx='6' cy='18' r='3' fill='%23fef3c7'/><line x1='20' y1='4' x2='8.12' y2='15.88'/><line x1='14.47' y1='14.47' x2='20' y2='20'/><line x1='8.12' y1='8.12' x2='12' y2='12'/></g></svg>") 6 6, crosshair`;
 
-const LASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='8' fill='%23ef4444' opacity='0.3'/><circle cx='12' cy='12' r='5' fill='%23ef4444'/><circle cx='12' cy='12' r='2' fill='%23ffffff'/></svg>") 12 12, crosshair`;
+const LASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='9' fill='%23ff0022' opacity='0.35'/><circle cx='12' cy='12' r='5.5' fill='%23ff0022'/><circle cx='12' cy='12' r='2.3' fill='%23ffffff'/></svg>") 12 12, crosshair`;
 
 const PING_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g><g stroke='%23059669' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2.5' fill='%2310b981'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g></svg>") 11 11, crosshair`;
 
@@ -274,6 +279,304 @@ function hitTestGroupHandle(
   return null;
 }
 
+interface LaserTrailPoint {
+  x: number;
+  y: number;
+  time: number;
+  w?: number;
+  strokeId?: number;
+  userId?: string;
+  color?: string;
+}
+
+// Smooth Fountain-Pen-Style Calligraphic Laser Trail Renderer
+// Uses a single closed C1 quadratic B-spline ribbon polygon per sub-stroke so fading is 100% uniform with zero vertex dots
+function drawSmoothLaserTrail(
+  ctx: CanvasRenderingContext2D,
+  points: LaserTrailPoint[],
+  now: number,
+  zoom: number,
+  baseStrokeWidth: number
+) {
+  const maxAge = 1300;
+  const active = points.filter((p) => now - p.time < maxAge);
+  if (active.length === 0) return;
+
+  // Split into continuous sub-strokes (break on strokeId change, userId change, or time gap > 220ms)
+  const strokes: LaserTrailPoint[][] = [];
+  let currentStroke: LaserTrailPoint[] = [];
+
+  for (let i = 0; i < active.length; i++) {
+    const pt = active[i];
+    if (currentStroke.length === 0) {
+      currentStroke.push(pt);
+    } else {
+      const prev = currentStroke[currentStroke.length - 1];
+      const differentStroke =
+        (pt.strokeId !== undefined &&
+          prev.strokeId !== undefined &&
+          pt.strokeId !== prev.strokeId) ||
+        (pt.userId !== undefined && prev.userId !== undefined && pt.userId !== prev.userId) ||
+        pt.time - prev.time > 220;
+      if (differentStroke) {
+        strokes.push(currentStroke);
+        currentStroke = [pt];
+      } else if (
+        Math.hypot(pt.x - prev.x, pt.y - prev.y) >= 0.75 / zoom ||
+        i === active.length - 1
+      ) {
+        currentStroke.push(pt);
+      }
+    }
+  }
+  if (currentStroke.length > 0) {
+    strokes.push(currentStroke);
+  }
+
+  const baseRadius = Math.max(2.8, (baseStrokeWidth || 5) * 0.62) / zoom;
+
+  const getPointAlpha = (t: number) => {
+    const age = now - t;
+    const lin = Math.max(0, Math.min(1, 1 - age / maxAge));
+    // Smoothstep easing for silky-smooth fade
+    return lin * lin * (3 - 2 * lin);
+  };
+
+  for (const stroke of strokes) {
+    const newestPt = stroke[stroke.length - 1];
+    const strokeHeadAlpha = getPointAlpha(newestPt.time);
+    if (strokeHeadAlpha <= 0.01) continue;
+
+    if (stroke.length === 1) {
+      const p0 = stroke[0];
+      const r = baseRadius * (p0.w ?? 1.25) * (0.35 + 0.65 * strokeHeadAlpha);
+      ctx.save();
+      ctx.globalAlpha = strokeHeadAlpha;
+      ctx.fillStyle = '#ff0022';
+      ctx.shadowColor = '#ff002b';
+      ctx.shadowBlur = 15 / zoom;
+      ctx.beginPath();
+      ctx.arc(p0.x, p0.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ff99ac';
+      ctx.beginPath();
+      ctx.arc(p0.x, p0.y, r * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      continue;
+    }
+
+    // Build dense C1 quadratic midpoint spline samples with interpolated (x, y, w, alpha)
+    const rawSpine: { x: number; y: number; w: number; alpha: number }[] = [];
+
+    if (stroke.length === 2) {
+      const p0 = stroke[0];
+      const p1 = stroke[1];
+      const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      const steps = Math.max(6, Math.min(28, Math.ceil((dist * zoom) / 2.8)));
+      const a0 = getPointAlpha(p0.time);
+      const a1 = getPointAlpha(p1.time);
+      const w0 = p0.w ?? 1.25;
+      const w1 = p1.w ?? 1.25;
+      for (let s = 0; s <= steps; s++) {
+        const u = s / steps;
+        rawSpine.push({
+          x: p0.x + (p1.x - p0.x) * u,
+          y: p0.y + (p1.y - p0.y) * u,
+          w: w0 + (w1 - w0) * u,
+          alpha: a0 + (a1 - a0) * u,
+        });
+      }
+    } else {
+      const p0 = stroke[0];
+      const p1 = stroke[1];
+      const firstMid = {
+        x: (p0.x + p1.x) / 2,
+        y: (p0.y + p1.y) / 2,
+        w: ((p0.w ?? 1.25) + (p1.w ?? 1.25)) / 2,
+        alpha: (getPointAlpha(p0.time) + getPointAlpha(p1.time)) / 2,
+      };
+      const startSteps = 5;
+      const a0 = getPointAlpha(p0.time);
+      const w0 = p0.w ?? 1.25;
+      for (let s = 0; s < startSteps; s++) {
+        const u = s / startSteps;
+        rawSpine.push({
+          x: p0.x + (firstMid.x - p0.x) * u,
+          y: p0.y + (firstMid.y - p0.y) * u,
+          w: w0 + (firstMid.w - w0) * u,
+          alpha: a0 + (firstMid.alpha - a0) * u,
+        });
+      }
+
+      for (let i = 1; i < stroke.length - 1; i++) {
+        const prev = stroke[i - 1];
+        const curr = stroke[i];
+        const next = stroke[i + 1];
+
+        const aPrev = getPointAlpha(prev.time);
+        const aCurr = getPointAlpha(curr.time);
+        const aNext = getPointAlpha(next.time);
+
+        const wPrev = prev.w ?? 1.15;
+        const wCurr = curr.w ?? 1.15;
+        const wNext = next.w ?? 1.15;
+
+        const m1 = {
+          x: (prev.x + curr.x) / 2,
+          y: (prev.y + curr.y) / 2,
+          w: (wPrev + wCurr) / 2,
+          alpha: (aPrev + aCurr) / 2,
+        };
+        const m2 = {
+          x: (curr.x + next.x) / 2,
+          y: (curr.y + next.y) / 2,
+          w: (wCurr + wNext) / 2,
+          alpha: (aCurr + aNext) / 2,
+        };
+
+        const segLen =
+          Math.hypot(curr.x - m1.x, curr.y - m1.y) + Math.hypot(m2.x - curr.x, m2.y - curr.y);
+        const steps = Math.max(4, Math.min(18, Math.ceil((segLen * zoom) / 3)));
+
+        for (let s = 0; s < steps; s++) {
+          const t = s / steps;
+          const inv = 1 - t;
+          const b0 = inv * inv;
+          const b1 = 2 * inv * t;
+          const b2 = t * t;
+          rawSpine.push({
+            x: b0 * m1.x + b1 * curr.x + b2 * m2.x,
+            y: b0 * m1.y + b1 * curr.y + b2 * m2.y,
+            w: b0 * m1.w + b1 * wCurr + b2 * m2.w,
+            alpha: b0 * m1.alpha + b1 * aCurr + b2 * m2.alpha,
+          });
+        }
+      }
+
+      const pSecondLast = stroke[stroke.length - 2];
+      const pLast = stroke[stroke.length - 1];
+      const lastMid = {
+        x: (pSecondLast.x + pLast.x) / 2,
+        y: (pSecondLast.y + pLast.y) / 2,
+        w: ((pSecondLast.w ?? 1.15) + (pLast.w ?? 1.15)) / 2,
+        alpha: (getPointAlpha(pSecondLast.time) + getPointAlpha(pLast.time)) / 2,
+      };
+      const aLast = getPointAlpha(pLast.time);
+      const wLast = pLast.w ?? 1.15;
+      const endSteps = 5;
+      for (let s = 0; s <= endSteps; s++) {
+        const u = s / endSteps;
+        rawSpine.push({
+          x: lastMid.x + (pLast.x - lastMid.x) * u,
+          y: lastMid.y + (pLast.y - lastMid.y) * u,
+          w: lastMid.w + (wLast - lastMid.w) * u,
+          alpha: lastMid.alpha + (aLast - lastMid.alpha) * u,
+        });
+      }
+    }
+
+    // Filter active samples and compute tapered calligraphic radius
+    // Radius tapers smoothly down to 0 as each point ages, so the tail vanishes organically without dots!
+    const spine: { x: number; y: number; r: number; nx: number; ny: number }[] = [];
+    for (let i = 0; i < rawSpine.length; i++) {
+      const sp = rawSpine[i];
+      if (sp.alpha <= 0.01) continue;
+      if (
+        spine.length > 0 &&
+        Math.hypot(sp.x - spine[spine.length - 1].x, sp.y - spine[spine.length - 1].y) <
+          0.3 / zoom
+      ) {
+        continue;
+      }
+      const ageTaper = Math.pow(sp.alpha / Math.max(0.05, strokeHeadAlpha), 0.9);
+      const r = Math.max(0.15 / zoom, baseRadius * sp.w * Math.min(1.15, ageTaper));
+      spine.push({ x: sp.x, y: sp.y, r, nx: 0, ny: 0 });
+    }
+
+    if (spine.length < 2) continue;
+
+    // Smooth tail tip taper over first few samples so the fading tail always comes to a sleek calligraphic point
+    const tailTaperCount = Math.min(8, Math.floor(spine.length * 0.35));
+    for (let i = 0; i < tailTaperCount; i++) {
+      const factor = (i + 1) / (tailTaperCount + 1);
+      spine[i].r *= factor;
+    }
+
+    // Compute unit normals along the spline
+    for (let i = 0; i < spine.length; i++) {
+      const prev = spine[Math.max(0, i - 1)];
+      const next = spine[Math.min(spine.length - 1, i + 1)];
+      let dx = next.x - prev.x;
+      let dy = next.y - prev.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 0.0001) {
+        dx /= len;
+        dy /= len;
+      } else if (i > 0) {
+        dx = -spine[i - 1].ny;
+        dy = spine[i - 1].nx;
+      } else {
+        dx = 1;
+        dy = 0;
+      }
+      spine[i].nx = -dy;
+      spine[i].ny = dx;
+    }
+
+    // Render entire continuous sub-stroke as ONE single closed polygon (100% zero overlapping dots or seams!)
+    ctx.save();
+    ctx.globalAlpha = strokeHeadAlpha;
+    ctx.fillStyle = '#ff0022';
+    ctx.shadowColor = '#ff002b';
+    ctx.shadowBlur = (16 * strokeHeadAlpha) / zoom;
+
+    ctx.beginPath();
+    const first = spine[0];
+    ctx.moveTo(first.x + first.nx * first.r, first.y + first.ny * first.r);
+    for (let i = 1; i < spine.length; i++) {
+      const pt = spine[i];
+      ctx.lineTo(pt.x + pt.nx * pt.r, pt.y + pt.ny * pt.r);
+    }
+    const last = spine[spine.length - 1];
+    const headAngle = Math.atan2(last.ny, last.nx);
+    ctx.arc(last.x, last.y, last.r, headAngle, headAngle + Math.PI, true);
+    for (let i = spine.length - 1; i >= 0; i--) {
+      const pt = spine[i];
+      ctx.lineTo(pt.x - pt.nx * pt.r, pt.y - pt.ny * pt.r);
+    }
+    const tailAngle = Math.atan2(-first.ny, -first.nx);
+    ctx.arc(first.x, first.y, first.r, tailAngle, tailAngle + Math.PI, true);
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner luminous bright laser core pass (gives intense glowing red beam appearance)
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = strokeHeadAlpha * 0.92;
+    ctx.fillStyle = '#ff8fa3';
+    const coreScale = 0.42;
+    ctx.beginPath();
+    ctx.moveTo(
+      first.x + first.nx * first.r * coreScale,
+      first.y + first.ny * first.r * coreScale
+    );
+    for (let i = 1; i < spine.length; i++) {
+      const pt = spine[i];
+      ctx.lineTo(pt.x + pt.nx * pt.r * coreScale, pt.y + pt.ny * pt.r * coreScale);
+    }
+    ctx.arc(last.x, last.y, last.r * coreScale, headAngle, headAngle + Math.PI, true);
+    for (let i = spine.length - 1; i >= 0; i--) {
+      const pt = spine[i];
+      ctx.lineTo(pt.x - pt.nx * pt.r * coreScale, pt.y - pt.ny * pt.r * coreScale);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
 export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   elements,
   users,
@@ -389,8 +692,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
   }, [onSelectElements, onSelectElement]);
 
-  // Laser pointer path
-  const [laserPoints, setLaserPoints] = useState<{ x: number; y: number; time: number }[]>([]);
+  // Laser pointer path (with fountain-pen velocity width w and strokeId)
+  const [laserPoints, setLaserPoints] = useState<LaserTrailPoint[]>([]);
+  const laserStrokeIdRef = useRef<number>(0);
 
   // Editing text or sticky note
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
@@ -431,6 +735,306 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const mouseScreenPosRef = useRef<Point | null>(null);
   const lastCanvasPtRef = useRef<Point>({ x: 0, y: 0 });
 
+  // Velocity / pressure tracking for Fountain Pen (Dolma Kalem)
+  const lastDrawPointTimeRef = useRef<number>(0);
+  const lastDrawScreenPtRef = useRef<Point>({ x: 0, y: 0 });
+  const lastWidthFactorRef = useRef<number>(1.25);
+
+  // Paint Bucket (Kova) Fill helper: fills enclosed areas (freehand or geometric) or shapes
+  const applyBucketFill = useCallback(
+    (canvasPt: Point, screenPt: Point) => {
+      if (!canEdit) return;
+      const paintColor =
+        strokeColor || (fillColor && fillColor !== 'transparent' ? fillColor : '#2563eb');
+
+      // Parse hex / rgb paint color into [R, G, B, A]
+      const parseColorToRgba = (col: string, alpha = 1): [number, number, number, number] => {
+        const probe = document.createElement('canvas');
+        probe.width = 1;
+        probe.height = 1;
+        const pCtx = probe.getContext('2d');
+        if (!pCtx) return [37, 99, 235, Math.round(alpha * 255)];
+        pCtx.fillStyle = col;
+        pCtx.fillRect(0, 0, 1, 1);
+        const d = pCtx.getImageData(0, 0, 1, 1).data;
+        return [d[0], d[1], d[2], Math.round((d[3] / 255) * alpha * 255)];
+      };
+
+      const container = containerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const w = Math.max(1, Math.floor(rect.width));
+        const h = Math.max(1, Math.floor(rect.height));
+        const startX = Math.floor(screenPt.x);
+        const startY = Math.floor(screenPt.y);
+
+        if (startX >= 0 && startX < w && startY >= 0 && startY < h) {
+          const off = document.createElement('canvas');
+          off.width = w;
+          off.height = h;
+          const ctx = off.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            ctx.save();
+            ctx.translate(pan.x, pan.y);
+            ctx.scale(zoom, zoom);
+            for (const el of elements) {
+              drawElement(ctx, el);
+            }
+            ctx.restore();
+
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const data = imgData.data;
+            const startIdx = (startY * w + startX) * 4;
+            const sr = data[startIdx];
+            const sg = data[startIdx + 1];
+            const sb = data[startIdx + 2];
+            const sa = data[startIdx + 3];
+
+            const [fr, fg, fb, fa] = parseColorToRgba(paintColor, opacity ?? 1);
+
+            // Tolerance for matching the target background / interior color
+            const tol = 38;
+            const matchesStart = (pixelIndex: number) => {
+              const i = pixelIndex * 4;
+              const da = Math.abs(data[i + 3] - sa);
+              if (sa < 20) {
+                return data[i + 3] < 45;
+              }
+              return (
+                da <= tol &&
+                Math.abs(data[i] - sr) <= tol &&
+                Math.abs(data[i + 1] - sg) <= tol &&
+                Math.abs(data[i + 2] - sb) <= tol
+              );
+            };
+
+            const visited = new Uint8Array(w * h);
+            const filledIndices: number[] = [];
+            const stack: number[] = [startY * w + startX];
+            visited[startY * w + startX] = 1;
+
+            let touchesBorder = false;
+            let minPxX = startX;
+            let maxPxX = startX;
+            let minPxY = startY;
+            let maxPxY = startY;
+            const maxAllowedPixels = Math.floor(w * h * 0.82);
+
+            while (stack.length > 0) {
+              const curr = stack.pop()!;
+              const cy = Math.floor(curr / w);
+              const cx = curr - cy * w;
+
+              if (cx === 0 || cx === w - 1 || cy === 0 || cy === h - 1) {
+                touchesBorder = true;
+                break;
+              }
+
+              filledIndices.push(curr);
+              if (filledIndices.length > maxAllowedPixels) {
+                touchesBorder = true;
+                break;
+              }
+
+              if (cx < minPxX) minPxX = cx;
+              if (cx > maxPxX) maxPxX = cx;
+              if (cy < minPxY) minPxY = cy;
+              if (cy > maxPxY) maxPxY = cy;
+
+              // 4-neighbors
+              const left = curr - 1;
+              if (cx > 0 && !visited[left] && matchesStart(left)) {
+                visited[left] = 1;
+                stack.push(left);
+              }
+              const right = curr + 1;
+              if (cx < w - 1 && !visited[right] && matchesStart(right)) {
+                visited[right] = 1;
+                stack.push(right);
+              }
+              const up = curr - w;
+              if (cy > 0 && !visited[up] && matchesStart(up)) {
+                visited[up] = 1;
+                stack.push(up);
+              }
+              const down = curr + w;
+              if (cy < h - 1 && !visited[down] && matchesStart(down)) {
+                visited[down] = 1;
+                stack.push(down);
+              }
+            }
+
+            if (!touchesBorder && filledIndices.length >= 6) {
+              // Check if this bounded region is simply an un-subdivided geometric shape or sticky note
+              const fillableTypes = new Set<string>([
+                'rectangle',
+                'rounded-rect',
+                'circle',
+                'triangle',
+                'diamond',
+                'star',
+                'hexagon',
+                'pentagon',
+                'octagon',
+                'parallelogram',
+                'trapezoid',
+                'cross',
+                'heart',
+                'cloud',
+                'callout',
+                'cylinder',
+                'cube',
+                'sticky',
+              ]);
+              const hitShape = [...elements]
+                .reverse()
+                .find(
+                  (el) =>
+                    !el.isLocked &&
+                    fillableTypes.has(el.type) &&
+                    isPointInsideElement(canvasPt, el)
+                );
+
+              if (hitShape) {
+                const b = getElementBounds(hitShape);
+                const shapeScreenW = b.width * zoom;
+                const shapeScreenH = b.height * zoom;
+                const fillW = maxPxX - minPxX + 1;
+                const fillH = maxPxY - minPxY + 1;
+                // If flood fill spans most of the shape's bounding box, update fillColor directly
+                if (
+                  fillW >= shapeScreenW * 0.72 &&
+                  fillH >= shapeScreenH * 0.72 &&
+                  fillW <= shapeScreenW * 1.15 &&
+                  fillH <= shapeScreenH * 1.15
+                ) {
+                  if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                  onUpdateElement(hitShape.id, {
+                    fillColor: paintColor,
+                    updatedAt: Date.now(),
+                  });
+                  return;
+                }
+              }
+
+              // Dilate filled mask by 1px so anti-aliased stroke edges have no gap
+              const padMinX = Math.max(0, minPxX - 1);
+              const padMaxX = Math.min(w - 1, maxPxX + 1);
+              const padMinY = Math.max(0, minPxY - 1);
+              const padMaxY = Math.min(h - 1, maxPxY + 1);
+              const cropW = padMaxX - padMinX + 1;
+              const cropH = padMaxY - padMinY + 1;
+
+              const outCanvas = document.createElement('canvas');
+              outCanvas.width = cropW;
+              outCanvas.height = cropH;
+              const outCtx = outCanvas.getContext('2d');
+              if (outCtx) {
+                const outImg = outCtx.createImageData(cropW, cropH);
+                const outData = outImg.data;
+
+                const paintPixel = (gx: number, gy: number) => {
+                  const lx = gx - padMinX;
+                  const ly = gy - padMinY;
+                  if (lx < 0 || lx >= cropW || ly < 0 || ly >= cropH) return;
+                  const oi = (ly * cropW + lx) * 4;
+                  outData[oi] = fr;
+                  outData[oi + 1] = fg;
+                  outData[oi + 2] = fb;
+                  outData[oi + 3] = fa;
+                };
+
+                for (let k = 0; k < filledIndices.length; k++) {
+                  const idx = filledIndices[k];
+                  const gy = Math.floor(idx / w);
+                  const gx = idx - gy * w;
+                  paintPixel(gx, gy);
+                  paintPixel(gx - 1, gy);
+                  paintPixel(gx + 1, gy);
+                  paintPixel(gx, gy - 1);
+                  paintPixel(gx, gy + 1);
+                }
+
+                outCtx.putImageData(outImg, 0, 0);
+                const dataUrl = outCanvas.toDataURL('image/png');
+                const worldTL = screenToCanvas({ x: padMinX, y: padMinY }, pan, zoom);
+                const worldBR = screenToCanvas({ x: padMaxX + 1, y: padMaxY + 1 }, pan, zoom);
+
+                if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                const fillElement: CanvasElement = {
+                  id: `fill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                  type: 'image',
+                  x: worldTL.x,
+                  y: worldTL.y,
+                  width: Math.max(2, worldBR.x - worldTL.x),
+                  height: Math.max(2, worldBR.y - worldTL.y),
+                  imageUrl: dataUrl,
+                  color: 'transparent',
+                  strokeWidth: 0,
+                  opacity: 1,
+                  rotation: 0,
+                  flipX: false,
+                  flipY: false,
+                  createdBy: currentUser.name,
+                  updatedAt: Date.now(),
+                };
+                onCreateElement(fillElement);
+                return;
+              }
+            }
+          }
+        }
+      }
+
+      // Fallback: Vector hit test for shapes, sticky notes, or nearly-closed freehand loops
+      const hitEl = [...elements].reverse().find((el) => {
+        if (el.isLocked) return false;
+        if (
+          (el.type === 'pencil' || el.type === 'fountain-pen') &&
+          el.points &&
+          el.points.length >= 4
+        ) {
+          // Ray-casting point-in-polygon check for freehand loop
+          let inside = false;
+          const pts = el.points;
+          for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+            const xi = pts[i].x;
+            const yi = pts[i].y;
+            const xj = pts[j].x;
+            const yj = pts[j].y;
+            const intersect =
+              yi > canvasPt.y !== yj > canvasPt.y &&
+              canvasPt.x < ((xj - xi) * (canvasPt.y - yi)) / (yj - yi + 1e-9) + xi;
+            if (intersect) inside = !inside;
+          }
+          if (inside) return true;
+        }
+        return isPointInsideElement(canvasPt, el);
+      });
+
+      if (hitEl && !hitEl.isLocked) {
+        if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+        onUpdateElement(hitEl.id, {
+          fillColor: paintColor,
+          updatedAt: Date.now(),
+        });
+      }
+    },
+    [
+      canEdit,
+      strokeColor,
+      fillColor,
+      opacity,
+      pan,
+      zoom,
+      elements,
+      currentUser.name,
+      onSaveHistorySnapshot,
+      onUpdateElement,
+      onCreateElement,
+    ]
+  );
+
   // Precision / Point Eraser helper: slices freehand strokes or geometric shape outlines
   const applyPointEraser = useCallback(
     (canvasPt: Point) => {
@@ -447,7 +1051,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         let strokePoints: Point[] | null = null;
         let isClosedLoop = false;
 
-        if (el.type === 'pencil' || el.type === 'highlighter') {
+        if (el.type === 'pencil' || el.type === 'fountain-pen' || el.type === 'highlighter') {
           if (!el.points || el.points.length === 0) continue;
           strokePoints = el.points;
           isClosedLoop = false;
@@ -516,10 +1120,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         if (validSegments.length === 0) {
           toDelete.push(el.id);
         } else {
+          const nextType = el.type === 'fountain-pen' ? 'fountain-pen' : 'pencil';
           toUpdate.push({
             id: el.id,
             changes: {
-              type: 'pencil',
+              type: nextType,
               points: validSegments[0],
               rotation: 0,
               flipX: false,
@@ -532,7 +1137,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             toCreate.push({
               ...el,
               id: `${el.id}-seg-${Date.now()}-${sIdx}-${Math.random().toString(36).substring(2, 6)}`,
-              type: 'pencil',
+              type: nextType,
               points: validSegments[sIdx],
               rotation: 0,
               flipX: false,
@@ -557,7 +1162,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         onCreateElement(c);
       }
     },
-    [canEdit, zoom, elements, onDeleteElements, onBatchUpdateElements, onCreateElement, selectedElementId, onSelectElement]
+    [canEdit, strokeWidth, eraserShape, zoom, elements, onDeleteElements, onBatchUpdateElements, onCreateElement, selectedElementId, onSelectElement]
   );
 
   // Main Render loop
@@ -702,57 +1307,17 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
     }
 
-    // Render local laser pointer trail
+    // Render local and remote laser pointer trails with smooth Fountain-Pen calligraphic ribbon & vivid neon red
     const now = Date.now();
-    if (laserPoints.length > 1) {
-      ctx.save();
-      for (let i = 0; i < laserPoints.length - 1; i++) {
-        const p1 = laserPoints[i];
-        const p2 = laserPoints[i + 1];
-        const age = now - p1.time;
-        if (age > 1200) continue;
-        const alpha = Math.max(0, 1 - age / 1200);
-
-        ctx.strokeStyle = `rgba(239, 68, 68, ${alpha})`;
-        ctx.shadowColor = '#ef4444';
-        ctx.shadowBlur = 8 / zoom;
-        ctx.lineWidth = 5 / zoom;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-      }
-      ctx.restore();
+    if (laserPoints.length > 0) {
+      drawSmoothLaserTrail(ctx, laserPoints, now, zoom, strokeWidth);
+    }
+    if (remoteLaserPoints.length > 0) {
+      drawSmoothLaserTrail(ctx, remoteLaserPoints, now, zoom, strokeWidth);
     }
 
-    // Render remote laser pointer trails
-    if (remoteLaserPoints.length > 1) {
-      ctx.save();
-      for (let i = 0; i < remoteLaserPoints.length - 1; i++) {
-        const p1 = remoteLaserPoints[i];
-        const p2 = remoteLaserPoints[i + 1];
-        if (p1.userId !== p2.userId) continue;
-        const age = now - p1.time;
-        if (age > 1200 || p2.time - p1.time > 300) continue;
-        const alpha = Math.max(0, 1 - age / 1200);
-
-        ctx.strokeStyle = p1.color || '#ef4444';
-        ctx.globalAlpha = alpha;
-        ctx.shadowColor = p1.color || '#ef4444';
-        ctx.shadowBlur = 8 / zoom;
-        ctx.lineWidth = 5 / zoom;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    // Render live visible eraser contact boundary (Square or Circle)
-    if ((activeTool === 'eraser' || activeTool === 'point-eraser') && mouseScreenPosRef.current) {
+    // Render live visible eraser contact boundary (Square or Circle) ONLY for precision/point eraser
+    if (activeTool === 'point-eraser' && mouseScreenPosRef.current) {
       const hoverCanvasPt = screenToCanvas(mouseScreenPosRef.current, pan, zoom);
       const eraserRadius = (strokeWidth ? Math.max(12, strokeWidth * 3) : 16) / zoom;
       ctx.save();
@@ -1007,7 +1572,23 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         return;
       }
 
-      // Calculate initial element box size to fit typed text cleanly
+      if (draft.type === 'sticky') {
+        const created: CanvasElement = {
+          ...draft,
+          text: editingText,
+          updatedAt: Date.now(),
+        };
+        onCreateElement(created);
+        onSelectElement(created.id);
+        if (onSelectTool) {
+          onSelectTool('select');
+        }
+        setEditingElementId(null);
+        setEditingText('');
+        return;
+      }
+
+      // Calculate initial element box size to fit typed text cleanly (for text type)
       const activeFontSize = draft.fontSize || fontSize || 20;
       const lines = trimmed.split('\n');
       const maxLineChars = Math.max(...lines.map((l) => l.length), 4);
@@ -1037,7 +1618,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       // Editing existing element (text or sticky note)
       const targetEl = elements.find((el) => el.id === editingElementId);
       if (targetEl) {
-        if (targetEl.type === 'text' && !trimmed) {
+        if ((targetEl.type === 'text' || targetEl.type === 'sticky') && !trimmed) {
+          // If user cleared out text or left it empty, remove the empty element cleanly
           onDeleteElements([editingElementId]);
           onSelectElement(null);
         } else {
@@ -1060,8 +1642,15 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   // Cancel inline text / sticky editing
   const handleCancelInlineText = () => {
     if (pendingNewTextRef.current) {
-      // Cleanly discard draft text without creating or modifying anything
+      // Cleanly discard draft text/sticky without creating or modifying anything
       pendingNewTextRef.current = null;
+    } else if (editingElementId) {
+      // If user cancels an existing text or sticky note that is completely empty, remove it
+      const targetEl = elements.find((el) => el.id === editingElementId);
+      if (targetEl && (!targetEl.text || !targetEl.text.trim())) {
+        onDeleteElements([editingElementId]);
+        onSelectElement(null);
+      }
     }
     setEditingElementId(null);
     setEditingText('');
@@ -1144,10 +1733,19 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
     isPointerDownRef.current = true;
 
-    // Handle Laser Pointer (allowed for viewers too)
+    // Handle Laser Pointer (allowed for viewers too) - Fountain Pen style velocity tracking
     if (activeTool === 'laser') {
-      setLaserPoints([{ x: canvasPt.x, y: canvasPt.y, time: Date.now() }]);
-      if (onLaserMove) onLaserMove(canvasPt);
+      laserStrokeIdRef.current += 1;
+      const strokeId = laserStrokeIdRef.current;
+      lastDrawPointTimeRef.current = performance.now();
+      lastDrawScreenPtRef.current = screenPt;
+      lastWidthFactorRef.current = 1.35;
+      const nowMs = Date.now();
+      setLaserPoints((prev) => [
+        ...prev.filter((p) => nowMs - p.time < 1300),
+        { x: canvasPt.x, y: canvasPt.y, time: nowMs, w: 1.35, strokeId },
+      ]);
+      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1.35 });
       return;
     }
 
@@ -1356,9 +1954,16 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Sticky Note placement
+    // Handle Paint Bucket / Fill Tool
+    if (activeTool === 'bucket') {
+      isPointerDownRef.current = false;
+      applyBucketFill(canvasPt, screenPt);
+      return;
+    }
+
+    // Handle Sticky Note placement (draft mode: only committed when non-empty text is saved)
     if (activeTool === 'sticky') {
-      const newSticky: CanvasElement = {
+      const draftSticky: CanvasElement = {
         id: `sticky-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         type: 'sticky',
         x: canvasPt.x - 90,
@@ -1379,10 +1984,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         createdBy: currentUser.name,
         updatedAt: Date.now(),
       };
-      onCreateElement(newSticky);
-      onSelectElement(newSticky.id);
+      pendingNewTextRef.current = draftSticky;
       isPointerDownRef.current = false;
-      setEditingElementId(newSticky.id);
+      setEditingElementId(draftSticky.id);
       setEditingText('');
       return;
     }
@@ -1414,17 +2018,26 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Freehand Pencil / Highlighter
-    if (activeTool === 'pencil' || activeTool === 'highlighter') {
+    // Handle Freehand Pencil / Fountain Pen (Dolma Kalem) / Highlighter
+    if (
+      activeTool === 'pencil' ||
+      activeTool === 'fountain-pen' ||
+      activeTool === 'highlighter'
+    ) {
       if (activeSelectedIds.length > 0) {
         updateSelectedIds([]);
       }
+      lastDrawPointTimeRef.current = performance.now();
+      lastDrawScreenPtRef.current = screenPt;
+      lastWidthFactorRef.current = 1.25;
+      const firstPt: Point =
+        activeTool === 'fountain-pen' ? { x: canvasPt.x, y: canvasPt.y, w: 1.25 } : canvasPt;
       const newDrawing: CanvasElement = {
         id: `draw-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         type: activeTool,
         x: canvasPt.x,
         y: canvasPt.y,
-        points: [canvasPt],
+        points: [firstPt],
         color: strokeColor,
         strokeWidth,
         strokeStyle,
@@ -1607,7 +2220,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         };
 
         if (initEl.points && initEl.points.length > 0) {
-          const scaledPoints = initEl.points.map((pt) => mapPoint(pt.x, pt.y));
+          const scaledPoints = initEl.points.map((pt) => {
+            const mp = mapPoint(pt.x, pt.y);
+            return pt.w !== undefined ? { ...mp, w: pt.w } : mp;
+          });
           const pOrigin = mapPoint(initEl.x, initEl.y);
           batchUpdates.push({
             id,
@@ -1747,6 +2363,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         const scaleX = newW / Math.max(1, initBounds.width);
         const scaleY = newH / Math.max(1, initBounds.height);
         const scaledPoints = initEl.points.map((pt) => ({
+          ...pt,
           x: newMinX + (pt.x - initBounds.minX) * scaleX,
           y: newMinY + (pt.y - initBounds.minY) * scaleY,
         }));
@@ -1803,7 +2420,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             changes: {
               x: initEl.x + dx,
               y: initEl.y + dy,
-              points: initEl.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+              points: initEl.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })),
             },
           });
         } else {
@@ -1869,13 +2486,65 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Laser trail
+    // Handle Laser trail (Fountain Pen velocity-sensitive thickness & 3-point curve stabilization)
     if (activeTool === 'laser' && isPointerDownRef.current) {
-      setLaserPoints((prev) => [
-        ...prev.slice(-45),
-        { x: canvasPt.x, y: canvasPt.y, time: Date.now() },
-      ]);
-      if (onLaserMove) onLaserMove(canvasPt);
+      const nowPerf = performance.now();
+      const dt = Math.max(1, nowPerf - lastDrawPointTimeRef.current);
+      const screenDist = Math.hypot(
+        screenPt.x - lastDrawScreenPtRef.current.x,
+        screenPt.y - lastDrawScreenPtRef.current.y
+      );
+      if (screenDist >= 1.5) {
+        const speed = screenDist / dt;
+        lastDrawPointTimeRef.current = nowPerf;
+        lastDrawScreenPtRef.current = screenPt;
+
+        const normalizedSpeed = Math.min(1, Math.max(0, (speed - 0.08) / 1.65));
+        let targetW = 1.72 - normalizedSpeed * 1.48;
+        if (e.pointerType === 'pen' && e.pressure > 0) {
+          const pressureFactor = Math.max(0.25, Math.min(1.8, e.pressure * 1.8));
+          targetW = targetW * 0.55 + pressureFactor * 0.45;
+        }
+        const smoothedW = Number(
+          (lastWidthFactorRef.current * 0.64 + targetW * 0.36).toFixed(3)
+        );
+        lastWidthFactorRef.current = smoothedW;
+
+        const nowMs = Date.now();
+        const strokeId = laserStrokeIdRef.current;
+        const nextPt: LaserTrailPoint = {
+          x: canvasPt.x,
+          y: canvasPt.y,
+          time: nowMs,
+          w: smoothedW,
+          strokeId,
+        };
+
+        setLaserPoints((prev) => {
+          const alive = prev.filter((p) => nowMs - p.time < 1300).slice(-260);
+          if (alive.length >= 2) {
+            const lastPt = alive[alive.length - 1];
+            const prevPt = alive[alive.length - 2];
+            if (lastPt.strokeId === strokeId && prevPt.strokeId === strokeId) {
+              const stabilizedLast: LaserTrailPoint = {
+                ...lastPt,
+                x: 0.25 * prevPt.x + 0.5 * lastPt.x + 0.25 * nextPt.x,
+                y: 0.25 * prevPt.y + 0.5 * lastPt.y + 0.25 * nextPt.y,
+                w: Number(
+                  (
+                    0.25 * (prevPt.w ?? 1.2) +
+                    0.5 * (lastPt.w ?? 1.2) +
+                    0.25 * (nextPt.w ?? 1.2)
+                  ).toFixed(3)
+                ),
+              };
+              return [...alive.slice(0, -1), stabilizedLast, nextPt];
+            }
+          }
+          return [...alive, nextPt];
+        });
+        if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: smoothedW });
+      }
       return;
     }
 
@@ -1883,20 +2552,63 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     if (isPointerDownRef.current && currentDrawingElementRef.current) {
       const curr = currentDrawingElementRef.current;
 
-      if (curr.type === 'pencil' || curr.type === 'highlighter') {
+      if (
+        curr.type === 'pencil' ||
+        curr.type === 'fountain-pen' ||
+        curr.type === 'highlighter'
+      ) {
         const pts = curr.points || [];
         const lastPt = pts.length > 0 ? pts[pts.length - 1] : null;
-        if (!lastPt || Math.hypot(canvasPt.x - lastPt.x, canvasPt.y - lastPt.y) >= 1.8) {
+        if (!lastPt || Math.hypot(canvasPt.x - lastPt.x, canvasPt.y - lastPt.y) >= 1.5) {
+          let nextPt: Point = canvasPt;
+
+          if (curr.type === 'fountain-pen') {
+            const now = performance.now();
+            const dt = Math.max(1, now - lastDrawPointTimeRef.current);
+            const screenDist = Math.hypot(
+              screenPt.x - lastDrawScreenPtRef.current.x,
+              screenPt.y - lastDrawScreenPtRef.current.y
+            );
+            const speed = screenDist / dt; // px per ms (0.05 = slow, 2.0+ = fast)
+            lastDrawPointTimeRef.current = now;
+            lastDrawScreenPtRef.current = screenPt;
+
+            // Map speed inversely to width factor: slow -> thick (~1.72), fast -> thin (~0.22)
+            const normalizedSpeed = Math.min(1, Math.max(0, (speed - 0.08) / 1.65));
+            let targetW = 1.72 - normalizedSpeed * 1.5;
+            // Incorporate stylus pressure when using a pen tablet
+            if (e.pointerType === 'pen' && e.pressure > 0) {
+              const pressureFactor = Math.max(0.25, Math.min(1.8, e.pressure * 1.8));
+              targetW = targetW * 0.55 + pressureFactor * 0.45;
+            }
+            const smoothedW = Number(
+              (lastWidthFactorRef.current * 0.62 + targetW * 0.38).toFixed(3)
+            );
+            lastWidthFactorRef.current = smoothedW;
+            nextPt = { x: canvasPt.x, y: canvasPt.y, w: smoothedW };
+          }
+
           let nextPts: Point[];
           if (pts.length >= 2) {
             const prevPt = pts[pts.length - 2];
-            const stabilizedLast = {
-              x: 0.25 * prevPt.x + 0.5 * lastPt!.x + 0.25 * canvasPt.x,
-              y: 0.25 * prevPt.y + 0.5 * lastPt!.y + 0.25 * canvasPt.y,
+            const stabilizedLast: Point = {
+              x: 0.25 * prevPt.x + 0.5 * lastPt!.x + 0.25 * nextPt.x,
+              y: 0.25 * prevPt.y + 0.5 * lastPt!.y + 0.25 * nextPt.y,
+              ...(lastPt!.w !== undefined
+                ? {
+                    w: Number(
+                      (
+                        0.25 * (prevPt.w ?? 1) +
+                        0.5 * (lastPt!.w ?? 1) +
+                        0.25 * (nextPt.w ?? 1)
+                      ).toFixed(3)
+                    ),
+                  }
+                : {}),
             };
-            nextPts = [...pts.slice(0, -1), stabilizedLast, canvasPt];
+            nextPts = [...pts.slice(0, -1), stabilizedLast, nextPt];
           } else {
-            nextPts = [...pts, canvasPt];
+            nextPts = [...pts, nextPt];
           }
           const updated = { ...curr, points: nextPts };
           currentDrawingElementRef.current = updated;
@@ -1999,6 +2711,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       // Normalize negative width/height for geometric boxes (except directional arrows/line)
       if (
         finished.type !== 'pencil' &&
+        finished.type !== 'fountain-pen' &&
         finished.type !== 'highlighter' &&
         finished.type !== 'arrow' &&
         finished.type !== 'double-arrow' &&
@@ -2019,13 +2732,16 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
       if (
         finished.type === 'pencil' ||
+        finished.type === 'fountain-pen' ||
         finished.type === 'highlighter' ||
         Math.abs(finished.width || 0) > 4 ||
         Math.abs(finished.height || 0) > 4
       ) {
         // Vector smoothing with Chaikin algorithm
         if (
-          (finished.type === 'pencil' || finished.type === 'highlighter') &&
+          (finished.type === 'pencil' ||
+            finished.type === 'fountain-pen' ||
+            finished.type === 'highlighter') &&
           finished.points &&
           finished.points.length > 2
         ) {
@@ -2036,9 +2752,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
         onCreateElement(finished);
 
-        // Continuous drawing: NEVER auto-select pencil or highlighter strokes
+        // Continuous drawing: NEVER auto-select pencil, fountain-pen, or highlighter strokes
         // so no editing toolbar or selection gizmo pops up, allowing uninterrupted writing!
-        if (finished.type !== 'pencil' && finished.type !== 'highlighter') {
+        if (
+          finished.type !== 'pencil' &&
+          finished.type !== 'fountain-pen' &&
+          finished.type !== 'highlighter'
+        ) {
           updateSelectedIds([finished.id]);
           if (onSelectTool) {
             onSelectTool('select');
@@ -2499,7 +3219,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return 'default';
     }
     if (activeTool === 'pencil') return PENCIL_CURSOR;
+    if (activeTool === 'fountain-pen') return FOUNTAIN_PEN_CURSOR;
     if (activeTool === 'highlighter') return HIGHLIGHTER_CURSOR;
+    if (activeTool === 'bucket') return BUCKET_CURSOR;
     if (activeTool === 'eraser') return ERASER_CURSOR;
     if (activeTool === 'point-eraser') return POINT_ERASER_CURSOR;
     if (activeTool === 'laser') return LASER_CURSOR;
@@ -3562,6 +4284,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         showMinimap={showMinimap}
         onToggleMinimap={onToggleMinimap}
         onResetWidgetLayout={onResetWidgetLayout}
+        theme={theme}
       />
     </div>
   );

@@ -12,8 +12,8 @@ import {
   generateSvgImageWithRetry,
   getClientQuotaStatus,
   resetClientQuota,
-  QuotaSourceMode,
-} from './src/server/aiDrawingService';
+  type QuotaSourceMode,
+} from './src/server/aiDrawingService.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -107,6 +107,9 @@ interface ChatMessage {
   userColor: string;
   text: string;
   timestamp: number;
+  recipientId?: string;
+  recipientName?: string;
+  isPrivate?: boolean;
   fileAttachment?: {
     name: string;
     url: string;
@@ -402,25 +405,54 @@ function broadcastToRoom(roomId: string, message: object, excludeUserId?: string
   for (const [userId, userObj] of room.users.entries()) {
     if (excludeUserId && userId === excludeUserId) continue;
     if (userObj.ws.readyState === WebSocket.OPEN) {
-      userObj.ws.send(payload);
+      try {
+        userObj.ws.send(payload, (err) => {
+          if (err) {
+            // Ignore transient socket write errors
+          }
+        });
+      } catch {
+        // Ignore synchronous socket write errors
+      }
     }
   }
 }
 
+// Prevent unhandled socket/promise errors from ever terminating the server process
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught exception (kept alive):', err?.message || err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] Unhandled rejection (kept alive):', reason);
+});
+
 // WebSocket Server initialization
 const wss = new WebSocketServer({ server });
+
+wss.on('error', (err) => {
+  console.error('[WSS] WebSocketServer error:', err?.message || err);
+});
 
 // Heartbeat interval to keep connections alive across proxies
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((ws) => {
     const extWs = ws as WebSocket & { isAlive?: boolean };
     if (extWs.isAlive === false) {
-      return extWs.terminate();
+      try {
+        return extWs.terminate();
+      } catch {
+        return;
+      }
     }
     extWs.isAlive = false;
-    extWs.ping();
+    try {
+      extWs.ping();
+    } catch {
+      // Ignore ping error on closing socket
+    }
   });
-}, 30000);
+}, 25000);
 
 const idleSweepInterval = setInterval(() => {
   const now = Date.now();
@@ -433,13 +465,15 @@ const idleSweepInterval = setInterval(() => {
     changed = true;
     for (const [userId, userObj] of Array.from(room.users.entries())) {
       if (userObj.ws.readyState === WebSocket.OPEN) {
-        userObj.ws.send(
-          JSON.stringify({
-            type: 'session-timeout',
-            roomId: room.id,
-            roomName: room.name,
-          })
-        );
+        try {
+          userObj.ws.send(
+            JSON.stringify({
+              type: 'session-timeout',
+              roomId: room.id,
+              roomName: room.name,
+            })
+          );
+        } catch {}
       }
       room.users.delete(userId);
     }
@@ -457,6 +491,9 @@ wss.on('connection', (ws: WebSocket) => {
   extWs.isAlive = true;
   ws.on('pong', () => {
     extWs.isAlive = true;
+  });
+  ws.on('error', (err) => {
+    console.warn('[WS] Client socket error:', err?.message || err);
   });
 
   let currentRoomId: string | null = null;
@@ -772,7 +809,12 @@ wss.on('connection', (ws: WebSocket) => {
               notes: room.notes,
               files: room.files,
               codeFiles: room.codeFiles,
-              messages: room.messages,
+              messages: room.messages.filter(
+                (m) =>
+                  !m.isPrivate ||
+                  m.userId === currentUserId ||
+                  m.recipientId === currentUserId
+              ),
               users: activeUsers,
               rooms: getRoomSummaries(),
               limits: {
@@ -1340,6 +1382,10 @@ wss.on('connection', (ws: WebSocket) => {
             break;
           }
 
+          const isPrivate = Boolean(msg.isPrivate || msg.recipientId);
+          const recipientId = msg.recipientId ? String(msg.recipientId) : undefined;
+          const recipientName = msg.recipientName ? String(msg.recipientName) : undefined;
+
           const chatMessage: ChatMessage = {
             id: msgId,
             userId: currentUserId || msg.userId || 'unknown',
@@ -1348,6 +1394,9 @@ wss.on('connection', (ws: WebSocket) => {
             text: msg.text,
             timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
             fileAttachment: msg.fileAttachment,
+            recipientId,
+            recipientName,
+            isPrivate,
           };
 
           room.messages.push(chatMessage);
@@ -1355,15 +1404,80 @@ wss.on('connection', (ws: WebSocket) => {
             room.messages.shift();
           }
 
-          // Broadcast to everyone else in the room (sender already has it in optimistic state)
-          broadcastToRoom(
-            currentRoomId,
-            {
-              type: 'chat-received',
-              message: chatMessage,
-            },
-            currentUserId || undefined
-          );
+          if (isPrivate && recipientId) {
+            // Private 1-on-1 direct message: deliver strictly to the recipient
+            const recipientUser = room.users.get(recipientId);
+            if (recipientUser && recipientUser.ws.readyState === WebSocket.OPEN) {
+              recipientUser.ws.send(
+                JSON.stringify({
+                  type: 'chat-received',
+                  message: chatMessage,
+                })
+              );
+            }
+          } else {
+            // General room broadcast: deliver to everyone else in the room
+            broadcastToRoom(
+              currentRoomId,
+              {
+                type: 'chat-received',
+                message: chatMessage,
+              },
+              currentUserId || undefined
+            );
+          }
+          break;
+        }
+
+        case 'chat-message-delete': {
+          if (!currentRoomId || !currentUserId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+
+          const messageId = msg.messageId;
+          if (!messageId) return;
+
+          const msgIndex = room.messages.findIndex((m) => m.id === messageId);
+          if (msgIndex === -1) return;
+
+          const targetMsg = room.messages[msgIndex];
+          const sender = room.users.get(currentUserId);
+          const isAuthor = targetMsg.userId === currentUserId;
+          const isAdmin = sender && (sender.presence.role === 'admin' || sender.presence.role === 'editor');
+
+          // Only message author or room admin/editor can delete
+          if (!isAuthor && !isAdmin) return;
+
+          room.messages.splice(msgIndex, 1);
+
+          if (targetMsg.isPrivate && targetMsg.recipientId) {
+            // Notify recipient
+            const recipientUser = room.users.get(targetMsg.recipientId);
+            if (recipientUser && recipientUser.ws.readyState === WebSocket.OPEN) {
+              recipientUser.ws.send(
+                JSON.stringify({
+                  type: 'chat-message-deleted',
+                  messageId,
+                })
+              );
+            }
+            // Notify author (for syncing across duplicate tabs if any)
+            const authorUser = room.users.get(targetMsg.userId);
+            if (authorUser && authorUser.ws.readyState === WebSocket.OPEN) {
+              authorUser.ws.send(
+                JSON.stringify({
+                  type: 'chat-message-deleted',
+                  messageId,
+                })
+              );
+            }
+          } else {
+            // Broadcast deletion to all users in the room
+            broadcastToRoom(currentRoomId, {
+              type: 'chat-message-deleted',
+              messageId,
+            });
+          }
           break;
         }
 
@@ -2288,7 +2402,7 @@ app.post('/api/rooms/:roomId/sync', (req, res) => {
     elements: elementsArray,
     code: room.code,
     notes: room.notes,
-    messages: room.messages,
+    messages: room.messages.filter((m) => !m.isPrivate),
   });
 });
 
@@ -2442,9 +2556,19 @@ async function startServer() {
     });
   }
 
+  // Match Cloud Run reverse proxy keep-alive expectations (>60s) to prevent ERR_CONNECTION_CLOSED
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
+  server.on('error', (err) => {
+    console.error('[HTTP Server] Error:', err);
+  });
+
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`CollabBoard Server running on port ${PORT}`);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+});
+

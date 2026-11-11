@@ -241,15 +241,24 @@ export function smoothPoints(points: Point[]): Point[] {
 
   if (filtered.length <= 2) return filtered;
 
-  // 2. Weighted 3-point Laplacian stabilization pass (preserves endpoints)
+  // 2. Weighted 3-point Laplacian stabilization pass (preserves endpoints and interpolates width w)
   const stabilized: Point[] = [filtered[0]];
   for (let i = 1; i < filtered.length - 1; i++) {
     const prev = filtered[i - 1];
     const curr = filtered[i];
     const next = filtered[i + 1];
+    const hasW = prev.w !== undefined || curr.w !== undefined || next.w !== undefined;
     stabilized.push({
       x: 0.25 * prev.x + 0.5 * curr.x + 0.25 * next.x,
       y: 0.25 * prev.y + 0.5 * curr.y + 0.25 * next.y,
+      ...(hasW
+        ? {
+            w:
+              0.25 * (prev.w ?? 1) +
+              0.5 * (curr.w ?? 1) +
+              0.25 * (next.w ?? 1),
+          }
+        : {}),
     });
   }
   stabilized.push(filtered[filtered.length - 1]);
@@ -262,13 +271,18 @@ export function smoothPoints(points: Point[]): Point[] {
     for (let i = 0; i < current.length - 1; i++) {
       const p0 = current[i];
       const p1 = current[i + 1];
+      const hasW = p0.w !== undefined || p1.w !== undefined;
+      const w0 = p0.w ?? 1;
+      const w1 = p1.w ?? 1;
       nextPass.push({
         x: 0.75 * p0.x + 0.25 * p1.x,
         y: 0.75 * p0.y + 0.25 * p1.y,
+        ...(hasW ? { w: 0.75 * w0 + 0.25 * w1 } : {}),
       });
       nextPass.push({
         x: 0.25 * p0.x + 0.75 * p1.x,
         y: 0.25 * p0.y + 0.75 * p1.y,
+        ...(hasW ? { w: 0.25 * w0 + 0.75 * w1 } : {}),
       });
     }
     nextPass.push(current[current.length - 1]);
@@ -324,9 +338,241 @@ export function drawElement(
   }
 
   switch (element.type) {
+    case 'fountain-pen': {
+      if (!element.points || element.points.length === 0) break;
+      const pts = element.points;
+      const baseW = Math.max(1.5, strokeWidth || 4);
+
+      // Optional fill if closed and filled via bucket
+      if (fillColor && fillColor !== 'transparent' && pts.length >= 3) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          ctx.lineTo(pts[i].x, pts[i].y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+        ctx.restore();
+      }
+
+      if (pts.length === 1) {
+        const r = Math.max(0.8, ((pts[0].w ?? 1.25) * baseW) / 2);
+        ctx.beginPath();
+        ctx.arc(pts[0].x, pts[0].y, r, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        break;
+      }
+
+      const drawFountainRibbon = (rPts: Point[]) => {
+        if (!rPts || rPts.length === 0) return;
+        ctx.setLineDash([]);
+        ctx.fillStyle = color;
+
+        if (rPts.length === 1) {
+          const r = Math.max(0.65, ((rPts[0].w ?? 1) * baseW) / 2);
+          ctx.beginPath();
+          ctx.arc(rPts[0].x, rPts[0].y, r, 0, Math.PI * 2);
+          ctx.fill();
+          return;
+        }
+
+        const totalChord = Math.hypot(
+          rPts[rPts.length - 1].x - rPts[0].x,
+          rPts[rPts.length - 1].y - rPts[0].y
+        );
+        if (rPts.length === 2 && totalChord < 0.4) {
+          const r = Math.max(0.65, ((rPts[0].w ?? 1) * baseW) / 2);
+          ctx.beginPath();
+          ctx.arc(rPts[0].x, rPts[0].y, r, 0, Math.PI * 2);
+          ctx.fill();
+          return;
+        }
+
+        const leftPts: { x: number; y: number }[] = [];
+        const rightPts: { x: number; y: number }[] = [];
+
+        for (let i = 0; i < rPts.length; i++) {
+          const curr = rPts[i];
+          const prev = i > 0 ? rPts[i - 1] : curr;
+          const next = i < rPts.length - 1 ? rPts[i + 1] : curr;
+          let tx = next.x - prev.x;
+          let ty = next.y - prev.y;
+          let len = Math.hypot(tx, ty);
+          if (len < 0.001) {
+            tx = 1;
+            ty = 0;
+            len = 1;
+          }
+          const nx = -ty / len;
+          const ny = tx / len;
+          const r = Math.max(0.45, ((curr.w ?? 1) * baseW) / 2);
+          leftPts.push({ x: curr.x + nx * r, y: curr.y + ny * r });
+          rightPts.push({ x: curr.x - nx * r, y: curr.y - ny * r });
+        }
+
+        ctx.beginPath();
+        // Forward along left edge using C1 quadratic midpoint spline
+        ctx.moveTo(leftPts[0].x, leftPts[0].y);
+        if (leftPts.length === 2) {
+          ctx.lineTo(leftPts[1].x, leftPts[1].y);
+        } else {
+          const firstMidX = (leftPts[0].x + leftPts[1].x) / 2;
+          const firstMidY = (leftPts[0].y + leftPts[1].y) / 2;
+          ctx.lineTo(firstMidX, firstMidY);
+          for (let i = 1; i < leftPts.length - 1; i++) {
+            const xc = (leftPts[i].x + leftPts[i + 1].x) / 2;
+            const yc = (leftPts[i].y + leftPts[i + 1].y) / 2;
+            ctx.quadraticCurveTo(leftPts[i].x, leftPts[i].y, xc, yc);
+          }
+          ctx.lineTo(leftPts[leftPts.length - 1].x, leftPts[leftPts.length - 1].y);
+        }
+
+        // Rounded nib cap at end point
+        const lastIdx = rPts.length - 1;
+        const endPt = rPts[lastIdx];
+        const endR = Math.max(0.45, ((endPt.w ?? 1) * baseW) / 2);
+        const endAngleL = Math.atan2(leftPts[lastIdx].y - endPt.y, leftPts[lastIdx].x - endPt.x);
+        const endAngleR = Math.atan2(rightPts[lastIdx].y - endPt.y, rightPts[lastIdx].x - endPt.x);
+        ctx.arc(endPt.x, endPt.y, endR, endAngleL, endAngleR, true);
+
+        // Backward along right edge using C1 quadratic midpoint spline
+        ctx.lineTo(rightPts[lastIdx].x, rightPts[lastIdx].y);
+        if (rightPts.length === 2) {
+          ctx.lineTo(rightPts[0].x, rightPts[0].y);
+        } else {
+          const firstBackMidX = (rightPts[lastIdx].x + rightPts[lastIdx - 1].x) / 2;
+          const firstBackMidY = (rightPts[lastIdx].y + rightPts[lastIdx - 1].y) / 2;
+          ctx.lineTo(firstBackMidX, firstBackMidY);
+          for (let i = lastIdx - 1; i > 0; i--) {
+            const xc = (rightPts[i].x + rightPts[i - 1].x) / 2;
+            const yc = (rightPts[i].y + rightPts[i - 1].y) / 2;
+            ctx.quadraticCurveTo(rightPts[i].x, rightPts[i].y, xc, yc);
+          }
+          ctx.lineTo(rightPts[0].x, rightPts[0].y);
+        }
+
+        // Rounded nib cap at start point
+        const startPt = rPts[0];
+        const startR = Math.max(0.45, ((startPt.w ?? 1) * baseW) / 2);
+        const startAngleR = Math.atan2(rightPts[0].y - startPt.y, rightPts[0].x - startPt.x);
+        const startAngleL = Math.atan2(leftPts[0].y - startPt.y, leftPts[0].x - startPt.x);
+        ctx.arc(startPt.x, startPt.y, startR, startAngleR, startAngleL, true);
+
+        ctx.closePath();
+        ctx.fill();
+      };
+
+      // Dotted fountain-pen: place velocity/pressure-scaled dots along cumulative arc length
+      if (element.strokeStyle === 'dotted') {
+        ctx.setLineDash([]);
+        ctx.fillStyle = color;
+        const r0 = Math.max(0.75, ((pts[0].w ?? 1) * baseW) / 2);
+        ctx.beginPath();
+        ctx.arc(pts[0].x, pts[0].y, r0, 0, Math.PI * 2);
+        ctx.fill();
+
+        let distToNextDot = Math.max(4.5, r0 * 2 * 2.25 + baseW * 0.55);
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[i];
+          const p1 = pts[i + 1];
+          const segDx = p1.x - p0.x;
+          const segDy = p1.y - p0.y;
+          const segLen = Math.hypot(segDx, segDy);
+          if (segLen < 0.0001) continue;
+
+          let traveled = 0;
+          while (traveled + distToNextDot <= segLen) {
+            traveled += distToNextDot;
+            const t = traveled / segLen;
+            const x = p0.x + segDx * t;
+            const y = p0.y + segDy * t;
+            const w = (p0.w ?? 1) + ((p1.w ?? 1) - (p0.w ?? 1)) * t;
+            const r = Math.max(0.75, (w * baseW) / 2);
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+            distToNextDot = Math.max(4.5, r * 2 * 2.25 + baseW * 0.55);
+          }
+          distToNextDot -= segLen - traveled;
+        }
+        break;
+      }
+
+      // Dashed fountain-pen: extract dash sub-paths along cumulative arc length and render each as a calligraphy ribbon
+      if (element.strokeStyle === 'dashed') {
+        let inDash = true;
+        const initD = Math.max(1.5, (pts[0].w ?? 1) * baseW);
+        let remainingPhase = Math.max(7, baseW * 2.4 + initD * 0.85);
+        let currentDashPts: Point[] = [{ ...pts[0] }];
+
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[i];
+          const p1 = pts[i + 1];
+          const segDx = p1.x - p0.x;
+          const segDy = p1.y - p0.y;
+          const segLen = Math.hypot(segDx, segDy);
+          if (segLen < 0.0001) continue;
+
+          let traveled = 0;
+          while (traveled + remainingPhase <= segLen) {
+            traveled += remainingPhase;
+            const t = traveled / segLen;
+            const boundaryPt: Point = {
+              x: p0.x + segDx * t,
+              y: p0.y + segDy * t,
+              w: (p0.w ?? 1) + ((p1.w ?? 1) - (p0.w ?? 1)) * t,
+            };
+            const localD = Math.max(1.5, (boundaryPt.w ?? 1) * baseW);
+
+            if (inDash) {
+              currentDashPts.push(boundaryPt);
+              drawFountainRibbon(currentDashPts);
+              currentDashPts = [];
+              inDash = false;
+              remainingPhase = Math.max(7, baseW * 1.9 + localD * 1.65);
+            } else {
+              currentDashPts = [boundaryPt];
+              inDash = true;
+              remainingPhase = Math.max(7, baseW * 2.4 + localD * 0.85);
+            }
+          }
+
+          const leftover = segLen - traveled;
+          remainingPhase -= leftover;
+          if (inDash) {
+            currentDashPts.push({ ...p1 });
+          }
+        }
+
+        if (inDash && currentDashPts.length > 0) {
+          drawFountainRibbon(currentDashPts);
+        }
+        break;
+      }
+
+      // Solid fountain-pen ribbon
+      drawFountainRibbon(pts);
+      break;
+    }
+
     case 'pencil':
     case 'highlighter': {
       if (!element.points || element.points.length === 0) break;
+      if (fillColor && fillColor !== 'transparent' && element.points.length >= 3) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(element.points[0].x, element.points[0].y);
+        for (let i = 1; i < element.points.length; i++) {
+          ctx.lineTo(element.points[i].x, element.points[i].y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+        ctx.restore();
+      }
       if (element.points.length === 1) {
         ctx.beginPath();
         ctx.arc(element.points[0].x, element.points[0].y, (strokeWidth || 3) / 2, 0, Math.PI * 2);
@@ -1397,7 +1643,7 @@ export function isPointInsideElement(p: Point, el: CanvasElement): boolean {
     return false;
   }
 
-  if (el.type === 'pencil' || el.type === 'highlighter') {
+  if (el.type === 'pencil' || el.type === 'fountain-pen' || el.type === 'highlighter') {
     if (!el.points || el.points.length === 0) return false;
     if (el.points.length === 1) {
       return Math.hypot(localP.x - el.points[0].x, localP.y - el.points[0].y) <= tolerance + 4;
@@ -1407,6 +1653,18 @@ export function isPointInsideElement(p: Point, el: CanvasElement): boolean {
       const p2 = el.points[i + 1];
       const d = distToSegment(localP, p1, p2);
       if (d <= tolerance + 6) return true;
+    }
+    if (el.fillColor && el.fillColor !== 'transparent' && el.points.length >= 3) {
+      let inside = false;
+      for (let i = 0, j = el.points.length - 1; i < el.points.length; j = i++) {
+        const xi = el.points[i].x, yi = el.points[i].y;
+        const xj = el.points[j].x, yj = el.points[j].y;
+        const intersect =
+          yi > localP.y !== yj > localP.y &&
+          localP.x < ((xj - xi) * (localP.y - yi)) / (yj - yi + 1e-9) + xi;
+        if (intersect) inside = !inside;
+      }
+      if (inside) return true;
     }
     return false;
   }

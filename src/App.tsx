@@ -30,7 +30,7 @@ import { OnboardingTour } from './components/OnboardingTour';
 import { SettingsModal } from './components/SettingsModal';
 import { ClockWidget } from './components/ClockWidget';
 import { FolderWidget } from './components/FolderWidget';
-import { getLanguage, translate, useI18n } from './i18n';
+import { getLanguage, translate, useI18n, useAutoTranslateDOM } from './i18n';
 import { recordRoomVisit } from './utils/roomHistory';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
@@ -164,7 +164,8 @@ function clearSavedSession() {
 }
 
 export default function App() {
-  const { t } = useI18n();
+  useI18n();
+  useAutoTranslateDOM();
   const initialRoomInfo = useMemo(() => extractRoomInfoFromLocation(), []);
 
   // Restore the previous workspace after a page refresh (unless it was idle for over an hour,
@@ -597,6 +598,7 @@ export default function App() {
     sendCodeCursor,
     updateNotes,
     sendChatMessage,
+    deleteChatMessage,
     uploadFile,
     deleteFile,
     updateVoiceState,
@@ -1120,7 +1122,7 @@ export default function App() {
         id: `clone-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 6)}`,
         x: el.x + 28,
         y: el.y + 28,
-        points: el.points ? el.points.map((p) => ({ x: p.x + 28, y: p.y + 28 })) : undefined,
+        points: el.points ? el.points.map((p) => ({ ...p, x: p.x + 28, y: p.y + 28 })) : undefined,
         isLocked: false,
         updatedAt: Date.now(),
       };
@@ -1365,7 +1367,19 @@ export default function App() {
           setSelectedElementIds([]);
           break;
         case 'p':
-          setActiveTool('pencil');
+          if (e.shiftKey) {
+            setActiveTool('fountain-pen');
+            try {
+              localStorage.setItem('collab_last_pen', 'fountain-pen');
+            } catch {}
+          } else {
+            const savedPen = (localStorage.getItem('collab_last_pen') as ToolType) || 'pencil';
+            setActiveTool(savedPen === 'fountain-pen' ? 'fountain-pen' : 'pencil');
+          }
+          setSelectedElementIds([]);
+          break;
+        case 'b':
+          setActiveTool('bucket');
           setSelectedElementIds([]);
           break;
         case 'e':
@@ -1705,10 +1719,14 @@ export default function App() {
         showStyleBar={showStyleBar}
         showVoiceBar={showVoiceBar}
         showMinimap={showMinimap}
+        showClock={showClock}
+        showFolder={showFolder}
         onToggleToolbar={handleToggleToolbar}
         onToggleStyleBar={handleToggleStyleBar}
         onToggleVoiceBar={handleToggleVoiceBar}
         onToggleMinimap={handleToggleMinimap}
+        onToggleClock={() => updateAppSettings({ showClock: !showClock, uiHidden: false })}
+        onToggleFolder={() => updateAppSettings({ showFolder: !showFolder, uiHidden: false })}
         onResetWidgetLayout={handleResetWidgetLayout}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
@@ -1804,6 +1822,7 @@ export default function App() {
           layoutResetCounter={layoutResetCounter}
           zIndex={widgetZIndexes.voice}
           onFocus={() => bringWidgetToFront('voice')}
+          theme={settings.theme}
         />
         )}
 
@@ -1813,6 +1832,7 @@ export default function App() {
             onHide={() => updateAppSettings({ showClock: false })}
             layoutResetCounter={layoutResetCounter}
             zIndex={23}
+            theme={settings.theme}
           />
         )}
 
@@ -2081,14 +2101,17 @@ export default function App() {
             messages={chatMessages}
             currentUserId={currentUser.id}
             currentUserName={currentUser.name}
+            users={users}
             reactions={reactions}
             onSendMessage={sendChatMessage}
+            onDeleteMessage={deleteChatMessage}
             onSendReaction={(emoji) => {
               const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom;
               const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom;
               sendReaction(emoji, canvasCenterX, canvasCenterY);
             }}
             onClose={() => setActivePanel('none')}
+            theme={settings.theme}
           />
         )}
       </div>

@@ -376,83 +376,192 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {activeTab === 'panels' && (
-            <div className="space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                {t('panels.title')}
-              </h3>
-
-              {(
-                [
-                  { key: 'showToolbar', label: t('panels.toolbar'), icon: <Layout className="w-4 h-4" /> },
-                  { key: 'showStyleBar', label: t('panels.stylebar'), icon: <Palette className="w-4 h-4" /> },
-                  { key: 'showVoiceBar', label: t('panels.voicebar'), icon: <Volume2 className="w-4 h-4" /> },
-                  { key: 'showMinimap', label: t('panels.minimap'), icon: <MapIcon className="w-4 h-4" /> },
-                  { key: 'showClock', label: t('panels.clock'), icon: <Clock className="w-4 h-4" /> },
-                  { key: 'showFolder', label: t('panels.folder'), icon: <FolderOpen className="w-4 h-4" /> },
-                ] as const
-              ).map((row) => {
-                const on = Boolean(settings[row.key]);
-                return (
-                  <div
-                    key={row.key}
-                    className={`px-4 py-3 rounded-xl border flex items-center justify-between gap-4 ${
-                      isDark ? 'border-slate-800 bg-slate-800/40' : 'border-slate-200 bg-slate-50/60'
+            <div className="space-y-4">
+              {/* Bulk Show/Hide Actions */}
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-2 flex items-center justify-between">
+                  <span>Toplu Kutucuk İşlemleri</span>
+                  <span className="text-[11px] font-medium lowercase text-slate-400">
+                    {settings.uiHidden ? 'tüm kutucuklar gizli' : 'kutucuklar aktif'}
+                  </span>
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={onFullyShow}
+                    className="p-3 rounded-xl text-left bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-xs cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 text-xs font-bold">
+                      <Eye className="w-4 h-4" />
+                      <span>{t('panels.fullyShow')} (Hepsini Aç)</span>
+                    </div>
+                    <p className="text-[10px] mt-0.5 text-blue-100">{t('panels.fullyShowDesc')}</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onFullyHide}
+                    className={`p-3 rounded-xl text-left border-2 transition-all cursor-pointer ${
+                      settings.uiHidden
+                        ? 'border-blue-600 bg-blue-600/10 text-blue-600'
+                        : isDark
+                        ? 'border-slate-700 hover:bg-slate-800 text-slate-200'
+                        : 'border-slate-300 hover:bg-slate-100 text-slate-700'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 text-sm font-bold">
-                      <span className="text-blue-600">{row.icon}</span>
-                      <span>{row.label}</span>
+                    <div className="flex items-center gap-2 text-xs font-bold">
+                      <EyeOffIcon className="w-4 h-4" />
+                      <span>{t('panels.fullyHide')} (Hepsini Gizle)</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onUpdateSettings({ [row.key]: !on } as Partial<AppSettings>)}
-                      className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
-                        on
-                          ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                          : isDark
-                          ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                          : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                      }`}
-                    >
-                      {on ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                      <span>{on ? t('panels.shown') : t('panels.hidden')}</span>
-                    </button>
-                  </div>
-                );
-              })}
+                    <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {t('panels.fullyHideDesc')}
+                    </p>
+                  </button>
+                </div>
+              </div>
 
-              {/* Fully hide / fully show everything */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={onFullyShow}
-                  className="p-3.5 rounded-xl text-left bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                >
-                  <div className="flex items-center gap-2 text-sm font-bold">
-                    <Eye className="w-4 h-4" />
-                    <span>{t('panels.fullyShow')}</span>
-                  </div>
-                  <p className="text-[11px] mt-1 text-blue-100">{t('panels.fullyShowDesc')}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={onFullyHide}
-                  className={`p-3.5 rounded-xl text-left border-2 transition-colors ${
-                    settings.uiHidden
-                      ? 'border-blue-600 bg-blue-600/10'
-                      : isDark
-                      ? 'border-slate-700 hover:bg-slate-800'
-                      : 'border-slate-300 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-sm font-bold">
-                    <EyeOffIcon className="w-4 h-4" />
-                    <span>{t('panels.fullyHide')}</span>
-                  </div>
-                  <p className={`text-[11px] mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    {t('panels.fullyHideDesc')}
-                  </p>
-                </button>
+              {/* Individual Panel Controls */}
+              <div className="pt-2">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                    Her Bir Kutucuğu Ayrı Yönet (Aç / Kapat)
+                  </h3>
+                  <span className="text-[11px] text-slate-400">Tek tek bağımsız kontrol</span>
+                </div>
+
+                <div className="space-y-2">
+                  {(
+                    [
+                      {
+                        key: 'showToolbar',
+                        label: t('panels.toolbar'),
+                        desc: 'Fırça, kalem, şekiller, silgi, seçim ve çizim araçları',
+                        icon: <Layout className="w-4 h-4" />,
+                      },
+                      {
+                        key: 'showStyleBar',
+                        label: t('panels.stylebar'),
+                        desc: 'Çizgi kalınlığı, renk paleti, saydamlık ve şekil stilleri',
+                        icon: <Palette className="w-4 h-4" />,
+                      },
+                      {
+                        key: 'showVoiceBar',
+                        label: t('panels.voicebar'),
+                        desc: 'Canlı ses kanalı, susturma, kulaklık ve katılımcı sesleri',
+                        icon: <Volume2 className="w-4 h-4" />,
+                      },
+                      {
+                        key: 'showMinimap',
+                        label: t('panels.minimap'),
+                        desc: 'Sonsuz tuval kuşbakışı haritası ve hızlı odaklanma',
+                        icon: <MapIcon className="w-4 h-4" />,
+                      },
+                      {
+                        key: 'showClock',
+                        label: t('panels.clock'),
+                        desc: 'Serbest taşınabilir ve boyutlandırılabilir dijital saat',
+                        icon: <Clock className="w-4 h-4" />,
+                      },
+                      {
+                        key: 'showFolder',
+                        label: t('panels.folder'),
+                        desc: 'Belgeleri ve görselleri tuvale sürükleyip bırakma kutusu',
+                        icon: <FolderOpen className="w-4 h-4" />,
+                      },
+                    ] as const
+                  ).map((row) => {
+                    const isEffectivelyOn = !settings.uiHidden && Boolean(settings[row.key]);
+                    return (
+                      <div
+                        key={row.key}
+                        className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                          isEffectivelyOn
+                            ? isDark
+                              ? 'border-blue-900/60 bg-blue-950/20'
+                              : 'border-blue-200/80 bg-blue-50/40'
+                            : isDark
+                            ? 'border-slate-800 bg-slate-800/40 opacity-70'
+                            : 'border-slate-200 bg-slate-50/60 opacity-80'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                          <span
+                            className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+                              isEffectivelyOn
+                                ? 'bg-blue-600 text-white'
+                                : isDark
+                                ? 'bg-slate-700 text-slate-400'
+                                : 'bg-slate-200 text-slate-500'
+                            }`}
+                          >
+                            {row.icon}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold truncate">{row.label}</span>
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                                  isEffectivelyOn
+                                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                    : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                                }`}
+                              >
+                                {isEffectivelyOn ? 'AÇIK' : 'KAPALI'}
+                              </span>
+                            </div>
+                            <p
+                              className={`text-[11px] truncate mt-0.5 ${
+                                isDark ? 'text-slate-400' : 'text-slate-500'
+                              }`}
+                            >
+                              {row.desc}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Separate Aç / Kapat Buttons Group */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  [row.key]: true,
+                                  uiHidden: false,
+                                } as Partial<AppSettings>);
+                              }}
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                                isEffectivelyOn
+                                  ? 'bg-emerald-600 text-white shadow-xs'
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                              title={`${row.label} kutucuğunu aç`}
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Aç</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateSettings({
+                                  [row.key]: false,
+                                } as Partial<AppSettings>);
+                              }}
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                                !isEffectivelyOn
+                                  ? 'bg-slate-700 text-white shadow-xs'
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                              title={`${row.label} kutucuğunu kapat`}
+                            >
+                              <EyeOff className="w-3 h-3" />
+                              <span>Kapat</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="flex justify-end pt-1">

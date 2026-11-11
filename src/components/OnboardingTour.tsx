@@ -12,6 +12,7 @@ import {
   Map,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
+import { useI18n, translatePhrase } from '../i18n';
 
 interface OnboardingTourProps {
   isOpen: boolean;
@@ -105,6 +106,8 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
   onOpenCodeEditor,
   onOpenInviteModal,
 }) => {
+  const { lang } = useI18n();
+  const trPhrase = (text: string) => translatePhrase(text, lang);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
 
@@ -236,14 +239,14 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
         >
           <span className="absolute -top-3.5 left-3 px-2.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold shadow-lg flex items-center gap-1">
             <MousePointerClick className="w-3 h-3" />
-            Buradan Erişebilirsiniz
+            {trPhrase('Buradan Erişebilirsiniz')}
           </span>
         </div>
       )}
 
       {/* Tour Step Card */}
       <div
-        className="fixed z-[97] pointer-events-auto w-[430px] max-w-[calc(100vw-32px)] bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden transition-all duration-300"
+        className="fixed z-[97] pointer-events-auto w-[430px] max-w-[calc(100vw-32px)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-700 overflow-hidden transition-all duration-300"
         style={getCardStyle()}
       >
         {/* Top Accent Banner */}
@@ -252,17 +255,17 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
             <BrandLogo size="sm" />
             <div>
               <div className="text-[11px] font-semibold text-blue-300 uppercase tracking-wider">
-                {currentStep.badge}
+                {trPhrase(currentStep.badge)}
               </div>
               <div className="text-sm font-bold text-white flex items-center gap-1.5">
-                <span>CollabBoard Hızlı Başlangıç Rehberi</span>
+                <span>{trPhrase('CollabBoard Hızlı Başlangıç Rehberi')}</span>
               </div>
             </div>
           </div>
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
-            title="Turu Kapat"
+            title={trPhrase('Turu Kapat')}
           >
             <X className="w-4 h-4" />
           </button>
@@ -271,27 +274,27 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
         {/* Step Body */}
         <div className="p-5 space-y-4">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0 mt-0.5">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-800/60 flex items-center justify-center shrink-0 mt-0.5">
               {currentStep.icon}
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900 leading-snug">
-                {currentStep.title}
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
+                {trPhrase(currentStep.title)}
               </h3>
-              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                {currentStep.description}
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+                {trPhrase(currentStep.description)}
               </p>
             </div>
           </div>
 
           {/* Interactive Tips Box */}
-          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-2">
+          <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 rounded-xl p-3.5 space-y-2">
             {currentStep.tips.map((tip, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs text-slate-700">
-                <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+              <div key={i} className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-200">
+                <span className="w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/70 text-blue-700 dark:text-blue-300 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
                   {i + 1}
                 </span>
-                <span className="leading-relaxed">{tip}</span>
+                <span className="leading-relaxed">{trPhrase(tip)}</span>
               </div>
             ))}
           </div>
@@ -301,10 +304,10 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
             <button
               type="button"
               onClick={() => onSelectTool('text')}
-              className="w-full py-2 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors border border-indigo-200/60"
+              className="w-full py-2 px-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors border border-indigo-200/60 dark:border-indigo-800/60"
             >
               <Type className="w-3.5 h-3.5" />
-              Şimdi Metin Aracını (T) Aktifleştir ve Fontları Gör
+              {trPhrase('Şimdi Metin Aracını (T) Aktifleştir ve Fontları Gör')}
             </button>
           )}
 
@@ -312,10 +315,10 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
             <button
               type="button"
               onClick={() => onOpenCodeEditor()}
-              className="w-full py-2 px-3 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors border border-violet-200/60"
+              className="w-full py-2 px-3 rounded-xl bg-violet-50 dark:bg-violet-950/60 hover:bg-violet-100 dark:hover:bg-violet-900/70 text-violet-700 dark:text-violet-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors border border-violet-200/60 dark:border-violet-800/60"
             >
               <Code2 className="w-3.5 h-3.5" />
-              Ortak Kod Editörünü Önizle
+              {trPhrase('Ortak Kod Editörünü Önizle')}
             </button>
           )}
 
@@ -326,15 +329,15 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
                 onClose();
                 onOpenInviteModal();
               }}
-              className="w-full py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors border border-amber-200/60"
+              className="w-full py-2 px-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors border border-amber-200/60 dark:border-amber-800/60"
             >
               <Share2 className="w-3.5 h-3.5" />
-              Davet & QR Kod Penceresini Aç
+              {trPhrase('Davet & QR Kod Penceresini Aç')}
             </button>
           )}
 
           {/* Step Dots + Navigation */}
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               {TOUR_STEPS.map((s, idx) => (
                 <button
@@ -343,9 +346,9 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
                   className={`h-2 rounded-full transition-all ${
                     idx === stepIndex
                       ? 'w-6 bg-blue-600'
-                      : 'w-2 bg-slate-300 hover:bg-slate-400'
+                      : 'w-2 bg-slate-300 dark:bg-slate-600 hover:bg-slate-400'
                   }`}
-                  title={s.title}
+                  title={trPhrase(s.title)}
                 />
               ))}
             </div>
@@ -353,18 +356,18 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={onClose}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
-                Atla
+                {trPhrase('Atla')}
               </button>
 
               {stepIndex > 0 && (
                 <button
                   onClick={() => setStepIndex((i) => Math.max(0, i - 1))}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 flex items-center gap-1 transition-colors"
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center gap-1 transition-colors"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
-                  Geri
+                  {trPhrase('Geri')}
                 </button>
               )}
 
@@ -381,11 +384,11 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
                 {isLastStep ? (
                   <>
                     <Check className="w-3.5 h-3.5" />
-                    Başla
+                    {trPhrase('Başla')}
                   </>
                 ) : (
                   <>
-                    İleri
+                    {trPhrase('İleri')}
                     <ChevronRight className="w-3.5 h-3.5" />
                   </>
                 )}

@@ -60,7 +60,9 @@ export const ALL_SHAPE_TYPES: ShapeElementType[] = [
 export type ToolType =
   | 'select'
   | 'pencil'
+  | 'fountain-pen'
   | 'highlighter'
+  | 'bucket'
   | 'eraser'
   | 'point-eraser'
   | 'ping'
@@ -76,6 +78,7 @@ export type ToolType =
 export interface Point {
   x: number;
   y: number;
+  w?: number;
 }
 
 export type StrokeStyle = 'solid' | 'dashed' | 'dotted';
@@ -161,6 +164,7 @@ export interface CanvasElement {
   id: string;
   type:
     | 'pencil'
+    | 'fountain-pen'
     | 'highlighter'
     | ShapeElementType
     | 'arrow'
@@ -303,6 +307,9 @@ export interface ChatMessage {
   userColor: string;
   text: string;
   timestamp: number;
+  recipientId?: string;
+  recipientName?: string;
+  isPrivate?: boolean;
   fileAttachment?: {
     name: string;
     url: string;

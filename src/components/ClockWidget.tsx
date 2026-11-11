@@ -8,6 +8,7 @@ interface ClockWidgetProps {
   layoutResetCounter?: number;
   zIndex?: number;
   onFocus?: () => void;
+  theme?: string;
 }
 
 const DEFAULT_RECT = { x: 16, y: 72, w: 190, h: 92 };
@@ -26,7 +27,9 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
   layoutResetCounter = 0,
   zIndex = 23,
   onFocus,
+  theme = 'light',
 }) => {
+  const isDark = theme === 'dark' || theme === 'midnight';
   const { t, lang } = useI18n();
   const { rect, ref, startDrag, startResize, reset } = useFloatingBox({
     storageKey: 'collab_clock_rect',
@@ -84,24 +87,36 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
         height: rect.h,
         zIndex,
       }}
-      className="absolute pointer-events-auto select-none rounded-xl bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-lg flex flex-col overflow-hidden cb-anim-scale-in"
+      className={`absolute pointer-events-auto select-none rounded-xl backdrop-blur-md border shadow-lg flex flex-col overflow-hidden cb-anim-scale-in ${
+        isDark
+          ? 'bg-slate-900/95 border-slate-700/80 text-slate-100'
+          : 'bg-white/95 border-slate-200/90 text-slate-800'
+      }`}
     >
       <div
         onPointerDown={startDrag}
-        className="shrink-0 flex items-center justify-between px-1.5 bg-slate-50 border-b border-slate-200 cursor-grab active:cursor-grabbing"
+        className={`shrink-0 flex items-center justify-between px-1.5 border-b cursor-grab active:cursor-grabbing ${
+          isDark
+            ? 'bg-slate-800/90 border-slate-700/70 text-slate-300'
+            : 'bg-slate-50 border-slate-200 text-slate-400'
+        }`}
         style={{ height: headerH }}
         title={t('clock.title')}
       >
-        <div className="flex items-center gap-1 text-slate-400">
-          <GripVertical className="w-3.5 h-3.5" />
-          <Clock className="w-3 h-3" />
+        <div className="flex items-center gap-1">
+          <GripVertical className="w-3.5 h-3.5 opacity-60" />
+          <Clock className="w-3 h-3 opacity-80" />
         </div>
         <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => toggle('collab_clock_24h', setHour24)}
             className={`px-1 rounded text-[9px] font-bold ${
-              hour24 ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-200'
+              hour24
+                ? 'bg-blue-600 text-white'
+                : isDark
+                ? 'text-slate-400 hover:bg-slate-700'
+                : 'text-slate-500 hover:bg-slate-200'
             }`}
             title={t('clock.show24')}
           >
@@ -111,7 +126,11 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
             type="button"
             onClick={() => toggle('collab_clock_seconds', setShowSeconds)}
             className={`px-1 rounded text-[9px] font-bold ${
-              showSeconds ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-200'
+              showSeconds
+                ? 'bg-blue-600 text-white'
+                : isDark
+                ? 'text-slate-400 hover:bg-slate-700'
+                : 'text-slate-500 hover:bg-slate-200'
             }`}
             title={t('clock.showSeconds')}
           >
@@ -120,7 +139,11 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
           <button
             type="button"
             onClick={onHide}
-            className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200"
+            className={`p-0.5 rounded transition-colors ${
+              isDark
+                ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200'
+            }`}
             title={t('settings.close')}
           >
             <X className="w-3 h-3" />
@@ -128,7 +151,11 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-2 text-slate-800">
+      <div
+        className={`flex-1 min-h-0 flex flex-col items-center justify-center px-2 ${
+          isDark ? 'text-slate-100' : 'text-slate-800'
+        }`}
+      >
         <div
           className="font-mono font-bold tabular-nums leading-none whitespace-nowrap"
           style={{ fontSize: timeFont }}
@@ -136,7 +163,13 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
           {time}
         </div>
         {showDate && (
-          <div className="mt-1 text-[11px] text-slate-500 capitalize truncate max-w-full">{date}</div>
+          <div
+            className={`mt-1 text-[11px] capitalize truncate max-w-full ${
+              isDark ? 'text-slate-400' : 'text-slate-500'
+            }`}
+          >
+            {date}
+          </div>
         )}
       </div>
 

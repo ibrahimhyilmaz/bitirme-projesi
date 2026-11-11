@@ -18,7 +18,7 @@ import {
   Maximize2,
   RotateCcw,
 } from 'lucide-react';
-import { CanvasElement, ToolType } from '../types';
+import { CanvasElement, ToolType, ThemeMode } from '../types';
 import { getElementBounds } from '../utils/canvasRenderer';
 
 interface CanvasQuickAccessProps {
@@ -40,6 +40,7 @@ interface CanvasQuickAccessProps {
   showMinimap?: boolean;
   onToggleMinimap?: () => void;
   onResetWidgetLayout?: () => void;
+  theme?: ThemeMode;
 }
 
 export const RADIAL_TOOLS: {
@@ -89,14 +90,16 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
   showMinimap = true,
   onToggleMinimap,
   onResetWidgetLayout,
+  theme = 'light',
 }) => {
   const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
   const [isMinimapOpen, setIsMinimapOpen] = useState<boolean>(true);
   const [showLivePreview, setShowLivePreview] = useState<boolean>(false);
   const [isDraggingMinimap, setIsDraggingMinimap] = useState<boolean>(false);
 
-  const MINIMAP_W = 196;
-  const MINIMAP_H = 128;
+  const isDark = theme === 'dark' || theme === 'midnight';
+  const MINIMAP_W = 260;
+  const MINIMAP_H = 152;
 
   // Compute world bounds encompassing all elements and current viewport
   const getWorldBounds = () => {
@@ -146,8 +149,15 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
 
     ctx.clearRect(0, 0, MINIMAP_W, MINIMAP_H);
 
-    // Subtle grid background
-    ctx.fillStyle = '#f8fafc';
+    // Canvas background adapting to dark / midnight theme so white strokes stay visible
+    const bgColor = isDark
+      ? theme === 'midnight'
+        ? '#090d16'
+        : '#0f172a'
+      : theme === 'sepia'
+      ? '#fef9c3'
+      : '#f8fafc';
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, MINIMAP_W, MINIMAP_H);
 
     // Draw each element as a miniature shape
@@ -163,10 +173,10 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
         ctx.fillStyle = !el.fillColor || el.fillColor === 'transparent' ? '#fef08a' : el.fillColor;
         ctx.fillRect(rx, ry, rw, rh);
       } else if (el.type === 'text') {
-        ctx.fillStyle = el.color || '#1e293b';
+        ctx.fillStyle = el.color || (isDark ? '#f1f5f9' : '#1e293b');
         ctx.fillRect(rx, ry, rw, Math.max(2, rh * 0.5));
       } else {
-        ctx.strokeStyle = el.color || '#2563eb';
+        ctx.strokeStyle = el.color || (isDark ? '#f8fafc' : '#2563eb');
         ctx.lineWidth = 1.5;
         if (el.fillColor && el.fillColor !== 'transparent') {
           ctx.fillStyle = el.fillColor;
@@ -188,19 +198,19 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
     const vw = Math.max(14, viewW * scale);
     const vh = Math.max(10, viewH * scale);
 
-    ctx.fillStyle = 'rgba(37, 99, 235, 0.10)';
+    ctx.fillStyle = isDark ? 'rgba(59, 130, 246, 0.20)' : 'rgba(37, 99, 235, 0.10)';
     ctx.fillRect(vx, vy, vw, vh);
-    ctx.strokeStyle = '#2563eb';
-    ctx.lineWidth = 1.75;
+    ctx.strokeStyle = isDark ? '#60a5fa' : '#2563eb';
+    ctx.lineWidth = 2;
     ctx.strokeRect(vx, vy, vw, vh);
-  }, [elements, camera, isMinimapOpen, showMinimap]);
+  }, [elements, camera, isMinimapOpen, showMinimap, isDark, theme]);
 
   const navigateFromMinimapEvent = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = minimapCanvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    const clickX = ((e.clientX - rect.left) / rect.width) * MINIMAP_W;
+    const clickY = ((e.clientY - rect.top) / rect.height) * MINIMAP_H;
 
     const bounds = getWorldBounds();
     const scale = Math.min(MINIMAP_W / bounds.width, MINIMAP_H / bounds.height);
@@ -265,19 +275,39 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
         {showMinimap ? (
           <div
             data-tour="minimap"
-            className="pointer-events-auto bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-lg overflow-hidden transition-all duration-200 cb-anim-scale-in"
+            className={`pointer-events-auto w-[276px] backdrop-blur-md border rounded-2xl shadow-lg overflow-hidden transition-all duration-200 cb-anim-scale-in ${
+              isDark
+                ? 'bg-slate-900/95 border-slate-700/80 text-slate-100'
+                : 'bg-white/95 border-slate-200/90 text-slate-700'
+            }`}
           >
             {/* Header Bar */}
-            <div className="px-3 py-1.5 bg-slate-50/90 border-b border-slate-200/70 flex items-center justify-between gap-2.5">
+            <div
+              className={`px-3 py-1.5 border-b flex items-center justify-between gap-2.5 ${
+                isDark
+                  ? 'bg-slate-800/90 border-slate-700/70'
+                  : 'bg-slate-50/90 border-slate-200/70'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setIsMinimapOpen((v) => !v)}
-                className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 hover:text-blue-600 transition-colors"
+                className={`flex items-center gap-1.5 text-[11px] font-bold transition-colors ${
+                  isDark
+                    ? 'text-slate-200 hover:text-blue-400'
+                    : 'text-slate-700 hover:text-blue-600'
+                }`}
                 title="Mini Haritayı Küçült / Genişlet"
               >
-                <MapIcon className="w-3.5 h-3.5 text-blue-600" />
+                <MapIcon className="w-3.5 h-3.5 text-blue-500" />
                 <span>Mini Harita</span>
-                <span className="px-1.5 py-0.2 rounded-full bg-slate-200/80 text-slate-600 text-[10px] font-mono">
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                    isDark
+                      ? 'bg-slate-700 text-slate-300'
+                      : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
                   {elements.length}
                 </span>
               </button>
@@ -288,7 +318,9 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
                   onClick={() => setShowLivePreview((v) => !v)}
                   className={`p-1 rounded-md text-[10px] transition-colors ${
                     showLivePreview
-                      ? 'bg-blue-100 text-blue-700 font-semibold'
+                      ? 'bg-blue-600 text-white font-semibold'
+                      : isDark
+                      ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/60'
                       : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/60'
                   }`}
                   title="Canlı Araç & Tipografi Önizlemesi"
@@ -298,7 +330,11 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
                 <button
                   type="button"
                   onClick={handleFitAllElements}
-                  className="p-1 rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 transition-colors"
+                  className={`p-1 rounded-md transition-colors ${
+                    isDark
+                      ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/60'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/60'
+                  }`}
                   title="Tüm Çizimleri Ekrana Sığdır"
                 >
                   <Maximize2 className="w-3.5 h-3.5" />
@@ -306,7 +342,11 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
                 <button
                   type="button"
                   onClick={() => setCamera({ x: 0, y: 0, zoom: 1 })}
-                  className="p-1 rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 transition-colors"
+                  className={`p-1 rounded-md transition-colors ${
+                    isDark
+                      ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/60'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/60'
+                  }`}
                   title="Merkeze Dön (100%)"
                 >
                   <Crosshair className="w-3.5 h-3.5" />
@@ -314,7 +354,11 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsMinimapOpen((v) => !v)}
-                  className="p-1 rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 transition-colors"
+                  className={`p-1 rounded-md transition-colors ${
+                    isDark
+                      ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/60'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/60'
+                  }`}
                   title={isMinimapOpen ? 'Haritayı Daralt' : 'Haritayı Genişlet'}
                 >
                   {isMinimapOpen ? (
@@ -327,7 +371,11 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
                   <button
                     type="button"
                     onClick={onToggleMinimap}
-                    className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
+                    className={`p-1 rounded-md transition-colors ${
+                      isDark
+                        ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/60'
+                        : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60'
+                    }`}
                     title="Mini Harita Kutusunu Gizle"
                   >
                     <EyeOff className="w-3.5 h-3.5" />
@@ -338,7 +386,13 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
 
             {/* Live Tool & Font Preview Drawer */}
             {showLivePreview && (
-              <div className="px-3 py-2 bg-slate-50 border-b border-slate-200/70 flex items-center justify-between gap-2 text-[11px]">
+              <div
+                className={`px-3 py-2 border-b flex items-center justify-between gap-2 text-[11px] ${
+                  isDark
+                    ? 'bg-slate-800/60 border-slate-700/60'
+                    : 'bg-slate-50 border-slate-200/70'
+                }`}
+              >
                 <div className="flex items-center gap-2 min-w-0">
                   <span
                     className="rounded-full shrink-0 border border-slate-300"
@@ -349,21 +403,21 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
                     }}
                   />
                   <span
-                    className="truncate font-medium text-slate-800"
+                    className={`truncate font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}
                     style={{ fontFamily: `"${fontFamily}", sans-serif` }}
                   >
                     {fontFamily} · {fontSize}px
                   </span>
                 </div>
-                <span className="text-[10px] font-mono text-slate-500 uppercase shrink-0">
+                <span className={`text-[10px] font-mono uppercase shrink-0 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                   {activeTool}
                 </span>
               </div>
             )}
 
-            {/* Minimap Interactive Canvas */}
+            {/* Minimap Interactive Canvas — fills container edge-to-edge */}
             {isMinimapOpen && (
-              <div className="p-2 bg-white">
+              <div className={`p-2 ${isDark ? 'bg-slate-900' : 'bg-white'}`}>
                 <canvas
                   ref={minimapCanvasRef}
                   width={MINIMAP_W}
@@ -377,11 +431,17 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
                   }}
                   onMouseUp={() => setIsDraggingMinimap(false)}
                   onMouseLeave={() => setIsDraggingMinimap(false)}
-                  className="rounded-xl border border-slate-200 cursor-crosshair block"
+                  className={`w-full h-auto aspect-[260/152] rounded-xl border cursor-crosshair block shadow-2xs ${
+                    isDark ? 'border-slate-700/80' : 'border-slate-200'
+                  }`}
                 />
-                <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-500 px-0.5">
+                <div
+                  className={`mt-1.5 flex items-center justify-between text-[10px] px-0.5 ${
+                    isDark ? 'text-slate-400' : 'text-slate-500'
+                  }`}
+                >
                   <span>Yakınlaştırma: %{Math.round(camera.zoom * 100)}</span>
-                  <span className="text-blue-600 font-medium">Orta Tuş: Hızlı Seçim</span>
+                  <span className="text-blue-500 font-medium">Orta Tuş: Hızlı Seçim</span>
                 </div>
               </div>
             )}
@@ -392,26 +452,38 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
               type="button"
               data-tour="minimap"
               onClick={onToggleMinimap}
-              className="pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl shadow-md text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors cb-anim-scale-in"
+              className={`pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 backdrop-blur-md border rounded-xl shadow-md text-xs font-semibold transition-colors cb-anim-scale-in ${
+                isDark
+                  ? 'bg-slate-900/95 border-slate-700 text-slate-200 hover:bg-slate-800'
+                  : 'bg-white/95 border-slate-200/90 text-slate-700 hover:bg-blue-50 hover:text-blue-700'
+              }`}
               title="Mini Haritayı Göster"
             >
-              <MapIcon className="w-3.5 h-3.5 text-blue-600" />
+              <MapIcon className="w-3.5 h-3.5 text-blue-500" />
               <span>Harita</span>
-              <Eye className="w-3.5 h-3.5 text-blue-600" />
+              <Eye className="w-3.5 h-3.5 text-blue-500" />
             </button>
           )
         )}
 
         {/* Docked Grid Pattern Selector & Layout Reset Bar */}
         {onChangeGridStyle && (
-          <div className="pointer-events-auto flex items-center gap-1 bg-white/95 backdrop-blur-md p-1 rounded-xl border border-slate-200/90 text-xs text-slate-600 shadow-lg cb-anim-scale-in">
+          <div
+            className={`pointer-events-auto flex items-center gap-1 backdrop-blur-md p-1 rounded-xl border text-xs shadow-lg cb-anim-scale-in ${
+              isDark
+                ? 'bg-slate-900/95 border-slate-700 text-slate-300'
+                : 'bg-white/95 border-slate-200/90 text-slate-600'
+            }`}
+          >
             <button
               type="button"
               onClick={() => onChangeGridStyle('dots')}
               className={`px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                 gridStyle === 'dots'
-                  ? 'bg-slate-900 font-semibold text-white shadow-2xs'
-                  : 'hover:bg-slate-100'
+                  ? 'bg-blue-600 font-semibold text-white shadow-2xs'
+                  : isDark
+                  ? 'hover:bg-slate-800 text-slate-300'
+                  : 'hover:bg-slate-100 text-slate-600'
               }`}
             >
               Noktalı
@@ -421,8 +493,10 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
               onClick={() => onChangeGridStyle('grid')}
               className={`px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                 gridStyle === 'grid'
-                  ? 'bg-slate-900 font-semibold text-white shadow-2xs'
-                  : 'hover:bg-slate-100'
+                  ? 'bg-blue-600 font-semibold text-white shadow-2xs'
+                  : isDark
+                  ? 'hover:bg-slate-800 text-slate-300'
+                  : 'hover:bg-slate-100 text-slate-600'
               }`}
             >
               Izgara
@@ -432,8 +506,10 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
               onClick={() => onChangeGridStyle('none')}
               className={`px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                 gridStyle === 'none'
-                  ? 'bg-slate-900 font-semibold text-white shadow-2xs'
-                  : 'hover:bg-slate-100'
+                  ? 'bg-blue-600 font-semibold text-white shadow-2xs'
+                  : isDark
+                  ? 'hover:bg-slate-800 text-slate-300'
+                  : 'hover:bg-slate-100 text-slate-600'
               }`}
             >
               Düz
@@ -441,11 +517,15 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
 
             {onResetWidgetLayout && (
               <>
-                <div className="w-px h-4 bg-slate-200 mx-0.5" />
+                <div className={`w-px h-4 mx-0.5 ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
                 <button
                   type="button"
                   onClick={onResetWidgetLayout}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 font-medium transition-colors whitespace-nowrap"
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                    isDark
+                      ? 'text-slate-300 hover:text-blue-400 hover:bg-slate-800'
+                      : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50'
+                  }`}
                   title="Tüm Araç Kutucuklarını Göster ve Üst/Alt Kenetli Flex Düzenine Sıfırla"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />

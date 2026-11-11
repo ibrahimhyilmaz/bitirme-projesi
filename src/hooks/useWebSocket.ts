@@ -966,14 +966,28 @@ export function useWebSocket({
 
           case 'chat-received':
           case 'chat-message': {
-            const chatMsg: ChatMessage = msg.message || {
-              id: msg.id || `msg-${msg._ts || Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-              userId: msg._senderId || msg.userId || 'remote',
-              userName: msg.userName || 'Kullanıcı',
-              userColor: msg.userColor || '#2563eb',
-              text: msg.text,
-              timestamp: msg.timestamp || msg._ts || Date.now(),
-              fileAttachment: msg.fileAttachment,
+            const raw = msg.message || msg;
+            const isPrivate = Boolean(raw.isPrivate || raw.recipientId);
+            const recipientId = raw.recipientId ? String(raw.recipientId) : undefined;
+            const recipientName = raw.recipientName ? String(raw.recipientName) : undefined;
+            const senderUserId = raw._senderId || raw.userId || 'remote';
+
+            // If private message and we are neither the author nor the recipient, ignore it
+            if (isPrivate && recipientId && senderUserId !== userRef.current.id && recipientId !== userRef.current.id) {
+              break;
+            }
+
+            const chatMsg: ChatMessage = {
+              id: raw.id || `msg-${msg._ts || Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              userId: senderUserId,
+              userName: raw.userName || 'Kullanıcı',
+              userColor: raw.userColor || '#2563eb',
+              text: raw.text,
+              timestamp: raw.timestamp || msg._ts || Date.now(),
+              fileAttachment: raw.fileAttachment,
+              recipientId,
+              recipientName,
+              isPrivate,
             };
             setChatMessages((prev) => {
               if (prev.some((m) => m.id === chatMsg.id)) return prev;
@@ -983,6 +997,7 @@ export function useWebSocket({
                   (m) =>
                     m.userId === chatMsg.userId &&
                     m.text === chatMsg.text &&
+                    m.recipientId === chatMsg.recipientId &&
                     Math.abs((m.timestamp || 0) - (chatMsg.timestamp || 0)) < 3000
                 )
               ) {
@@ -992,6 +1007,14 @@ export function useWebSocket({
             });
             if (chatMsg.userId !== userRef.current.id) {
               soundEffects.playMessageSound();
+            }
+            break;
+          }
+
+          case 'chat-message-deleted': {
+            const delId = msg.messageId;
+            if (delId) {
+              setChatMessages((prev) => prev.filter((m) => m.id !== delId));
             }
             break;
           }
@@ -1900,7 +1923,13 @@ export function useWebSocket({
   );
 
   const sendChatMessage = useCallback(
-    (text: string, fileAttachment?: { name: string; url: string; type?: string }) => {
+    (
+      text: string,
+      fileAttachment?: { name: string; url: string; type?: string },
+      recipientId?: string,
+      recipientName?: string
+    ) => {
+      const isPrivate = Boolean(recipientId);
       const msgObj: ChatMessage = {
         id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         userId: userRef.current.id,
@@ -1909,6 +1938,9 @@ export function useWebSocket({
         text,
         timestamp: Date.now(),
         fileAttachment,
+        recipientId,
+        recipientName,
+        isPrivate,
       };
       setChatMessages((prev) => {
         if (prev.some((m) => m.id === msgObj.id)) return prev;
@@ -1923,6 +1955,20 @@ export function useWebSocket({
         userColor: userRef.current.color,
         timestamp: msgObj.timestamp,
         fileAttachment,
+        recipientId,
+        recipientName,
+        isPrivate,
+      });
+    },
+    [sendMessage]
+  );
+
+  const deleteChatMessage = useCallback(
+    (messageId: string) => {
+      setChatMessages((prev) => prev.filter((m) => m.id !== messageId));
+      sendMessage({
+        type: 'chat-message-delete',
+        messageId,
       });
     },
     [sendMessage]
@@ -2149,6 +2195,7 @@ export function useWebSocket({
     sendCodeCursor,
     updateNotes,
     sendChatMessage,
+    deleteChatMessage,
     uploadFile,
     deleteFile,
     updateVoiceState,

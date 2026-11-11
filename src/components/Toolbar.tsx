@@ -34,8 +34,26 @@ import {
   Wand2,
   Eye,
   EyeOff,
+  PaintBucket,
 } from 'lucide-react';
 import { ALL_SHAPE_TYPES, ToolType } from '../types';
+
+export const FountainPenNibIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg
+    className={className}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 19l7-7 3 3-7 7-3-3z" />
+    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+    <path d="M2 2l7.586 7.586" />
+    <circle cx="11" cy="11" r="2" />
+  </svg>
+);
 
 interface ShapeCatalogItem {
   id: ToolType;
@@ -294,12 +312,37 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onFocus,
 }) => {
   const [shapesMenuOpen, setShapesMenuOpen] = useState(false);
+  const [penMenuOpen, setPenMenuOpen] = useState(false);
   const [eraserMenuOpen, setEraserMenuOpen] = useState(false);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const shapesMenuRef = useRef<HTMLDivElement>(null);
+  const penMenuRef = useRef<HTMLDivElement>(null);
   const eraserMenuRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+
+  // Track which pen variant was last used ('pencil' vs 'fountain-pen')
+  const [lastPenTool, setLastPenTool] = useState<'pencil' | 'fountain-pen'>(() => {
+    try {
+      const saved = localStorage.getItem('collab_last_pen');
+      if (saved === 'fountain-pen' || saved === 'pencil') return saved;
+    } catch {
+      // Ignore storage error
+    }
+    return activeTool === 'fountain-pen' ? 'fountain-pen' : 'pencil';
+  });
+
+  // Keep lastPenTool updated whenever a pen is active
+  useEffect(() => {
+    if (activeTool === 'pencil' || activeTool === 'fountain-pen') {
+      setLastPenTool(activeTool);
+      try {
+        localStorage.setItem('collab_last_pen', activeTool);
+      } catch {
+        // Ignore storage error
+      }
+    }
+  }, [activeTool]);
 
   // Track which eraser variant was last used ('eraser' vs 'point-eraser')
   const [lastEraserTool, setLastEraserTool] = useState<'eraser' | 'point-eraser'>(() => {
@@ -420,6 +463,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       if (shapesMenuRef.current && !shapesMenuRef.current.contains(e.target as Node)) {
         setShapesMenuOpen(false);
       }
+      if (penMenuRef.current && !penMenuRef.current.contains(e.target as Node)) {
+        setPenMenuOpen(false);
+      }
       if (eraserMenuRef.current && !eraserMenuRef.current.contains(e.target as Node)) {
         setEraserMenuOpen(false);
       }
@@ -459,6 +505,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setPosition({ x: currentX, y: currentY });
     setIsDraggingBar(true);
     setShapesMenuOpen(false);
+    setPenMenuOpen(false);
     setEraserMenuOpen(false);
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
@@ -775,20 +822,119 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <>
             <div className={dividerClass} />
 
-            {/* Freehand Pen */}
-            <button
-              onClick={() => onSelectTool('pencil')}
-              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
-                isVertical ? 'w-full' : ''
-              } ${
-                activeTool === 'pencil'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-              }`}
-              title="Çizim Kalemi (P)"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
+            {/* Dual Pen Dropdown (Freehand Pencil & Pressure/Velocity Fountain Pen) */}
+            <div className={`relative ${isVertical ? 'w-full' : ''}`} ref={penMenuRef}>
+              <div className="flex items-center justify-center">
+                <button
+                  onClick={() => onSelectTool(lastPenTool)}
+                  className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                    activeTool === 'pencil' || activeTool === 'fountain-pen'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                  title={
+                    lastPenTool === 'fountain-pen'
+                      ? 'Dolma Kalem (Hıza ve baskıya duyarlı: yavaş gidince kalın, hızlı kaydırınca ince çizer - Shift+P)'
+                      : 'Çizim Kalemi (Standart serbest çizim - P)'
+                  }
+                >
+                  {lastPenTool === 'fountain-pen' ? (
+                    <FountainPenNibIcon className="w-4 h-4" />
+                  ) : (
+                    <Pencil className="w-4 h-4" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setPenMenuOpen(!penMenuOpen)}
+                  className={`p-0.5 -ml-1 rounded transition-colors ${
+                    activeTool === 'pencil' || activeTool === 'fountain-pen'
+                      ? 'text-blue-200 hover:text-white'
+                      : 'text-slate-400 hover:text-slate-700'
+                  }`}
+                  title="Kalem Türünü Değiştir (Çizim Kalemi / Dolma Kalem)"
+                >
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+              </div>
+
+              {penMenuOpen && (
+                <div
+                  className={`absolute ${
+                    isVertical
+                      ? openPopoverLeftward
+                        ? 'right-full mr-2 top-0'
+                        : 'left-full ml-2 top-0'
+                      : openPopoverUpward
+                      ? 'bottom-full mb-2 left-0'
+                      : 'top-full mt-2 left-0'
+                  } bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 flex flex-col gap-1 z-50 w-64`}
+                >
+                  <button
+                    onClick={() => {
+                      setLastPenTool('pencil');
+                      try {
+                        localStorage.setItem('collab_last_pen', 'pencil');
+                      } catch {}
+                      onSelectTool('pencil');
+                      setPenMenuOpen(false);
+                    }}
+                    data-selected-option={activeTool === 'pencil' ? 'true' : undefined}
+                    className={`flex items-start gap-2.5 p-2 rounded-lg text-left border transition-colors ${
+                      activeTool === 'pencil'
+                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                        : 'border-transparent text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="p-1.5 rounded-md bg-blue-50 text-blue-600 mt-0.5">
+                      <Pencil className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">Çizim Kalemi</span>
+                        <kbd className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">
+                          P
+                        </kbd>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                        Sabit kalınlıkta akıcı ve pürüzsüz serbest el çizimi yapar.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setLastPenTool('fountain-pen');
+                      try {
+                        localStorage.setItem('collab_last_pen', 'fountain-pen');
+                      } catch {}
+                      onSelectTool('fountain-pen');
+                      setPenMenuOpen(false);
+                    }}
+                    data-selected-option={activeTool === 'fountain-pen' ? 'true' : undefined}
+                    className={`flex items-start gap-2.5 p-2 rounded-lg text-left border transition-colors ${
+                      activeTool === 'fountain-pen'
+                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                        : 'border-transparent text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="p-1.5 rounded-md bg-indigo-50 text-indigo-600 mt-0.5">
+                      <FountainPenNibIcon className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">Dolma Kalem</span>
+                        <kbd className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">
+                          Shift+P
+                        </kbd>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                        Baskıya ve hıza duyarlı: yavaş gidince kalın, hızlı kaydırınca ince çizer.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Highlighter */}
             <button
@@ -803,6 +949,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               title="Fosforlu Vurgulayıcı Kalem"
             >
               <Highlighter className="w-4 h-4" />
+            </button>
+
+            {/* Paint Bucket / Fill Tool */}
+            <button
+              onClick={() => onSelectTool('bucket')}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                activeTool === 'bucket'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+              title="Boya Kovası - Kapalı Alanların ve Şekillerin İçini Doldur (B)"
+            >
+              <PaintBucket className="w-4 h-4" />
             </button>
 
             {/* Dual Eraser Dropdown (Object Eraser & Precision Point Eraser) */}
@@ -861,10 +1022,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       onSelectTool('eraser');
                       setEraserMenuOpen(false);
                     }}
-                    className={`flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
+                    data-selected-option={activeTool === 'eraser' ? 'true' : undefined}
+                    className={`flex items-start gap-2.5 p-2 rounded-lg text-left border transition-colors ${
                       activeTool === 'eraser'
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-slate-700 hover:bg-slate-50'
+                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                        : 'border-transparent text-slate-700 hover:bg-slate-50'
                     }`}
                   >
                     <div className="p-1.5 rounded-md bg-rose-50 text-rose-600 mt-0.5">
@@ -892,10 +1054,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       onSelectTool('point-eraser');
                       setEraserMenuOpen(false);
                     }}
-                    className={`flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
+                    data-selected-option={activeTool === 'point-eraser' ? 'true' : undefined}
+                    className={`flex items-start gap-2.5 p-2 rounded-lg text-left border transition-colors ${
                       activeTool === 'point-eraser'
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-slate-700 hover:bg-slate-50'
+                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                        : 'border-transparent text-slate-700 hover:bg-slate-50'
                     }`}
                   >
                     <div className="p-1.5 rounded-md bg-amber-50 text-amber-600 mt-0.5">

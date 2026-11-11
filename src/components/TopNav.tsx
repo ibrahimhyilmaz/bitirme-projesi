@@ -36,6 +36,7 @@ import {
   ArrowRight,
   ChevronDown,
   PlusCircle,
+  Clock,
 } from 'lucide-react';
 import { RoomSettings, ThemeMode, UserPresence, UserRole } from '../types';
 import { getShareableRoomUrl } from './RoomsModal';
@@ -74,10 +75,14 @@ interface TopNavProps {
   showStyleBar?: boolean;
   showVoiceBar?: boolean;
   showMinimap?: boolean;
+  showClock?: boolean;
+  showFolder?: boolean;
   onToggleToolbar?: () => void;
   onToggleStyleBar?: () => void;
   onToggleVoiceBar?: () => void;
   onToggleMinimap?: () => void;
+  onToggleClock?: () => void;
+  onToggleFolder?: () => void;
   onResetWidgetLayout?: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
@@ -125,10 +130,14 @@ export const TopNav: React.FC<TopNavProps> = ({
   showStyleBar = true,
   showVoiceBar = true,
   showMinimap = true,
+  showClock = true,
+  showFolder = true,
   onToggleToolbar,
   onToggleStyleBar,
   onToggleVoiceBar,
   onToggleMinimap,
+  onToggleClock,
+  onToggleFolder,
   onResetWidgetLayout,
   isFullscreen = false,
   onToggleFullscreen,
@@ -152,7 +161,9 @@ export const TopNav: React.FC<TopNavProps> = ({
     (showToolbar ? 0 : 1) +
     (showStyleBar ? 0 : 1) +
     (showVoiceBar ? 0 : 1) +
-    (showMinimap ? 0 : 1);
+    (showMinimap ? 0 : 1) +
+    (showClock ? 0 : 1) +
+    (showFolder ? 0 : 1);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -610,7 +621,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                   Kutucuklar (Gizle / Göster)
                 </span>
                 <span className="text-[10px] font-semibold text-blue-600">
-                  {4 - hiddenCount}/4 Açık
+                  {6 - hiddenCount}/6 Açık
                 </span>
               </div>
 
@@ -731,6 +742,74 @@ export const TopNav: React.FC<TopNavProps> = ({
                     </span>
                     <span className="flex items-center gap-1 text-[10px] font-bold">
                       {showMinimap ? (
+                        <>
+                          <span>Açık</span>
+                          <Eye className="w-3.5 h-3.5" />
+                        </>
+                      ) : (
+                        <>
+                          <span>Gizli</span>
+                          <EyeOff className="w-3.5 h-3.5" />
+                        </>
+                      )}
+                    </span>
+                  </button>
+                )}
+
+                {onToggleClock && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleClock()}
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      showClock
+                        ? isDark
+                          ? 'bg-blue-950/60 text-blue-300'
+                          : 'bg-blue-50 text-blue-700'
+                        : isDark
+                        ? 'hover:bg-slate-800 text-slate-400'
+                        : 'hover:bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>5. Dijital Saat Kutusu</span>
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] font-bold">
+                      {showClock ? (
+                        <>
+                          <span>Açık</span>
+                          <Eye className="w-3.5 h-3.5" />
+                        </>
+                      ) : (
+                        <>
+                          <span>Gizli</span>
+                          <EyeOff className="w-3.5 h-3.5" />
+                        </>
+                      )}
+                    </span>
+                  </button>
+                )}
+
+                {onToggleFolder && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleFolder()}
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      showFolder
+                        ? isDark
+                          ? 'bg-blue-950/60 text-blue-300'
+                          : 'bg-blue-50 text-blue-700'
+                        : isDark
+                        ? 'hover:bg-slate-800 text-slate-400'
+                        : 'hover:bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      <span>6. Dosya Klasörü Kutusu</span>
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] font-bold">
+                      {showFolder ? (
                         <>
                           <span>Açık</span>
                           <Eye className="w-3.5 h-3.5" />

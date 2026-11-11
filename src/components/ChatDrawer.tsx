@@ -8,17 +8,29 @@ import {
   Sparkles,
   Film,
   ExternalLink,
+  Trash2,
+  Lock,
+  Globe,
+  User,
 } from 'lucide-react';
-import { ChatMessage, UserReaction } from '../types';
+import { ChatMessage, UserReaction, UserPresence } from '../types';
 
 interface ChatDrawerProps {
   messages: ChatMessage[];
   currentUserId: string;
   currentUserName?: string;
+  users?: UserPresence[];
   reactions?: UserReaction[];
-  onSendMessage: (text: string, fileAttachment?: { name: string; url: string; type?: string }) => void;
+  onSendMessage: (
+    text: string,
+    fileAttachment?: { name: string; url: string; type?: string },
+    recipientId?: string,
+    recipientName?: string
+  ) => void;
+  onDeleteMessage?: (messageId: string) => void;
   onSendReaction: (emoji: string) => void;
   onClose: () => void;
+  theme?: string;
 }
 
 const QUICK_REACTIONS = ['❤️', '👍', '🚀', '🎉', '🔥', '💡', '👏', '😂'];
@@ -234,11 +246,16 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   messages,
   currentUserId,
   currentUserName = 'Sen',
+  users = [],
   reactions = [],
   onSendMessage,
+  onDeleteMessage,
   onSendReaction,
   onClose,
+  theme = 'light',
 }) => {
+  const isDark = theme === 'dark' || theme === 'midnight';
+  const [activeTab, setActiveTab] = useState<'general' | string>('general');
   const [inputText, setInputText] = useState('');
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [mediaPickerTab, setMediaPickerTab] = useState<'emoji' | 'gif'>('emoji');
@@ -249,21 +266,60 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   const [messageReactions, setMessageReactions] = useState<Record<string, Record<string, string[]>>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Single top system welcome message
-  const firstSystemMsg = useMemo(() => {
-    return messages.find((m) => m.userId === 'system' || m.userColor === 'system');
+  const otherUsers = useMemo(() => {
+    return (users || []).filter((u) => u.id !== currentUserId);
+  }, [users, currentUserId]);
+
+  const activeRecipient = useMemo(() => {
+    if (activeTab === 'general') return null;
+    return otherUsers.find((u) => u.id === activeTab) || null;
+  }, [activeTab, otherUsers]);
+
+  // Filter messages based on active tab: general room vs. private 1-on-1 direct message
+  const nonSystemMessages = useMemo(() => {
+    if (activeTab === 'general') {
+      return messages.filter(
+        (m) => !m.isPrivate && m.userId !== 'system' && m.userColor !== 'system'
+      );
+    }
+    return messages.filter(
+      (m) =>
+        Boolean(m.isPrivate) &&
+        ((m.userId === currentUserId && m.recipientId === activeTab) ||
+          (m.userId === activeTab && m.recipientId === currentUserId))
+    );
+  }, [messages, activeTab, currentUserId]);
+
+  const generalCount = useMemo(() => {
+    return messages.filter(
+      (m) => !m.isPrivate && m.userId !== 'system' && m.userColor !== 'system'
+    ).length;
   }, [messages]);
 
-  // Exclude system notification messages from main chat stream
-  const nonSystemMessages = useMemo(() => {
-    return messages.filter((m) => m.userId !== 'system' && m.userColor !== 'system');
-  }, [messages]);
+  const privateCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const m of messages) {
+      if (m.isPrivate) {
+        const peerId = m.userId === currentUserId ? m.recipientId : m.userId;
+        if (peerId) {
+          map[peerId] = (map[peerId] || 0) + 1;
+        }
+      }
+    }
+    return map;
+  }, [messages, currentUserId]);
+
+  // Single top system welcome message (only in general chat)
+  const firstSystemMsg = useMemo(() => {
+    if (activeTab !== 'general') return null;
+    return messages.find((m) => m.userId === 'system' || m.userColor === 'system');
+  }, [messages, activeTab]);
 
   const userMessagesCount = nonSystemMessages.length;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, activeTab]);
 
   // Toggle reaction on specific message
   const toggleMessageReaction = (emoji: string, targetMessageId?: string) => {
@@ -297,21 +353,28 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     e.preventDefault();
     if (!inputText.trim()) return;
 
-    // Check if the message itself is a direct image/GIF link
     const trimmed = inputText.trim();
     const isDirectGif =
       trimmed.match(/^https?:\/\/.+\.(gif|webp|png|jpg|jpeg)(\?.*)?$/i) ||
       trimmed.includes('giphy.com/media/') ||
       trimmed.includes('tenor.com');
 
+    const recipientId = activeTab !== 'general' ? activeTab : undefined;
+    const recipientName = activeRecipient?.name;
+
     if (isDirectGif) {
-      onSendMessage(trimmed, {
-        name: 'GIF / Görsel',
-        url: trimmed,
-        type: 'image/gif',
-      });
+      onSendMessage(
+        trimmed,
+        {
+          name: 'GIF / Görsel',
+          url: trimmed,
+          type: 'image/gif',
+        },
+        recipientId,
+        recipientName
+      );
     } else {
-      onSendMessage(trimmed);
+      onSendMessage(trimmed, undefined, recipientId, recipientName);
     }
 
     setInputText('');
@@ -319,22 +382,36 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   };
 
   const handleSendGif = (gifUrl: string, title: string) => {
-    onSendMessage(`[GIF: ${title}]`, {
-      name: title,
-      url: gifUrl,
-      type: 'image/gif',
-    });
+    const recipientId = activeTab !== 'general' ? activeTab : undefined;
+    const recipientName = activeRecipient?.name;
+    onSendMessage(
+      `[GIF: ${title}]`,
+      {
+        name: title,
+        url: gifUrl,
+        type: 'image/gif',
+      },
+      recipientId,
+      recipientName
+    );
     setShowMediaPicker(false);
   };
 
   const handleSendCustomGif = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customGifUrl.trim()) return;
-    onSendMessage('[GIF]', {
-      name: 'GIF',
-      url: customGifUrl.trim(),
-      type: 'image/gif',
-    });
+    const recipientId = activeTab !== 'general' ? activeTab : undefined;
+    const recipientName = activeRecipient?.name;
+    onSendMessage(
+      '[GIF]',
+      {
+        name: 'GIF',
+        url: customGifUrl.trim(),
+        type: 'image/gif',
+      },
+      recipientId,
+      recipientName
+    );
     setCustomGifUrl('');
     setShowMediaPicker(false);
   };
@@ -376,35 +453,147 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   }, [selectedGifCategory, searchQuery]);
 
   return (
-    <div className="fixed top-16 right-4 bottom-6 w-[420px] max-w-[calc(100vw-32px)] z-30 bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none">
-
-      {/* Header with Only User Messages Count */}
-      <div className="h-12 bg-slate-50 border-b border-slate-200 px-4 flex items-center justify-between text-xs shrink-0">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="w-4 h-4 text-blue-600" />
-          <span className="font-bold text-slate-800">Oda Sohbeti</span>
+    <div
+      className={`fixed top-16 right-4 bottom-6 w-[420px] max-w-[calc(100vw-32px)] z-[60] border rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none cb-anim-scale-in ${
+        isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+      }`}
+    >
+      {/* Header with Conversation Title & Close */}
+      <div
+        className={`h-12 border-b px-4 flex items-center justify-between text-xs shrink-0 ${
+          isDark ? 'bg-slate-800/90 border-slate-700 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-800'
+        }`}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <MessageSquare className="w-4 h-4 text-blue-500 shrink-0" />
+          <span className="font-bold truncate">
+            {activeRecipient ? `${activeRecipient.name} (Özel)` : 'Oda Sohbeti'}
+          </span>
           <span className="text-slate-400">·</span>
-          <span className="font-mono text-slate-500 font-medium">
+          <span className={`font-mono font-medium whitespace-nowrap ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
             {userMessagesCount} mesaj
           </span>
         </div>
 
         <button
           onClick={onClose}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+          className={`p-1.5 rounded-lg transition-colors ${
+            isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+          }`}
           title="Kapat"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
+      {/* Conversation Scope Tabs (Genel Sohbet & Odadaki Kişilerle Özel Birebir Sohbetler) */}
+      <div
+        className={`px-3 py-2 border-b flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0 ${
+          isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-100/90 border-slate-200'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveTab('general')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+            activeTab === 'general'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : isDark
+              ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+              : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
+          }`}
+        >
+          <Globe className="w-3.5 h-3.5" />
+          <span>Genel Sohbet</span>
+          <span
+            className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+              activeTab === 'general'
+                ? 'bg-white/25 text-white'
+                : isDark
+                ? 'bg-slate-700 text-slate-300'
+                : 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            {generalCount}
+          </span>
+        </button>
+
+        {otherUsers.map((u) => {
+          const isSelected = activeTab === u.id;
+          const count = privateCounts[u.id] || 0;
+          return (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => setActiveTab(u.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                isSelected
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : isDark
+                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                  : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
+              }`}
+            >
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: u.color || '#6366f1' }}
+              />
+              <Lock className="w-3 h-3 opacity-60" />
+              <span>{u.name}</span>
+              {count > 0 && (
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                    isSelected
+                      ? 'bg-white/25 text-white'
+                      : isDark
+                      ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-800'
+                      : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                  }`}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Private Chat Banner Notice if in DM tab */}
+      {activeRecipient && (
+        <div
+          className={`px-3.5 py-2 border-b flex items-center justify-between text-xs shrink-0 ${
+            isDark
+              ? 'bg-indigo-950/60 border-indigo-800/80 text-indigo-200'
+              : 'bg-indigo-50/80 border-indigo-100 text-indigo-900'
+          }`}
+        >
+          <div className="flex items-center gap-1.5 font-medium truncate">
+            <Lock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+            <span className="truncate">
+              <strong>{activeRecipient.name}</strong> ile özel birebir sohbet
+            </span>
+          </div>
+          <span
+            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+              isDark ? 'text-indigo-300 bg-indigo-900/60' : 'text-indigo-500 bg-indigo-100/70'
+            }`}
+          >
+            Sadece ikiniz
+          </span>
+        </div>
+      )}
+
       {/* Messages Feed */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
+      <div className={`flex-1 overflow-y-auto p-4 space-y-3.5 ${isDark ? 'bg-slate-900' : 'bg-white'}`}>
         {/* Render Single System Welcome Message at Top Once */}
         {firstSystemMsg && (
           <div
             key={firstSystemMsg.id}
-            className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-100/90 text-xs text-blue-900 leading-relaxed flex items-center gap-2 mb-3"
+            className={`p-2.5 rounded-xl text-xs leading-relaxed flex items-center gap-2 mb-3 border ${
+              isDark
+                ? 'bg-blue-950/40 border-blue-800/80 text-blue-200'
+                : 'bg-blue-50/80 border-blue-100/90 text-blue-900'
+            }`}
           >
             <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
             <span className="font-normal">{firstSystemMsg.text}</span>
@@ -413,9 +602,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
         {nonSystemMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 py-12">
-            <MessageSquare className="w-10 h-10 stroke-1 mb-2 text-slate-300" />
-            <p className="text-xs font-semibold text-slate-600">Henüz sohbet mesajı yok</p>
-            <p className="text-[11px] text-slate-400 mt-1 max-w-[200px]">
+            <MessageSquare className={`w-10 h-10 stroke-1 mb-2 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
+            <p className={`text-xs font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Henüz sohbet mesajı yok</p>
+            <p className={`text-[11px] mt-1 max-w-[200px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
               Odadaki üyelerle sohbet edin, emojiler ve animasyonlu GIF&apos;ler gönderin!
             </p>
           </div>
@@ -444,7 +633,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                 <div className="flex items-center gap-1.5 mb-1 text-[11px] text-slate-400">
                   <span
                     className="font-semibold"
-                    style={{ color: isSelf ? '#2563eb' : msg.userColor || '#475569' }}
+                    style={{ color: isSelf ? '#3b82f6' : msg.userColor || '#64748b' }}
                   >
                     {isSelf ? 'Sen' : msg.userName}
                   </span>
@@ -462,19 +651,38 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                   <div
                     className={`opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity absolute -top-7 ${
                       isSelf ? 'right-0' : 'left-0'
-                    } z-20 flex items-center gap-0.5 bg-white border border-slate-200 rounded-full px-1.5 py-0.5 shadow-md`}
+                    } z-20 flex items-center gap-0.5 border rounded-full px-1.5 py-0.5 shadow-md ${
+                      isDark
+                        ? 'bg-slate-800 border-slate-700 text-slate-200'
+                        : 'bg-white border-slate-200 text-slate-700'
+                    }`}
                   >
                     {QUICK_REACTIONS.slice(0, 5).map((emoji) => (
                       <button
                         key={emoji}
                         type="button"
                         onClick={() => toggleMessageReaction(emoji, msg.id)}
-                        className="w-5 h-5 rounded-full hover:bg-slate-100 flex items-center justify-center text-xs transition-transform hover:scale-125 cursor-pointer"
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-xs transition-transform hover:scale-125 cursor-pointer ${
+                          isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'
+                        }`}
                         title={`${emoji} tepkisi ekle / kaldır`}
                       >
                         {emoji}
                       </button>
                     ))}
+                    {isSelf && onDeleteMessage && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteMessage(msg.id);
+                        }}
+                        className="w-5 h-5 rounded-full hover:bg-red-500/20 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors cursor-pointer ml-0.5"
+                        title="Mesajınızı silin"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
 
                   {isEmojiMsg ? (
@@ -486,6 +694,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                       className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed select-text shadow-2xs ${
                         isSelf
                           ? 'bg-blue-600 text-white rounded-tr-xs'
+                          : isDark
+                          ? 'bg-slate-800 text-slate-100 border border-slate-700/80 rounded-tl-xs'
                           : 'bg-slate-100 text-slate-800 rounded-tl-xs'
                       }`}
                     >
@@ -500,7 +710,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
                       {/* Animated GIF / Image Attachment */}
                       {hasGifOrImageAttachment && (
-                        <div className="mt-1.5 rounded-xl overflow-hidden border border-black/10 bg-black/5">
+                        <div className={`mt-1.5 rounded-xl overflow-hidden border ${isDark ? 'border-slate-700 bg-slate-950/60' : 'border-black/10 bg-black/5'}`}>
                           <img
                             src={msg.fileAttachment!.url}
                             alt="GIF / Görsel"
@@ -529,6 +739,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold shadow-2xs transition-transform active:scale-95 cursor-pointer border ${
                               hasReacted
                                 ? 'bg-blue-600 text-white border-blue-600'
+                                : isDark
+                                ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-blue-400'
                                 : 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700'
                             }`}
                             title={`${users.join(', ')} (Kaldırmak için tekrar tıklayın)`}
@@ -549,7 +761,13 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       </div>
 
       {/* Quick Reactions Bar */}
-      <div className="px-3 py-1.5 bg-slate-50/90 border-t border-slate-100 flex items-center justify-between shrink-0">
+      <div
+        className={`px-3 py-1.5 border-t flex items-center justify-between shrink-0 ${
+          isDark
+            ? 'bg-slate-900 border-slate-800 text-slate-400'
+            : 'bg-slate-50/90 border-slate-100 text-slate-400'
+        }`}
+      >
         <span className="text-[11px] text-slate-400 font-medium">Son Mesaja Tepki:</span>
         <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
           {QUICK_REACTIONS.map((emoji) => (
@@ -568,16 +786,26 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
       {/* Media Picker Overlay (Rich Emojis & Animated GIFs) */}
       {showMediaPicker && (
-        <div className="mx-3 mb-2 p-3 bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col max-h-[340px] z-40 transition-all">
+        <div
+          className={`mx-3 mb-2 p-3 border rounded-2xl shadow-2xl flex flex-col max-h-[340px] z-40 transition-all ${
+            isDark
+              ? 'bg-slate-900 border-slate-700 text-slate-100'
+              : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
           {/* Picker Tabs: Emojiler vs GIF'ler */}
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-xl text-xs">
+          <div className={`flex items-center justify-between pb-2 border-b ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+            <div className={`flex items-center gap-1 p-0.5 rounded-xl text-xs ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
               <button
                 type="button"
                 onClick={() => setMediaPickerTab('emoji')}
                 className={`px-3 py-1 rounded-lg font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                   mediaPickerTab === 'emoji'
-                    ? 'bg-white text-blue-600 shadow-xs'
+                    ? isDark
+                      ? 'bg-slate-700 text-blue-400 shadow-xs'
+                      : 'bg-white text-blue-600 shadow-xs'
+                    : isDark
+                    ? 'text-slate-400 hover:text-slate-200'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -589,11 +817,15 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                 onClick={() => setMediaPickerTab('gif')}
                 className={`px-3 py-1 rounded-lg font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                   mediaPickerTab === 'gif'
-                    ? 'bg-white text-purple-600 shadow-xs'
+                    ? isDark
+                      ? 'bg-slate-700 text-purple-400 shadow-xs'
+                      : 'bg-white text-purple-600 shadow-xs'
+                    : isDark
+                    ? 'text-slate-400 hover:text-slate-200'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Film className="w-3.5 h-3.5 text-purple-600" />
+                <Film className="w-3.5 h-3.5 text-purple-400" />
                 <span>GIF&apos;ler</span>
               </button>
             </div>
@@ -601,7 +833,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
             <button
               type="button"
               onClick={() => setShowMediaPicker(false)}
-              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              className={`p-1 rounded-lg transition-colors ${
+                isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+              }`}
               title="Kapat"
             >
               <X className="w-3.5 h-3.5" />
@@ -620,7 +854,11 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                   ? 'Emoji ara...'
                   : 'GIF ara...'
               }
-              className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:border-blue-500"
+              className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-xs outline-none focus:border-blue-500 ${
+                isDark
+                  ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500'
+                  : 'bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400'
+              }`}
             />
           </div>
 
@@ -635,6 +873,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                   className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap cursor-pointer transition-colors ${
                     selectedEmojiCategory === 'all'
                       ? 'bg-blue-600 text-white'
+                      : isDark
+                      ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -648,6 +888,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                     className={`px-2 py-0.5 rounded-md font-medium whitespace-nowrap cursor-pointer flex items-center gap-1 transition-colors ${
                       selectedEmojiCategory === cat.id
                         ? 'bg-blue-600 text-white'
+                        : isDark
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
@@ -666,7 +908,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                     onClick={() => {
                       setInputText((prev) => prev + emoji);
                     }}
-                    className="w-8 h-8 rounded-lg hover:bg-blue-50 flex items-center justify-center text-lg hover:scale-115 transition-transform cursor-pointer"
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg hover:scale-115 transition-transform cursor-pointer ${
+                      isDark ? 'hover:bg-slate-800' : 'hover:bg-blue-50'
+                    }`}
                   >
                     {emoji}
                   </button>
@@ -688,6 +932,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                     className={`px-2.5 py-0.5 rounded-md font-medium whitespace-nowrap cursor-pointer transition-colors ${
                       selectedGifCategory === cat
                         ? 'bg-purple-600 text-white'
+                        : isDark
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
@@ -703,7 +949,11 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                     key={gif.id}
                     type="button"
                     onClick={() => handleSendGif(gif.url, gif.title)}
-                    className="group relative rounded-xl overflow-hidden border border-slate-200 hover:border-purple-500 hover:ring-2 hover:ring-purple-500/20 transition-all cursor-pointer bg-slate-900 aspect-video flex items-center justify-center"
+                    className={`group relative rounded-xl overflow-hidden border transition-all cursor-pointer aspect-video flex items-center justify-center ${
+                      isDark
+                        ? 'border-slate-700 hover:border-purple-500 bg-slate-900'
+                        : 'border-slate-200 hover:border-purple-500 bg-slate-900'
+                    }`}
                     title={gif.title}
                   >
                     <img
@@ -722,18 +972,27 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
               </div>
 
               {/* Direct GIF URL Input */}
-              <form onSubmit={handleSendCustomGif} className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-1.5">
+              <form
+                onSubmit={handleSendCustomGif}
+                className={`mt-2 pt-2 border-t flex items-center gap-1.5 ${
+                  isDark ? 'border-slate-800' : 'border-slate-100'
+                }`}
+              >
                 <input
                   type="url"
                   value={customGifUrl}
                   onChange={(e) => setCustomGifUrl(e.target.value)}
                   placeholder="veya GIF bağlantısı yapıştırın (https://...)"
-                  className="flex-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-800 placeholder:text-slate-400 outline-none focus:border-purple-500"
+                  className={`flex-1 px-2.5 py-1.5 border rounded-lg text-[11px] outline-none focus:border-purple-500 ${
+                    isDark
+                      ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500'
+                      : 'bg-slate-50 border-slate-200 text-slate-800 placeholder:text-slate-400'
+                  }`}
                 />
                 <button
                   type="submit"
                   disabled={!customGifUrl.trim()}
-                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 text-white text-[11px] font-semibold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white text-[11px] font-semibold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <ExternalLink className="w-3 h-3" />
                   <span>Ekle</span>
@@ -747,7 +1006,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       {/* Input Form */}
       <form
         onSubmit={handleSend}
-        className="p-3 bg-white border-t border-slate-200 flex items-center gap-2 shrink-0"
+        className={`p-3 border-t flex items-center gap-2 shrink-0 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}
       >
         <button
           type="button"
@@ -757,7 +1018,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           }}
           className={`p-2 rounded-xl transition-colors cursor-pointer ${
             showMediaPicker && mediaPickerTab === 'emoji'
-              ? 'bg-blue-100 text-blue-700'
+              ? 'bg-blue-600 text-white'
+              : isDark
+              ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
           }`}
           title="Tüm Emojiler"
@@ -773,7 +1036,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           }}
           className={`p-2 rounded-xl transition-colors cursor-pointer ${
             showMediaPicker && mediaPickerTab === 'gif'
-              ? 'bg-purple-100 text-purple-700'
+              ? 'bg-purple-600 text-white'
+              : isDark
+              ? 'text-slate-400 hover:text-purple-400 hover:bg-slate-800'
               : 'text-slate-500 hover:text-purple-600 hover:bg-purple-50'
           }`}
           title="GIF Gönder"
@@ -785,8 +1050,16 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Mesaj yazın veya GIF bağlantısı yapıştırın..."
-          className="flex-1 px-3 py-2 bg-slate-100 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 outline-none focus:ring-1 focus:ring-blue-500"
+          placeholder={
+            activeRecipient
+              ? `${activeRecipient.name} için özel mesaj yazın... (Enter)`
+              : 'Genel odaya mesaj yazın... (Enter)'
+          }
+          className={`flex-1 px-3 py-2 rounded-xl text-xs outline-none focus:ring-1 focus:ring-blue-500 ${
+            isDark
+              ? 'bg-slate-800 text-slate-100 placeholder:text-slate-500'
+              : 'bg-slate-100 text-slate-800 placeholder:text-slate-400'
+          }`}
         />
 
         <button
@@ -795,6 +1068,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           className={`p-2 rounded-xl text-white transition-all cursor-pointer ${
             inputText.trim()
               ? 'bg-blue-600 hover:bg-blue-700 shadow-xs active:scale-95'
+              : isDark
+              ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
               : 'bg-slate-300 cursor-not-allowed'
           }`}
           title="Gönder"

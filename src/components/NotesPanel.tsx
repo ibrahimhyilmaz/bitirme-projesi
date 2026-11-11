@@ -86,17 +86,17 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
   };
 
   return (
-    <div className="fixed top-16 right-4 bottom-6 w-[480px] max-w-[calc(100vw-32px)] z-40 bg-white border border-slate-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none">
+    <div className="fixed top-16 right-4 bottom-6 w-[480px] max-w-[calc(100vw-32px)] z-40 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none cb-anim-scale-in">
       {/* Header */}
-      <div className="h-12 bg-slate-50 border-b border-slate-200 px-4 flex items-center justify-between gap-3 text-xs">
+      <div className="h-12 bg-slate-50 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 px-4 flex items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2 min-w-0">
-          <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-          <span className="font-bold text-slate-800 truncate">
+          <FileText className="w-4 h-4 text-blue-500 shrink-0" />
+          <span className="font-bold text-slate-800 dark:text-slate-100 truncate">
             {roomName ? `${roomName} · Notlar` : 'Ortak Çalışma Notları'}
           </span>
           {notes.lastUpdatedBy && (
-            <span className="text-slate-400 text-[11px] hidden sm:inline truncate">
-              · <strong className="text-slate-600">{notes.lastUpdatedBy}</strong>
+            <span className="text-slate-400 dark:text-slate-500 text-[11px] hidden sm:inline truncate">
+              · <strong className="text-slate-600 dark:text-slate-300">{notes.lastUpdatedBy}</strong>
             </span>
           )}
         </div>
@@ -105,16 +105,16 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
           {/* Templates */}
           {canEdit && (
             <div className="relative group">
-              <button className="flex items-center gap-1 px-2 py-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded text-xs transition-colors">
+              <button className="flex items-center gap-1 px-2 py-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-xs transition-colors">
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                 <span>Şablon</span>
               </button>
-              <div className="absolute right-0 top-full mt-1 hidden group-hover:flex flex-col bg-white border border-slate-200 rounded-lg shadow-xl p-1.5 w-52 z-50">
+              <div className="absolute right-0 top-full mt-1 hidden group-hover:flex flex-col bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-1.5 w-52 z-50">
                 {NOTE_TEMPLATES.map((tmpl, idx) => (
                   <button
                     key={idx}
                     onClick={() => onUpdateNotes(tmpl.content)}
-                    className="px-2.5 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                    className="px-2.5 py-1.5 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
                   >
                     {tmpl.name}
                   </button>
@@ -125,15 +125,15 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
 
           <button
             onClick={handleCopy}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+            className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
             title="Kopyala"
           >
-            {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+            {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
           </button>
 
           <button
             onClick={handleDownload}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+            className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
             title="Markdown Olarak İndir"
           >
             <Download className="w-4 h-4" />
@@ -141,7 +141,7 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+            className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
             title="Kapat"
           >
             <X className="w-4 h-4" />
@@ -150,7 +150,7 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
       </div>
 
       {/* Editor Body */}
-      <div className="flex-1 p-4 bg-white flex flex-col">
+      <div className="flex-1 p-4 bg-white dark:bg-slate-900 flex flex-col">
         <textarea
           value={notes.content}
           readOnly={!canEdit}
@@ -158,12 +158,12 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
             if (canEdit) onUpdateNotes(e.target.value);
           }}
           placeholder="Toplantı notları, kararlar ve yapılacaklar listesini buraya yazın..."
-          className="flex-1 w-full bg-transparent border-none outline-none resize-none font-sans text-sm text-slate-800 leading-relaxed placeholder:text-slate-400 select-text"
+          className="flex-1 w-full bg-transparent border-none outline-none resize-none font-sans text-sm text-slate-800 dark:text-slate-100 leading-relaxed placeholder:text-slate-400 dark:placeholder:text-slate-500 select-text"
         />
       </div>
 
       {/* Footer Info */}
-      <div className="h-8 bg-slate-50 border-t border-slate-100 px-4 flex items-center justify-between text-[11px] text-slate-500">
+      <div className="h-8 bg-slate-50 dark:bg-slate-800/90 border-t border-slate-100 dark:border-slate-800 px-4 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
         <span>{canEdit ? 'Markdown formatı desteklenir' : 'İzleyici Modu (Salt Okunur)'}</span>
         <span className="font-mono">{notes.content.length} karakter</span>
       </div>
