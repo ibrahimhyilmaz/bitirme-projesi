@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FileText, FolderOpen, GripVertical, Plus, Trash2, X, AlertCircle } from 'lucide-react';
 import { useFloatingBox } from '../hooks/useFloatingBox';
 import { useI18n } from '../i18n';
+import { isMobileViewport } from '../hooks/useIsMobile';
 import { FILE_INPUT_ACCEPT, formatBytesReadable, validateFile } from '../utils/fileValidation';
 import { FolderFile, folderDelete, folderGetAll, folderPut } from '../utils/folderStore';
 
@@ -32,8 +33,8 @@ export const FolderWidget: React.FC<FolderWidgetProps> = ({
 }) => {
   const { t } = useI18n();
   const { rect, ref, startDrag, reset } = useFloatingBox({
-    storageKey: 'collab_folder_rect',
-    defaultRect: DEFAULT_RECT,
+    storageKey: isMobileViewport() ? 'collab_folder_rect_m' : 'collab_folder_rect',
+    defaultRect: isMobileViewport() ? { x: 8, y: 56, w: 52, h: 52 } : DEFAULT_RECT,
     minW: 52,
     minH: 52,
     maxW: 52,
@@ -177,7 +178,7 @@ export const FolderWidget: React.FC<FolderWidgetProps> = ({
           }}
           onDragLeave={() => setIsDragOver(false)}
           onDrop={handleDrop}
-          className={`absolute left-0 w-72 bg-white border rounded-2xl shadow-2xl flex flex-col overflow-hidden cb-anim-scale-in ${
+          className={`absolute left-0 w-[min(18rem,calc(100vw-16px))] bg-white border rounded-2xl shadow-2xl flex flex-col overflow-hidden cb-anim-scale-in ${
             popoverAbove ? 'bottom-full mb-2' : 'top-full mt-2'
           } ${isDragOver ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-slate-200'}`}
         >

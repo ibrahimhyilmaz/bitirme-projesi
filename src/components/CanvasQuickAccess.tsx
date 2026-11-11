@@ -269,7 +269,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
         data-floating-bar="true"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
-        className="fixed bottom-3 left-3 z-20 pointer-events-none flex flex-col items-start gap-2 select-none max-w-[calc(100vw-24px)]"
+        className="fixed bottom-3 left-3 z-20 pointer-events-none hidden md:flex flex-col items-start gap-2 select-none max-w-[calc(100vw-24px)]"
       >
         {/* Minimap Widget or Compact Restore Pill */}
         {showMinimap ? (

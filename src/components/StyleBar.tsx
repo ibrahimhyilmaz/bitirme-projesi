@@ -1,3 +1,4 @@
+import { useIsMobile } from '../hooks/useIsMobile';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Copy,
@@ -160,6 +161,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   zIndex,
   onFocus,
 }) => {
+  const isMobile = useIsMobile();
   const [rotationMenuOpen, setRotationMenuOpen] = useState(false);
   const [advancedStyleOpen, setAdvancedStyleOpen] = useState(false);
   const [fontMenuOpen, setFontMenuOpen] = useState(false);
@@ -203,7 +205,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   };
 
   // Draggable position for StyleBar (persisted)
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
+  const [storedPosition, setPosition] = useState<{ x: number; y: number } | null>(() => {
     try {
       const saved = localStorage.getItem('collab_stylebar_pos');
       if (saved) {
@@ -233,6 +235,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     }
   });
 
+  const position = isMobile ? null : storedPosition;
   const effectiveHidden = isHidden !== undefined ? isHidden : internalHidden;
 
   const handleToggleMinimize = () => {
@@ -429,7 +432,9 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             : 'border-slate-200/90 shadow-lg'
         } rounded-xl select-none ${
           !position
-            ? 'bottom-3 right-3 w-fit'
+            ? isMobile
+              ? 'bottom-[108px] right-2 w-fit'
+              : 'bottom-3 right-3 w-fit'
             : ''
         }`}
       >
@@ -488,7 +493,9 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           : 'border-slate-200/90 shadow-lg'
       } rounded-xl select-none ${
         !position
-          ? 'bottom-3 right-3 w-fit max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-48px)]'
+          ? isMobile
+            ? 'bottom-[108px] inset-x-2 w-auto max-h-[40dvh] overflow-y-auto'
+            : 'bottom-3 right-3 w-fit max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-48px)]'
           : 'max-w-[95vw]'
       }`}
     >
@@ -685,7 +692,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
             </button>
 
             {advancedStyleOpen && (
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 z-50 flex flex-row gap-3 min-w-[360px] max-w-[420px]">
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 z-50 flex flex-row gap-3 w-[min(92vw,420px)] md:w-auto md:min-w-[360px] md:max-w-[420px]">
                 {/* Left 2/3: Controls (Stil, Saydamlık, Kalınlık Barı) */}
                 <div className="flex-1 flex flex-col justify-between gap-2.5 pr-2.5 border-r border-slate-100">
                   {/* Çizgi Stili */}

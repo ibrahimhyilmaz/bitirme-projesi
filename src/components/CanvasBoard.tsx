@@ -3245,12 +3245,93 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     return '';
   };
 
+  // ---- Touch gestures: one finger draws/selects as usual, two fingers pinch-zoom and pan ----
+  const touchPointsRef = useRef<Map<number, Point>>(new Map());
+  const pinchRef = useRef<{
+    dist: number;
+    zoom: number;
+    worldCenter: Point;
+  } | null>(null);
+  const pinchPointerIdsRef = useRef<Set<number>>(new Set());
+
+  const touchCenterAndDist = () => {
+    const pts = Array.from(touchPointsRef.current.values());
+    const a = pts[0];
+    const b = pts[1];
+    return {
+      center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+    };
+  };
+
+  const relativeToContainer = (e: React.PointerEvent): Point => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    return { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) };
+  };
+
+  const handleContainerPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      touchPointsRef.current.set(e.pointerId, relativeToContainer(e));
+      if (touchPointsRef.current.size === 2) {
+        // Second finger: abandon the stroke the first finger started and switch to pinch mode
+        if (currentDrawingElementRef.current) {
+          currentDrawingElementRef.current = null;
+          setCurrentDrawingElement(null);
+          onLiveStroke?.(null);
+        }
+        handlePointerUp();
+        const { center, dist } = touchCenterAndDist();
+        pinchRef.current = {
+          dist,
+          zoom,
+          worldCenter: screenToCanvas(center, pan, zoom),
+        };
+        touchPointsRef.current.forEach((_p, id) => pinchPointerIdsRef.current.add(id));
+        return;
+      }
+      if (touchPointsRef.current.size > 2) return;
+    }
+    handlePointerDown(e);
+  };
+
+  const handleContainerPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' && touchPointsRef.current.has(e.pointerId)) {
+      touchPointsRef.current.set(e.pointerId, relativeToContainer(e));
+      if (pinchRef.current && touchPointsRef.current.size >= 2) {
+        const { center, dist } = touchCenterAndDist();
+        const start = pinchRef.current;
+        const nextZoom = Math.min(3, Math.max(0.2, start.zoom * (dist / start.dist)));
+        setZoom(nextZoom);
+        setPan({
+          x: center.x - start.worldCenter.x * nextZoom,
+          y: center.y - start.worldCenter.y * nextZoom,
+        });
+        return;
+      }
+      if (pinchPointerIdsRef.current.has(e.pointerId)) return;
+    }
+    handlePointerMove(e);
+  };
+
+  const handleContainerPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      touchPointsRef.current.delete(e.pointerId);
+      if (touchPointsRef.current.size < 2) pinchRef.current = null;
+      if (pinchPointerIdsRef.current.has(e.pointerId)) {
+        pinchPointerIdsRef.current.delete(e.pointerId);
+        return;
+      }
+    }
+    handlePointerUp(e);
+  };
+
   return (
     <div
       ref={containerRef}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
+      onPointerDown={handleContainerPointerDown}
+      onPointerMove={handleContainerPointerMove}
+      onPointerUp={handleContainerPointerUp}
+      onPointerCancel={handleContainerPointerUp}
       onPointerLeave={() => {
         mouseScreenPosRef.current = null;
       }}

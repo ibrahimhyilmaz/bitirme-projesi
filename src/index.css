@@ -304,3 +304,36 @@
 }
 
 
+
+
+/* ---- Mobile / touch support ---- */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+}
+
+html,
+body {
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS Safari zooms into inputs below 16px; keep text fields at 16px on phones */
+@media (max-width: 767px) {
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}

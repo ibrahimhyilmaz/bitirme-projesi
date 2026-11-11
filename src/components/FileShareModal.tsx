@@ -277,7 +277,7 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
 
   return (
     <>
-      <div className="fixed top-16 right-4 bottom-6 w-[480px] max-w-[calc(100vw-32px)] z-40 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none cb-anim-scale-in">
+      <div className="fixed inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[480px] md:max-w-[calc(100vw-32px)] z-40 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 md:rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none cb-anim-scale-in">
         {/* Header */}
         <div className="h-12 bg-slate-50 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 px-4 flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">

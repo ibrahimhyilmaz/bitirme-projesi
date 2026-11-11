@@ -37,6 +37,7 @@ import {
   PaintBucket,
 } from 'lucide-react';
 import { ALL_SHAPE_TYPES, ToolType } from '../types';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 export const FountainPenNibIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
   <svg
@@ -368,7 +369,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   }, [activeTool]);
 
   // Draggable state (null = default top docked Flex position)
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
+  const isMobile = useIsMobile();
+  const [storedPosition, setPosition] = useState<{ x: number; y: number } | null>(() => {
     try {
       const saved = localStorage.getItem('collab_toolbar_pos');
       if (saved) {
@@ -386,9 +388,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return null;
   });
 
-  const [isVertical, setIsVertical] = useState<boolean>(() => {
+  const [storedVertical, setIsVertical] = useState<boolean>(() => {
     return localStorage.getItem('collab_toolbar_vertical') === 'true';
   });
+  // Phones always use the docked horizontal bar (no free dragging / vertical mode)
+  const position = isMobile ? null : storedPosition;
+  const isVertical = !isMobile && storedVertical;
 
   const [isDraggingBar, setIsDraggingBar] = useState(false);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -600,7 +605,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   // Determine smart popover direction based on position
   const openPopoverUpward =
-    position && typeof window !== 'undefined' && position.y > window.innerHeight * 0.6;
+    isMobile || (position && typeof window !== 'undefined' && position.y > window.innerHeight * 0.6);
   const openPopoverLeftward =
     position && typeof window !== 'undefined' && position.x > window.innerWidth * 0.6;
 
@@ -624,7 +629,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               }
             : {}),
         }}
-        className={`absolute top-3 left-4 pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
+        className={`absolute ${isMobile ? 'bottom-3 left-3' : 'top-3 left-4'} pointer-events-auto flex items-center gap-1.5 p-1.5 bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
           isDraggingBar
             ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
             : 'border-slate-200/90 shadow-lg'
@@ -673,15 +678,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             }
           : {}),
       }}
-      className={`absolute ${!position ? 'top-3 left-4' : ''} pointer-events-auto flex ${
+      className={`absolute ${
+        !position ? (isMobile ? 'bottom-0 inset-x-0 safe-bottom' : 'top-3 left-4') : ''
+      } pointer-events-auto flex ${
         isVertical
           ? 'flex-col w-[98px] p-2 gap-1.5'
+          : isMobile
+          ? "flex-row flex-wrap w-full max-w-full justify-center items-center gap-0.5 px-1.5 py-1 [&_button[title^='Yapay']]:hidden [&_button[title^='Uzakla']]:hidden [&_button[title^='Yak']]:hidden"
           : 'flex-row flex-wrap w-auto max-w-max items-center gap-1 p-1.5'
       } bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
         isDraggingBar
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'
-      } rounded-2xl select-none`}
+      } ${isMobile ? 'rounded-t-2xl rounded-b-none' : 'rounded-2xl'} select-none`}
     >
       {/* Top Drag Handle & Orientation Controls */}
       <div
@@ -689,7 +698,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           isVertical
             ? 'flex-col w-full gap-1 pb-1.5 border-b border-slate-200'
             : 'flex-row items-center pr-1 border-r border-slate-200 gap-0.5'
-        }`}
+        } ${isMobile ? '[&>div:first-child]:hidden [&>div:nth-child(2)>button:not(:last-child)]:hidden border-r-0 pr-0' : ''}`}
       >
         <div
           onPointerDown={handleGripPointerDown}

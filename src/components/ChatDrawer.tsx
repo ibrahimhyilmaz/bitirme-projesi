@@ -454,7 +454,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
   return (
     <div
-      className={`fixed top-16 right-4 bottom-6 w-[420px] max-w-[calc(100vw-32px)] z-[60] border rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none cb-anim-scale-in ${
+      className={`fixed inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[420px] md:max-w-[calc(100vw-32px)] z-[60] border md:rounded-2xl shadow-2xl flex flex-col overflow-hidden select-none cb-anim-scale-in ${
         isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
       }`}
     >
