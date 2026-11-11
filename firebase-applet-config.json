@@ -1,12 +1,9 @@
 {
-  "projectId": "unified-phantasmata-9t3g1",
-  "appId": "1:457153296523:web:e2f51c6078cc54f7647c8e",
-  "apiKey": "AIzaSyDuZuzwmqMD_LLQydLV4H0zZM9cHfPYAFI",
-  "authDomain": "unified-phantasmata-9t3g1.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-bitirmeprojesi-2a03f943-cedb-4df4-b92c-52f306aac441",
-  "storageBucket": "unified-phantasmata-9t3g1.firebasestorage.app",
-  "messagingSenderId": "457153296523",
-  "measurementId": "",
-  "oAuthClientId": "457153296523-vbphobv00bq69j28gobfvl3f2a64l6dg.apps.googleusercontent.com",
-  "recaptchaSiteKey": ""
+  "projectId": "collabboard-8dd55",
+  "appId": "1:497699178546:web:ba2d04f727eed02323142b",
+  "apiKey": "AIzaSyD2-YcZsW8oq-Aio_VHm_jwHVnhaEoQ_QU",
+  "authDomain": "collabboard-8dd55.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "collabboard-8dd55.firebasestorage.app",
+  "messagingSenderId": "497699178546"
 }
