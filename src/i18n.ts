@@ -1,5 +1,8 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import type { LanguageCode } from './types';
+import { EXTRA_PHRASES } from './i18nExtra';
+import { EXTRA_PHRASES_2 } from './i18nExtra2';
+import { EXTRA_PHRASES_3 } from './i18nExtra3';
 
 export const LANGUAGE_OPTIONS: { code: LanguageCode; label: string; dir: 'ltr' | 'rtl' }[] = [
   { code: 'tr', label: 'Türkçe', dir: 'ltr' },
@@ -1485,6 +1488,8 @@ const PHRASE_TABLE: Record<string, [string, string, string, string, string]> = {
   'Gelişmiş & Ayrıntılı (20-32 Şekil Parçası)': ['Advanced & Detailed (20-32 Shape Parts)', 'Erweitert & Detailliert (20-32 Formen)', 'Avancé & Détaillé (20-32 formes)', 'Avanzado y Detallado (20-32 formas)', 'متقدم ومفصل (20-32 قطعة)'],
   'En Üst Düzey Başyapıt (35-50+ Şekil Parçası)': ['Ultimate Masterpiece (35-50+ Shape Parts)', 'Meisterwerk-Stufe (35-50+ Formen)', 'Chef-d’œuvre ultime (35-50+ formes)', 'Obra Maestra Suprema (35-50+ formas)', 'تحفة فنية متكاملة (35-50+ قطعة)'],
 };
+
+Object.assign(PHRASE_TABLE, EXTRA_PHRASES, EXTRA_PHRASES_2, EXTRA_PHRASES_3);
 
 const LANG_INDEX: Record<Exclude<LanguageCode, 'tr'>, number> = {
   en: 0,

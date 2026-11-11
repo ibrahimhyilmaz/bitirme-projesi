@@ -156,7 +156,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Navigation Tabs */}
         <div
-          className={`px-6 pt-2 border-b flex items-center gap-1 overflow-x-auto ${
+          className={`px-3 md:px-6 pt-2 border-b flex flex-wrap md:flex-nowrap items-center gap-1 md:overflow-x-auto max-md:[&>button:not(.border-blue-600)>span]:hidden ${
             isDark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'
           }`}
         >

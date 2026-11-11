@@ -693,6 +693,11 @@ export function useWebSocket({
             break;
           }
 
+          case 'chat-history-cleared': {
+            setChatMessages((prev) => prev.filter((m) => m.userId === 'system'));
+            break;
+          }
+
           case 'session-timeout': {
             rejectedRoomRef.current = true;
             if (onSessionTimeoutRef.current) {
@@ -1641,6 +1646,7 @@ export function useWebSocket({
       maxUsers?: number;
       defaultRole?: 'editor' | 'viewer';
       roomName?: string;
+      saveChat?: boolean;
     }) => {
       if (changes.roomName) {
         setSyncedRoomName(changes.roomName);

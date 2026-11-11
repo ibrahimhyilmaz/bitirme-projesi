@@ -136,6 +136,7 @@ export interface RoomSettings {
   maxUsers: number;
   defaultRole: 'editor' | 'viewer';
   allowGuestDraw: boolean;
+  saveChat?: boolean;
   ownerId: string;
 }
 

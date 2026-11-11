@@ -684,7 +684,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         isVertical
           ? 'flex-col w-[98px] p-2 gap-1.5'
           : isMobile
-          ? "flex-row flex-wrap w-full max-w-full justify-center items-center gap-0.5 px-1.5 py-1 [&_button[title^='Yapay']]:hidden [&_button[title^='Uzakla']]:hidden [&_button[title^='Yak']]:hidden"
+          ? "flex-row flex-wrap w-full max-w-full justify-center items-center gap-0.5 px-1.5 py-1 [&_button[title^='Yapay']]:hidden [&_button[title^='Uzakla']]:hidden [&_button[title^='Yak']]:hidden [&_button[title^='Reset']]:hidden"
           : 'flex-row flex-wrap w-auto max-w-max items-center gap-1 p-1.5'
       } bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
         isDraggingBar
@@ -757,6 +757,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         className={
           isVertical
             ? 'grid grid-cols-2 gap-1 w-full place-items-center'
+            : isMobile
+            ? 'flex flex-1 min-w-0 flex-row flex-wrap items-center justify-center gap-0.5'
             : 'flex flex-row flex-wrap items-center gap-1'
         }
       >
@@ -867,7 +869,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </div>
 
               {penMenuOpen && (
-                <div
+                <div data-popover="true"
                   className={`absolute ${
                     isVertical
                       ? openPopoverLeftward
@@ -1011,7 +1013,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </div>
 
               {eraserMenuOpen && (
-                <div
+                <div data-popover="true"
                   className={`absolute ${
                     isVertical
                       ? openPopoverLeftward
@@ -1108,7 +1110,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </button>
 
               {shapesMenuOpen && (
-                <div
+                <div data-popover="true"
                   className={`absolute ${
                     isVertical
                       ? openPopoverLeftward
