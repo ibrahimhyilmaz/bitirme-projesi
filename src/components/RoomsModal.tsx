@@ -40,6 +40,8 @@ import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
 import { useI18n } from '../i18n';
 import { RoomHistoryList } from './RoomHistoryList';
 import type { CloudRoomSummary } from '../hooks/useFirebaseSync';
+import type { CloudBoardSummary, CloudSaveStatus } from '../hooks/useCloudBoards';
+import { CloudBoardsPanel } from './CloudBoardsPanel';
 
 export type ShareLinkTargetMode = 'shared' | 'custom' | 'current';
 
@@ -189,6 +191,16 @@ interface RoomsModalProps {
   onSignInGoogle?: () => void;
   onSignOutFirebase?: () => void;
   onSyncToCloud?: () => void;
+  cloudBoards?: CloudBoardSummary[];
+  cloudAutoSave?: boolean;
+  onToggleCloudAutoSave?: (value: boolean) => void;
+  cloudSaveStatus?: CloudSaveStatus;
+  cloudLastSavedAt?: number | null;
+  cloudSkippedMedia?: number;
+  onSaveBoardNow?: () => void;
+  onResumeCloudBoard?: (board: CloudBoardSummary) => Promise<string | void>;
+  onRestoreCloudBoardIntoCurrent?: (board: CloudBoardSummary) => Promise<void>;
+  onDeleteCloudBoard?: (board: CloudBoardSummary) => Promise<void>;
   onAddQrToCanvas?: (qrDataUrl: string) => void;
   onSelectRoom: (
     roomId: string,
@@ -230,6 +242,16 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   onSignInGoogle,
   onSignOutFirebase,
   onSyncToCloud,
+  cloudBoards = [],
+  cloudAutoSave = true,
+  onToggleCloudAutoSave,
+  cloudSaveStatus = 'idle',
+  cloudLastSavedAt,
+  cloudSkippedMedia = 0,
+  onSaveBoardNow,
+  onResumeCloudBoard,
+  onRestoreCloudBoardIntoCurrent,
+  onDeleteCloudBoard,
   onAddQrToCanvas,
   onSelectRoom,
   onDeleteRoom,
@@ -743,6 +765,29 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Google account: saved boards + resume */}
+            {firebaseUserEmail && onResumeCloudBoard && (
+              <CloudBoardsPanel
+                boards={cloudBoards}
+                currentRoomId={currentRoomId}
+                autoSave={cloudAutoSave}
+                onToggleAutoSave={onToggleCloudAutoSave}
+                status={cloudSaveStatus}
+                lastSavedAt={cloudLastSavedAt}
+                skippedMedia={cloudSkippedMedia}
+                onSaveNow={onSaveBoardNow}
+                onResume={async (b) => {
+                  const err = await onResumeCloudBoard(b);
+                  if (typeof err === 'string' && err) setModalError(err);
+                  else onClose();
+                }}
+                onRestoreIntoCurrent={onRestoreCloudBoardIntoCurrent}
+                onDelete={async (b) => {
+                  if (onDeleteCloudBoard) await onDeleteCloudBoard(b);
+                }}
+              />
+            )}
 
             {/* Room history + created-room counts */}
             <RoomHistoryList

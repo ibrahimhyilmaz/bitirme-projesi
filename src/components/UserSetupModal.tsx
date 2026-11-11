@@ -13,11 +13,15 @@ import {
   Sparkles,
   DoorOpen,
   Trash2,
+  Cloud,
+  History,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { RoomSummary } from '../types';
 import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
 import { RoomHistoryList } from './RoomHistoryList';
+import { CloudBoardsPanel } from './CloudBoardsPanel';
+import type { CloudBoardSummary } from '../hooks/useCloudBoards';
 
 const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -64,6 +68,14 @@ interface UserSetupModalProps {
   } | null;
   onSignInGoogle?: (preferredName?: string) => Promise<void>;
   onSignOutGoogle?: () => Promise<void>;
+  cloudBoards?: CloudBoardSummary[];
+  cloudAutoSave?: boolean;
+  onToggleCloudAutoSave?: (value: boolean) => void;
+  onResumeCloudBoard?: (
+    board: CloudBoardSummary,
+    profile: { name: string; color: string }
+  ) => Promise<string | void>;
+  onDeleteCloudBoard?: (board: CloudBoardSummary) => Promise<void>;
   onJoin: (payload: RoomJoinPayload) => void;
   onClose?: () => void;
 }
@@ -96,6 +108,11 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   firebaseUser,
   onSignInGoogle,
   onSignOutGoogle,
+  cloudBoards = [],
+  cloudAutoSave = true,
+  onToggleCloudAutoSave,
+  onResumeCloudBoard,
+  onDeleteCloudBoard,
   onJoin,
   onClose,
 }) => {
@@ -301,6 +318,21 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       isCreatingRoom: recreate,
     });
   };
+
+  const handleResumeBoard = async (board: CloudBoardSummary) => {
+    if (!onResumeCloudBoard) return;
+    const finalName = name.trim() || firebaseUser?.displayName?.trim() || '';
+    if (!finalName) {
+      setLocalValidationError('Lütfen odaya girmeden önce adınızı girin.');
+      return;
+    }
+    setLocalValidationError(null);
+    if (onClearJoinError) onClearJoinError();
+    const err = await onResumeCloudBoard(board, { name: finalName, color });
+    if (typeof err === 'string' && err) setLocalValidationError(err);
+  };
+
+  const lastResumable = cloudBoards.find((b) => b.hasSnapshot) || cloudBoards[0];
 
   const handleJoinWithCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -553,6 +585,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   )}
                 </div>
               ) : (
+                <>
                 <button
                   type="button"
                   onClick={handleGoogleLoginClick}
@@ -581,6 +614,52 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                     {isGoogleLoading ? 'Google ile Bağlanılıyor...' : 'Google ile Giriş Yap'}
                   </span>
                 </button>
+                <ul className="mt-2 space-y-1 text-[11px] text-slate-500 leading-snug">
+                  <li className="flex items-start gap-1.5">
+                    <Cloud className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-px" />
+                    <span>Tahtaların otomatik olarak buluta kaydedilir</span>
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <History className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-px" />
+                    <span>Son odalarından kaldığın yerden devam edersin</span>
+                  </li>
+                </ul>
+                </>
+              )}
+
+              {firebaseUser && onResumeCloudBoard && (
+                <div className="mt-2.5 space-y-2.5">
+                  {lastResumable && (
+                    <button
+                      type="button"
+                      onClick={() => void handleResumeBoard(lastResumable)}
+                      className="w-full text-left px-3.5 py-3 rounded-xl bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-md transition-all flex items-center justify-between gap-3 cursor-pointer"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold text-indigo-100 flex items-center gap-1.5">
+                          <History className="w-3.5 h-3.5" />
+                          <span>Kaldığın yerden devam et</span>
+                        </div>
+                        <div className="text-sm font-bold truncate">{lastResumable.name}</div>
+                        <div className="text-[11px] font-mono text-indigo-100">
+                          #{lastResumable.id.toUpperCase()}
+                        </div>
+                      </div>
+                      <ArrowRight className="w-5 h-5 shrink-0" />
+                    </button>
+                  )}
+                  <CloudBoardsPanel
+                    compact
+                    boards={cloudBoards}
+                    autoSave={cloudAutoSave}
+                    onToggleAutoSave={onToggleCloudAutoSave}
+                    onResume={handleResumeBoard}
+                    onDelete={async (b) => {
+                      if (onDeleteCloudBoard) await onDeleteCloudBoard(b);
+                    }}
+                    maxHeightClass="max-h-40"
+                  />
+                </div>
               )}
             </div>
           )}
@@ -802,7 +881,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   3. Oda Kodu (5 Haneli Random Seed)
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="space-y-2">
                   <input
                     type="text"
                     required
@@ -813,12 +892,13 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                         e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5)
                       )
                     }
-                    className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-base font-mono font-extrabold tracking-[0.25em] text-center uppercase text-blue-700 focus:outline-hidden focus:border-blue-600"
+                    className="block w-full min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-base font-mono font-extrabold tracking-[0.25em] text-center uppercase text-blue-700 focus:outline-hidden focus:border-blue-600"
                   />
+                  <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={handleRegenerateSeed}
-                    className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     title="Yeni Rastgele 5 Haneli Kod Üret"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
@@ -827,7 +907,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   <button
                     type="button"
                     onClick={handleCopySeed}
-                    className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     title="Oda Kodunu Kopyala"
                   >
                     {copiedSeed ? (
@@ -842,6 +922,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                       </>
                     )}
                   </button>
+                  </div>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">
                   Diğer kullanıcılar bu 5 haneli kodu girerek odanıza katılabilir.
@@ -856,7 +937,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                     <span>4. Maksimum Oda Kapasitesi (Kişi Sınırı)</span>
                   </label>
                   <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200">
-                    {createMaxUsers} Kişi
+                    {`${createMaxUsers} Kişi`}
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
@@ -882,7 +963,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   />
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Oda kapasitesi ({createMaxUsers} kişi) dolduğunda yeni kullanıcıların girişi otomatik engellenir.
+                  {`Oda kapasitesi (${createMaxUsers} kişi) dolduğunda yeni kullanıcıların girişi otomatik engellenir.`}
                 </p>
               </div>
 

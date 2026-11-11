@@ -208,6 +208,50 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Saved boards of a Google account (metadata only; the heavy snapshot lives in boardData)
+    function isValidBoardMeta(data, boardId) {
+      return data.keys().hasAll(['roomId', 'roomName', 'isOwner', 'maxUsers', 'hasSnapshot', 'elementsCount', 'lastOpenedAt']) &&
+        data.keys().hasOnly(['roomId', 'roomName', 'isOwner', 'maxUsers', 'hasSnapshot', 'elementsCount', 'lastOpenedAt', 'savedAt', 'skippedMedia']) &&
+        data.roomId is string && data.roomId == boardId &&
+        data.roomName is string && data.roomName.size() >= 1 && data.roomName.size() <= 120 &&
+        data.isOwner is bool &&
+        data.maxUsers is int && data.maxUsers >= 2 && data.maxUsers <= 30 &&
+        data.hasSnapshot is bool &&
+        data.elementsCount is int && data.elementsCount >= 0 && data.elementsCount <= 5000 &&
+        data.lastOpenedAt is timestamp &&
+        (!('savedAt' in data) || data.savedAt is timestamp) &&
+        (!('skippedMedia' in data) || (data.skippedMedia is int && data.skippedMedia >= 0 && data.skippedMedia <= 5000));
+    }
+
+    function isValidBoardData(data, boardId) {
+      return data.keys().hasAll(['roomId', 'snapshot', 'savedAt']) &&
+        data.keys().hasOnly(['roomId', 'snapshot', 'savedAt']) &&
+        data.roomId is string && data.roomId == boardId &&
+        data.snapshot is string && data.snapshot.size() >= 2 && data.snapshot.size() <= 950000 &&
+        data.savedAt is timestamp;
+    }
+
+    match /users/{userId}/boards/{boardId} {
+      allow read: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId;
+      allow create, update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidId(boardId) &&
+        request.auth.uid == userId &&
+        isValidBoardMeta(incoming(), boardId);
+      allow delete: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/boardData/{boardId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+      allow create, update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidId(boardId) &&
+        request.auth.uid == userId &&
+        isValidBoardData(incoming(), boardId);
+      allow delete: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId;
+    }
+
     match /rooms/{roomId} {
       allow get: if isValidId(roomId) && (resource == null || existing().isPublic == true || (isVerifiedUser() && (existing().ownerId == request.auth.uid || isAdmin())));
       allow list: if resource.data.isPublic == true || (isVerifiedUser() && resource.data.ownerId == request.auth.uid);

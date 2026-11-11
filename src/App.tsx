@@ -30,10 +30,12 @@ import { OnboardingTour } from './components/OnboardingTour';
 import { SettingsModal } from './components/SettingsModal';
 import { ClockWidget } from './components/ClockWidget';
 import { FolderWidget } from './components/FolderWidget';
-import { getLanguage, translate, useI18n, useAutoTranslateDOM } from './i18n';
+import { getLanguage, translate, translatePhrase, useI18n, useAutoTranslateDOM } from './i18n';
 import { recordRoomVisit } from './utils/roomHistory';
 import { isMobileViewport, useIsMobile } from './hooks/useIsMobile';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
+import { useCloudBoards, CloudBoardSummary } from './hooks/useCloudBoards';
+import type { BoardSnapshot } from './utils/cloudBoardCodec';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 
 function extractRoomInfoFromLocation(): {
@@ -798,6 +800,18 @@ export default function App() {
     ),
   });
 
+  // Google account perks: saved boards (cloud) that can be resumed later
+  const {
+    cloudBoards,
+    cloudSaveStatus,
+    cloudLastSavedAt,
+    cloudLastSkipped,
+    touchBoard,
+    saveBoard,
+    loadBoard,
+    deleteBoard,
+  } = useCloudBoards(firebaseUser);
+
   // ---- Activity tracking: 1 hour without any interaction ends the session ----
   const handleSessionTimeoutLocal = useCallback(() => {
     clearSavedSession();
@@ -1268,6 +1282,186 @@ export default function App() {
     setUndoStack((prev) => [...prev, elements]);
     replaceElements(nextElements);
   }, [redoStack, elements, replaceElements]);
+
+  // ---- Google account: cloud board save / resume ----
+  const [cloudAutoSave, setCloudAutoSave] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('collab_cloud_autosave') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const [cloudToast, setCloudToast] = useState<string | null>(null);
+  const showCloudToast = useCallback((msg: string) => {
+    setCloudToast(msg);
+    window.setTimeout(() => setCloudToast((c) => (c === msg ? null : c)), 5000);
+  }, []);
+  const handleToggleCloudAutoSave = useCallback((value: boolean) => {
+    setCloudAutoSave(value);
+    try {
+      localStorage.setItem('collab_cloud_autosave', value ? 'on' : 'off');
+    } catch {}
+  }, []);
+
+  const pendingRestoreRef = useRef<{ roomId: string; snapshot: BoardSnapshot } | null>(null);
+  const lastCloudSigRef = useRef<string>('');
+  const elementsRef = useRef(elements);
+  elementsRef.current = elements;
+
+  const boardReady =
+    hasEnteredWorkspace && !roomError && joinedRoomId === roomId && roomId !== 'ana-oda';
+
+  const boardSignature = useMemo(() => {
+    let h = String(elements.length);
+    for (const e of elements) {
+      h += `|${e.id}:${e.updatedAt || 0}:${Math.round(e.x)}:${Math.round(e.y)}:${Math.round(e.width || 0)}:${Math.round(e.height || 0)}`;
+    }
+    h += `#${code.content.length}:${code.language}:${code.content.slice(0, 40)}:${code.content.slice(-40)}`;
+    h += `#${notes.content.length}:${notes.content.slice(-40)}`;
+    for (const f of codeFiles) h += `#${f.id}:${f.content.length}:${f.content.slice(-30)}`;
+    return h;
+  }, [elements, code.content, code.language, notes.content, codeFiles]);
+
+  const applyBoardSnapshot = useCallback(
+    (snap: BoardSnapshot) => {
+      replaceElements(snap.elements);
+      if (snap.codeContent) updateCode(snap.codeContent, snap.codeLanguage);
+      if (snap.notesContent) updateNotes(snap.notesContent);
+      snap.codeFiles.forEach((f) => upsertCodeFile(f));
+    },
+    [replaceElements, updateCode, updateNotes, upsertCodeFile]
+  );
+
+  const saveBoardNow = useCallback(
+    async (manual: boolean) => {
+      if (!firebaseUser || !boardReady) return;
+      if (!manual) {
+        if (elements.length === 0 && !notes.content && codeFiles.length === 0) return;
+        if (boardSignature === lastCloudSigRef.current) return;
+      }
+      const res = await saveBoard({
+        roomId,
+        roomName: effectiveRoomName,
+        isOwner: currentUserRole === 'owner',
+        maxUsers: roomSettings.maxUsers,
+        snapshot: {
+          v: 1,
+          elements,
+          codeContent: code.content,
+          codeLanguage: code.language,
+          notesContent: notes.content,
+          codeFiles,
+        },
+      });
+      if (res.ok) {
+        lastCloudSigRef.current = boardSignature;
+        if (manual) showCloudToast('Tahta buluta kaydedildi');
+      } else if (res.reason === 'too-large') {
+        showCloudToast('Tahta çok büyük olduğu için buluta kaydedilemedi');
+      } else if (manual) {
+        showCloudToast('Buluta kaydedilemedi. Bağlantınızı kontrol edin.');
+      }
+    },
+    [
+      firebaseUser,
+      boardReady,
+      boardSignature,
+      elements,
+      codeFiles,
+      code.content,
+      code.language,
+      notes.content,
+      roomId,
+      effectiveRoomName,
+      currentUserRole,
+      roomSettings.maxUsers,
+      saveBoard,
+      showCloudToast,
+    ]
+  );
+  const saveBoardNowRef = useRef(saveBoardNow);
+  saveBoardNowRef.current = saveBoardNow;
+
+  useEffect(() => {
+    lastCloudSigRef.current = '';
+  }, [roomId, firebaseUser?.uid]);
+
+  // Auto-save a few seconds after the last change, and when the tab is hidden
+  useEffect(() => {
+    if (!cloudAutoSave || !firebaseUser || !boardReady) return;
+    const timer = window.setTimeout(() => void saveBoardNowRef.current(false), 12000);
+    return () => window.clearTimeout(timer);
+  }, [cloudAutoSave, firebaseUser, boardReady, boardSignature]);
+
+  useEffect(() => {
+    if (!cloudAutoSave || !firebaseUser || !boardReady) return;
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') void saveBoardNowRef.current(false);
+    };
+    document.addEventListener('visibilitychange', onHide);
+    return () => document.removeEventListener('visibilitychange', onHide);
+  }, [cloudAutoSave, firebaseUser, boardReady]);
+
+  // Remember every room a signed-in account opens (creates the "recent rooms" entry)
+  const touchedBoardRef = useRef('');
+  useEffect(() => {
+    if (!firebaseUser || !boardReady) return;
+    const isOwner = currentUserRole === 'owner';
+    const key = `${firebaseUser.uid}:${roomId}:${isOwner}:${effectiveRoomName}`;
+    if (touchedBoardRef.current === key) return;
+    touchedBoardRef.current = key;
+    void touchBoard({ roomId, roomName: effectiveRoomName, isOwner, maxUsers: roomSettings.maxUsers });
+  }, [firebaseUser, boardReady, roomId, effectiveRoomName, currentUserRole, roomSettings.maxUsers, touchBoard]);
+
+  // After "resume": once the room is joined, put the saved board back (only into an empty room)
+  useEffect(() => {
+    const pending = pendingRestoreRef.current;
+    if (!pending || !boardReady || pending.roomId !== roomId) return;
+    const timer = window.setTimeout(() => {
+      if (pendingRestoreRef.current !== pending) return;
+      pendingRestoreRef.current = null;
+      if (elementsRef.current.length > 0) {
+        showCloudToast('Oda şu anda dolu olduğu için son kayıt uygulanmadı');
+        return;
+      }
+      applyBoardSnapshot(pending.snapshot);
+      showCloudToast('Son kayıttan devam ediliyorsunuz');
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [boardReady, roomId, applyBoardSnapshot, showCloudToast]);
+
+  const handleRestoreBoardIntoCurrent = useCallback(
+    async (board: CloudBoardSummary) => {
+      if (
+        elementsRef.current.length > 0 &&
+        !window.confirm(
+          translatePhrase(
+            'Bu odanın mevcut içeriği son kayıtla değiştirilecek (Geri Al ile döndürülebilir). Devam edilsin mi?',
+            getLanguage()
+          )
+        )
+      ) {
+        return;
+      }
+      const snap = await loadBoard(board.id);
+      if (!snap) {
+        showCloudToast('Kayıt okunamadı');
+        return;
+      }
+      recordUndo();
+      applyBoardSnapshot(snap);
+      showCloudToast('Son kayıt yüklendi');
+    },
+    [loadBoard, recordUndo, applyBoardSnapshot, showCloudToast]
+  );
+
+  const handleDeleteCloudBoard = useCallback(
+    async (board: CloudBoardSummary) => {
+      const ok = await deleteBoard(board.id);
+      if (!ok) showCloudToast('Kayıt silinemedi');
+    },
+    [deleteBoard, showCloudToast]
+  );
 
   // Selected element objects
   const selectedElements = useMemo(() => {
@@ -1829,6 +2023,74 @@ export default function App() {
     [clearRoomError]
   );
 
+  // Resume a board saved to my Google account: join the live room, or re-create it from the last save
+  const handleResumeCloudBoard = useCallback(
+    async (
+      board: CloudBoardSummary,
+      profile?: { name: string; color: string }
+    ): Promise<string | void> => {
+      const upper = board.id.toUpperCase();
+      let exists: boolean | null = null;
+      let info: {
+        exists?: boolean;
+        name?: string;
+        isLocked?: boolean;
+        isOwner?: boolean;
+        canResume?: boolean;
+        userCount?: number;
+        maxUsers?: number;
+      } = {};
+      try {
+        const res = await fetch(
+          `/api/rooms/${encodeURIComponent(board.id)}/status?ownerKey=${encodeURIComponent(getOrCreateOwnerKey())}`
+        );
+        if (res.ok) {
+          info = await res.json();
+          exists = info.exists === true;
+        }
+      } catch {
+        // serverless mode: the join attempt decides
+      }
+
+      if (exists === true && !info.isOwner && !info.canResume) {
+        if (info.isLocked) return `"${info.name || board.name}" (#${upper}) odası kilitli.`;
+        if ((info.userCount ?? 0) >= (info.maxUsers ?? 99)) {
+          return `"${info.name || board.name}" (#${upper}) odası dolu (${info.userCount}/${info.maxUsers}).`;
+        }
+      }
+      if (exists === false && !board.isOwner && !board.hasSnapshot) {
+        return `#${upper} kodlu oda artık mevcut değil. Yalnızca oluşturulmuş odalara geçiş yapılabilir.`;
+      }
+
+      const creating = exists === false || (exists === null && board.isOwner);
+      const snap = board.hasSnapshot ? await loadBoard(board.id) : null;
+      if (board.hasSnapshot && !snap) showCloudToast('Kayıt okunamadı; oda boş açılacak');
+      pendingRestoreRef.current = snap ? { roomId: board.id, snapshot: snap } : null;
+
+      if (!hasEnteredWorkspace) {
+        handleWelcomeOrProfileJoin({
+          name: profile?.name || currentUser.name,
+          color: profile?.color || currentUser.color,
+          roomId: board.id,
+          roomName: board.name,
+          maxUsers: board.maxUsers,
+          isCreatingRoom: creating,
+        });
+      } else {
+        await handleSelectOrSwitchRoom(board.id, board.name, board.maxUsers, creating);
+      }
+    },
+    [
+      hasEnteredWorkspace,
+      currentUser.name,
+      currentUser.color,
+      loadBoard,
+      showCloudToast,
+      handleWelcomeOrProfileJoin,
+      handleSelectOrSwitchRoom,
+    ]
+  );
+
   // Strict Pre-Welcome Gate: Do NOT render the whiteboard or any workspace UI until the user completes the Welcome Screen
   if (!hasEnteredWorkspace) {
     return (
@@ -1860,6 +2122,11 @@ export default function App() {
           }
         }}
         onSignOutGoogle={signOutFirebase}
+        cloudBoards={cloudBoards}
+        cloudAutoSave={cloudAutoSave}
+        onToggleCloudAutoSave={handleToggleCloudAutoSave}
+        onResumeCloudBoard={handleResumeCloudBoard}
+        onDeleteCloudBoard={handleDeleteCloudBoard}
         onJoin={handleWelcomeOrProfileJoin}
       />
     );
@@ -2458,6 +2725,16 @@ export default function App() {
           onSyncToCloud={() => {
             syncRoomToCloud();
           }}
+          cloudBoards={cloudBoards}
+          cloudAutoSave={cloudAutoSave}
+          onToggleCloudAutoSave={handleToggleCloudAutoSave}
+          cloudSaveStatus={cloudSaveStatus}
+          cloudLastSavedAt={cloudLastSavedAt}
+          cloudSkippedMedia={cloudLastSkipped}
+          onSaveBoardNow={() => void saveBoardNow(true)}
+          onResumeCloudBoard={handleResumeCloudBoard}
+          onRestoreCloudBoardIntoCurrent={handleRestoreBoardIntoCurrent}
+          onDeleteCloudBoard={handleDeleteCloudBoard}
           onAddQrToCanvas={(qrDataUrl) => {
             handleAddImageToCanvas(qrDataUrl, 220, 220);
           }}
@@ -2534,9 +2811,23 @@ export default function App() {
             }
           }}
           onSignOutGoogle={signOutFirebase}
+          cloudBoards={cloudBoards}
+          cloudAutoSave={cloudAutoSave}
+          onToggleCloudAutoSave={handleToggleCloudAutoSave}
+          onResumeCloudBoard={handleResumeCloudBoard}
+          onDeleteCloudBoard={handleDeleteCloudBoard}
           onClose={!isInitialSetup ? () => setIsUserSetupOpen(false) : undefined}
           onJoin={handleWelcomeOrProfileJoin}
         />
+      )}
+
+      {cloudToast && (
+        <div
+          role="status"
+          className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-[95] max-w-[calc(100vw-32px)] px-4 py-2 rounded-full bg-slate-900/95 text-white text-xs font-semibold shadow-xl border border-slate-700 cb-anim-scale-in"
+        >
+          <span>{cloudToast}</span>
+        </div>
       )}
 
       {/* Interactive Spotlight Onboarding Tour for First-Time Users */}

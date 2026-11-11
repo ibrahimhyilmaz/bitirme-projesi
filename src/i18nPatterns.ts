@@ -7,6 +7,26 @@ type Fn = (...g: string[]) => string[];
 
 const PATTERNS: [RegExp, Fn][] = [
   [
+    /^(\d+) Kişi$/,
+    (n) => [
+      `${n} ${n === '1' ? 'person' : 'people'}`,
+      `${n} ${n === '1' ? 'Person' : 'Personen'}`,
+      `${n} ${n === '1' ? 'personne' : 'personnes'}`,
+      `${n} ${n === '1' ? 'persona' : 'personas'}`,
+      `${n} ${n === '1' ? 'شخص' : 'أشخاص'}`,
+    ],
+  ],
+  [
+    /^Oda kapasitesi \((\d+) kişi\) dolduğunda yeni kullanıcıların girişi otomatik engellenir\.$/,
+    (n) => [
+      `When the room capacity (${n} people) is reached, new users are blocked from joining automatically.`,
+      `Sobald die Raumkapazität (${n} Personen) erreicht ist, wird neuen Nutzern der Beitritt automatisch verwehrt.`,
+      `Lorsque la capacité de la salle (${n} personnes) est atteinte, les nouveaux utilisateurs sont automatiquement bloqués.`,
+      `Cuando se alcance la capacidad de la sala (${n} personas), se bloqueará automáticamente el acceso a nuevos usuarios.`,
+      `عند اكتمال سعة الغرفة (${n} أشخاص) يُمنع المستخدمون الجدد من الدخول تلقائيًا.`,
+    ],
+  ],
+  [
     /^(\d+) Deneme Yapıldı$/,
     (n) => [
       `${n} attempt${n === '1' ? '' : 's'} made`,

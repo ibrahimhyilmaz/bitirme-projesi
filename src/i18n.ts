@@ -3,6 +3,7 @@ import type { LanguageCode } from './types';
 import { EXTRA_PHRASES } from './i18nExtra';
 import { EXTRA_PHRASES_2 } from './i18nExtra2';
 import { EXTRA_PHRASES_3 } from './i18nExtra3';
+import { EXTRA_PHRASES_4 } from './i18nExtra4';
 import { translateDynamicPhrase } from './i18nPatterns';
 
 export const LANGUAGE_OPTIONS: { code: LanguageCode; label: string; dir: 'ltr' | 'rtl' }[] = [
@@ -1490,7 +1491,7 @@ const PHRASE_TABLE: Record<string, [string, string, string, string, string]> = {
   'En Üst Düzey Başyapıt (35-50+ Şekil Parçası)': ['Ultimate Masterpiece (35-50+ Shape Parts)', 'Meisterwerk-Stufe (35-50+ Formen)', 'Chef-d’œuvre ultime (35-50+ formes)', 'Obra Maestra Suprema (35-50+ formas)', 'تحفة فنية متكاملة (35-50+ قطعة)'],
 };
 
-Object.assign(PHRASE_TABLE, EXTRA_PHRASES, EXTRA_PHRASES_2, EXTRA_PHRASES_3);
+Object.assign(PHRASE_TABLE, EXTRA_PHRASES, EXTRA_PHRASES_2, EXTRA_PHRASES_3, EXTRA_PHRASES_4);
 
 const LANG_INDEX: Record<Exclude<LanguageCode, 'tr'>, number> = {
   en: 0,
