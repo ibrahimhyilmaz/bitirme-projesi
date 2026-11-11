@@ -34,8 +34,6 @@ export class ClientGeminiError extends Error {
   }
 }
 
-const MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
-
 const ALLOWED_TYPES = new Set([
   'rectangle', 'rounded-rect', 'circle', 'triangle', 'right-triangle', 'diamond', 'star', 'pentagon',
   'hexagon', 'octagon', 'parallelogram', 'trapezoid', 'cylinder', 'heart', 'cross', 'lightning', 'cloud',
@@ -58,25 +56,115 @@ interface GeminiCall {
   signal?: AbortSignal;
 }
 
+interface Attempt {
+  label: string;
+  url: string;
+}
+
+const GL_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const VERTEX_BASE = 'https://aiplatform.googleapis.com/v1/publishers/google/models';
+const FALLBACK_MODELS = [
+  'gemini-flash-latest',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-flash-lite-latest',
+  'gemini-2.5-flash-lite',
+];
+const VERTEX_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+
+/** Models are retired over time, so ask Google which ones this key can actually use. */
+const modelListCache = new Map<string, { at: number; models: string[] | null }>();
+
+async function listUsableModels(apiKey: string, signal?: AbortSignal): Promise<string[] | null> {
+  const cached = modelListCache.get(apiKey);
+  if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.models;
+  let models: string[] | null = null;
+  try {
+    const res = await fetch(`${GL_BASE}/models?pageSize=200&key=${encodeURIComponent(apiKey)}`, { signal });
+    if (res.ok) {
+      const data = await res.json();
+      const names: string[] = (data?.models || [])
+        .filter((m: { supportedGenerationMethods?: string[] }) =>
+          (m.supportedGenerationMethods || []).includes('generateContent')
+        )
+        .map((m: { name: string }) => String(m.name).replace(/^models\//, ''))
+        .filter(
+          (n: string) =>
+            /^gemini-/.test(n) &&
+            !/(image|tts|embedding|aqa|live|audio|robotics|computer-use|imagen|veo|learnlm|vision|native)/i.test(n)
+        );
+      const score = (n: string) => {
+        const v = /gemini-(\d+(?:\.\d+)?)/.exec(n);
+        const version = v ? parseFloat(v[1]) : 99; // "-latest" aliases track the newest model
+        const family = /flash-lite/.test(n) ? 2 : /flash/.test(n) ? 3 : /pro/.test(n) ? 1 : 0;
+        const stable = /(preview|exp)/.test(n) ? 0 : 1;
+        return family * 1000 + (/latest/.test(n) ? 500 : 0) + version * 10 + stable;
+      };
+      models = Array.from(new Set(names)).sort((x, y) => score(y) - score(x));
+    } else {
+      console.warn(`Gemini model list -> HTTP ${res.status}`, (await res.text().catch(() => '')).slice(0, 240));
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') throw err;
+  }
+  modelListCache.set(apiKey, { at: Date.now(), models });
+  return models;
+}
+
+let lastWorking: Attempt | null = null;
+
+async function buildAttempts(apiKey: string, signal?: AbortSignal): Promise<Attempt[]> {
+  const key = encodeURIComponent(apiKey);
+  const listed = await listUsableModels(apiKey, signal);
+  const glModels = (listed && listed.length ? listed : FALLBACK_MODELS).slice(0, 4);
+  const attempts: Attempt[] = glModels.map((m) => ({
+    label: `gl:${m}`,
+    url: `${GL_BASE}/models/${m}:generateContent?key=${key}`,
+  }));
+  // Express-mode style keys ("AQ.…") belong to Vertex AI rather than the classic Gemini API
+  if (apiKey.startsWith('AQ.')) {
+    for (const m of VERTEX_MODELS) {
+      attempts.push({ label: `vertex:${m}`, url: `${VERTEX_BASE}/${m}:generateContent?key=${key}` });
+    }
+  }
+  const known = lastWorking;
+  if (known && attempts.some((a) => a.url === known.url)) {
+    return [known, ...attempts.filter((a) => a.url !== known.url)];
+  }
+  return attempts;
+}
+
+const KEY_REJECTED = {
+  code: 'API_KEY_UNAVAILABLE',
+  message: 'Gemini API anahtarı reddedildi (yetki hatası).',
+  suggestion: 'Anahtarın Generative Language API için etkin olduğundan emin olun veya yeni bir anahtar oluşturun.',
+};
+
 async function callGemini({ apiKey, system, user, schema, signal }: GeminiCall): Promise<Record<string, unknown>> {
   let lastErr: ClientGeminiError | null = null;
-  for (const model of MODELS) {
+  let sawNotFound = false;
+  const attempts = await buildAttempts(apiKey, signal);
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i];
+    const isLast = i === attempts.length - 1;
     try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal,
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents: [{ role: 'user', parts: [{ text: user }] }],
-            generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.7 },
-          }),
-        }
-      );
+      const res = await fetch(attempt.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: 'user', parts: [{ text: user }] }],
+          generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.7 },
+        }),
+      });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
+        console.warn(`Gemini ${attempt.label} -> HTTP ${res.status}`, body.slice(0, 240));
+        if (res.status === 404 || (res.status === 400 && /not supported|not found|is not available/i.test(body))) {
+          sawNotFound = true; // this model is gone for this key: try the next one
+          continue;
+        }
         if (res.status === 400 && /API key not valid|API_KEY_INVALID/i.test(body)) {
           throw new ClientGeminiError(
             'API_KEY_UNAVAILABLE',
@@ -86,12 +174,9 @@ async function callGemini({ apiKey, system, user, schema, signal }: GeminiCall):
           );
         }
         if (res.status === 403 || res.status === 401) {
-          throw new ClientGeminiError(
-            'API_KEY_UNAVAILABLE',
-            'Gemini API anahtarı reddedildi (yetki hatası).',
-            'Anahtarın Generative Language API için etkin olduğundan emin olun veya yeni bir anahtar oluşturun.',
-            false
-          );
+          lastErr = new ClientGeminiError(KEY_REJECTED.code, KEY_REJECTED.message, KEY_REJECTED.suggestion, false);
+          if (isLast) throw lastErr;
+          continue; // another endpoint (e.g. Vertex) may accept this key
         }
         if (res.status === 429) {
           throw new ClientGeminiError(
@@ -100,11 +185,12 @@ async function callGemini({ apiKey, system, user, schema, signal }: GeminiCall):
             'Birkaç saniye bekleyip tekrar deneyin.'
           );
         }
-        throw new ClientGeminiError(
+        lastErr = new ClientGeminiError(
           'MODEL_GENERATION_FAILED',
           `Gemini isteği başarısız oldu (HTTP ${res.status}).`,
           'Birkaç saniye sonra tekrar deneyin.'
         );
+        continue;
       }
       const data = await res.json();
       const text: string = (data?.candidates?.[0]?.content?.parts || [])
@@ -113,14 +199,21 @@ async function callGemini({ apiKey, system, user, schema, signal }: GeminiCall):
         .trim()
         .replace(/^```(?:json)?\s*/i, '')
         .replace(/\s*```$/i, '');
-      if (!text) throw new ClientGeminiError('MODEL_GENERATION_FAILED', 'Model boş yanıt döndürdü.', 'Tekrar deneyin.');
-      return JSON.parse(text);
+      if (!text) {
+        lastErr = new ClientGeminiError('MODEL_GENERATION_FAILED', 'Model boş yanıt döndürdü.', 'Tekrar deneyin.');
+        continue;
+      }
+      const parsed = JSON.parse(text);
+      lastWorking = attempt;
+      return parsed;
     } catch (err) {
       if (err instanceof ClientGeminiError) {
         if (!err.retryable || err.code === 'GEMINI_RATE_LIMIT') throw err;
         lastErr = err;
       } else if (err instanceof Error && err.name === 'AbortError') {
         throw err;
+      } else if (err instanceof SyntaxError) {
+        lastErr = new ClientGeminiError('MODEL_GENERATION_FAILED', 'Model geçerli bir yanıt üretemedi.', 'Tekrar deneyin.');
       } else {
         lastErr = new ClientGeminiError(
           'SERVER_UNREACHABLE',
@@ -129,6 +222,14 @@ async function callGemini({ apiKey, system, user, schema, signal }: GeminiCall):
         );
       }
     }
+  }
+  if (!lastErr && sawNotFound) {
+    throw new ClientGeminiError(
+      'MODEL_NOT_FOUND',
+      'Bu anahtarla kullanılabilir bir Gemini modeli bulunamadı (HTTP 404).',
+      'Anahtarı aistudio.google.com/apikey adresinden yeniden oluşturup kaydedin. Anahtar “AIza” ile başlamalıdır.',
+      false
+    );
   }
   throw lastErr || new ClientGeminiError('MODEL_GENERATION_FAILED', 'Gemini yanıt vermedi.', 'Tekrar deneyin.');
 }

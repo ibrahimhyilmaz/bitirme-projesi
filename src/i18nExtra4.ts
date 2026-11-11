@@ -3,6 +3,9 @@
  * Key = original Turkish text, value = [en, de, fr, es, ar].
  */
 export const EXTRA_PHRASES_4: Record<string, [string, string, string, string, string]> = {
+  'Bu anahtarla kullanılabilir bir Gemini modeli bulunamadı (HTTP 404).': ['No usable Gemini model was found for this key (HTTP 404).', 'Für diesen Schlüssel wurde kein nutzbares Gemini-Modell gefunden (HTTP 404).', 'Aucun modèle Gemini utilisable n’a été trouvé pour cette clé (HTTP 404).', 'No se encontró ningún modelo de Gemini utilizable con esta clave (HTTP 404).', 'لم يتم العثور على نموذج Gemini صالح لهذا المفتاح (HTTP 404).'],
+  'Anahtarı aistudio.google.com/apikey adresinden yeniden oluşturup kaydedin. Anahtar “AIza” ile başlamalıdır.': ['Create a new key at aistudio.google.com/apikey and save it. The key should start with “AIza”.', 'Erstelle unter aistudio.google.com/apikey einen neuen Schlüssel und speichere ihn. Der Schlüssel sollte mit „AIza“ beginnen.', 'Créez une nouvelle clé sur aistudio.google.com/apikey et enregistrez-la. La clé doit commencer par « AIza ».', 'Cree una nueva clave en aistudio.google.com/apikey y guárdela. La clave debe empezar por «AIza».', 'أنشئ مفتاحًا جديدًا من aistudio.google.com/apikey واحفظه. يجب أن يبدأ المفتاح بـ «AIza».'],
+  'Model geçerli bir yanıt üretemedi.': ['The model could not produce a valid response.', 'Das Modell konnte keine gültige Antwort erzeugen.', 'Le modèle n’a pas pu produire de réponse valide.', 'El modelo no pudo generar una respuesta válida.', 'لم يتمكن النموذج من إنتاج استجابة صالحة.'],
   'Yeni Seed': ['New Seed', 'Neuer Seed', 'Nouveau seed', 'Nueva semilla', 'رمز جديد'],
   'Bulut Tahtalarım': ['My Cloud Boards', 'Meine Cloud-Boards', 'Mes tableaux cloud', 'Mis tableros en la nube', 'لوحاتي السحابية'],
   'Google hesabınla açtığın odalar ve tahtalar buluta kaydedilir; istediğin zaman son kayıttan devam edebilirsin.': [

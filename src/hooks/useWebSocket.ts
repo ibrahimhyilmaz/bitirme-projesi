@@ -1297,6 +1297,17 @@ export function useWebSocket({
       const eventsTopic = `collabboard/v3/room/${safeRoom}/events`;
       const directPeerTopic = `collabboard/v3/room/${safeRoom}/peer/${safeUid}`;
 
+      // Serverless rooms have no server to confirm the join: report it ourselves (once), so room history
+      // and Google cloud boards work on static hosting too. The "creating" flag is frozen at start so the
+      // join packets keep announcing the creator even after the app resets its own flag.
+      const creatingAtStart = isCreatingRoomRef.current;
+      let joinReported = false;
+      const reportMeshJoined = () => {
+        if (joinReported || isCancelled || rejectedRoomRef.current) return;
+        joinReported = true;
+        if (onJoinedRef.current) onJoinedRef.current(roomId.trim().toLowerCase());
+      };
+
       const clients: MqttClient[] = [];
       for (const brokerUrl of PUBLIC_WSS_BROKERS) {
         try {
@@ -1319,9 +1330,10 @@ export function useWebSocket({
                 roomId,
                 roomName: syncedRoomNameRef.current || roomNameRef.current,
                 maxUsers: targetMaxUsers,
-                isCreatingRoom: isCreatingRoomRef.current,
+                isCreatingRoom: creatingAtStart,
                 user: selfNow,
               });
+              reportMeshJoined();
             });
           });
 
@@ -1342,9 +1354,11 @@ export function useWebSocket({
         roomId,
         roomName: syncedRoomNameRef.current || roomNameRef.current,
         maxUsers: targetMaxUsers,
-        isCreatingRoom: isCreatingRoomRef.current,
+        isCreatingRoom: creatingAtStart,
         user: initialSelfPresence,
       });
+      // Even if no broker answers, the local room is usable: do not leave the join unreported
+      window.setTimeout(reportMeshJoined, 2500);
 
       // Periodic heartbeat & stale peer cleanup
       meshHeartbeatTimer = window.setInterval(() => {
