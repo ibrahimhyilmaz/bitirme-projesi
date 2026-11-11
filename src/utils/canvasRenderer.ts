@@ -227,69 +227,8 @@ export function hitTestTransformHandle(
  * for silky-smooth vector curves.
  */
 export function smoothPoints(points: Point[]): Point[] {
-  if (!points || points.length <= 2) return points;
-
-  // 1. Distance filtering: remove points that are too close (< 1.8px) to eliminate micro-jitter
-  const filtered: Point[] = [points[0]];
-  for (let i = 1; i < points.length; i++) {
-    const prev = filtered[filtered.length - 1];
-    const curr = points[i];
-    if (Math.hypot(curr.x - prev.x, curr.y - prev.y) >= 1.8 || i === points.length - 1) {
-      filtered.push(curr);
-    }
-  }
-
-  if (filtered.length <= 2) return filtered;
-
-  // 2. Weighted 3-point Laplacian stabilization pass (preserves endpoints and interpolates width w)
-  const stabilized: Point[] = [filtered[0]];
-  for (let i = 1; i < filtered.length - 1; i++) {
-    const prev = filtered[i - 1];
-    const curr = filtered[i];
-    const next = filtered[i + 1];
-    const hasW = prev.w !== undefined || curr.w !== undefined || next.w !== undefined;
-    stabilized.push({
-      x: 0.25 * prev.x + 0.5 * curr.x + 0.25 * next.x,
-      y: 0.25 * prev.y + 0.5 * curr.y + 0.25 * next.y,
-      ...(hasW
-        ? {
-            w:
-              0.25 * (prev.w ?? 1) +
-              0.5 * (curr.w ?? 1) +
-              0.25 * (next.w ?? 1),
-          }
-        : {}),
-    });
-  }
-  stabilized.push(filtered[filtered.length - 1]);
-
-  // 3. Two-pass Chaikin corner-cutting smoothing (capped to prevent excessive vertex counts)
-  let current = stabilized;
-  const passes = current.length < 180 ? 2 : 1;
-  for (let p = 0; p < passes; p++) {
-    const nextPass: Point[] = [current[0]];
-    for (let i = 0; i < current.length - 1; i++) {
-      const p0 = current[i];
-      const p1 = current[i + 1];
-      const hasW = p0.w !== undefined || p1.w !== undefined;
-      const w0 = p0.w ?? 1;
-      const w1 = p1.w ?? 1;
-      nextPass.push({
-        x: 0.75 * p0.x + 0.25 * p1.x,
-        y: 0.75 * p0.y + 0.25 * p1.y,
-        ...(hasW ? { w: 0.75 * w0 + 0.25 * w1 } : {}),
-      });
-      nextPass.push({
-        x: 0.25 * p0.x + 0.75 * p1.x,
-        y: 0.25 * p0.y + 0.75 * p1.y,
-        ...(hasW ? { w: 0.25 * w0 + 0.75 * w1 } : {}),
-      });
-    }
-    nextPass.push(current[current.length - 1]);
-    current = nextPass;
-  }
-
-  return current;
+  if (!points || points.length <= 1) return points;
+  return points;
 }
 
 // Draw a single element onto the 2D context
@@ -358,7 +297,7 @@ export function drawElement(
       }
 
       if (pts.length === 1) {
-        const r = Math.max(0.8, ((pts[0].w ?? 1.25) * baseW) / 2);
+        const r = Math.max(0.8, ((pts[0].w ?? 1) * baseW) / 2);
         ctx.beginPath();
         ctx.arc(pts[0].x, pts[0].y, r, 0, Math.PI * 2);
         ctx.fillStyle = color;
@@ -414,14 +353,11 @@ export function drawElement(
         }
 
         ctx.beginPath();
-        // Forward along left edge using C1 quadratic midpoint spline
+        // Forward along left edge using smooth C1 quadratic spline
         ctx.moveTo(leftPts[0].x, leftPts[0].y);
         if (leftPts.length === 2) {
           ctx.lineTo(leftPts[1].x, leftPts[1].y);
         } else {
-          const firstMidX = (leftPts[0].x + leftPts[1].x) / 2;
-          const firstMidY = (leftPts[0].y + leftPts[1].y) / 2;
-          ctx.lineTo(firstMidX, firstMidY);
           for (let i = 1; i < leftPts.length - 1; i++) {
             const xc = (leftPts[i].x + leftPts[i + 1].x) / 2;
             const yc = (leftPts[i].y + leftPts[i + 1].y) / 2;
@@ -438,14 +374,11 @@ export function drawElement(
         const endAngleR = Math.atan2(rightPts[lastIdx].y - endPt.y, rightPts[lastIdx].x - endPt.x);
         ctx.arc(endPt.x, endPt.y, endR, endAngleL, endAngleR, true);
 
-        // Backward along right edge using C1 quadratic midpoint spline
+        // Backward along right edge using smooth C1 quadratic spline
         ctx.lineTo(rightPts[lastIdx].x, rightPts[lastIdx].y);
         if (rightPts.length === 2) {
           ctx.lineTo(rightPts[0].x, rightPts[0].y);
         } else {
-          const firstBackMidX = (rightPts[lastIdx].x + rightPts[lastIdx - 1].x) / 2;
-          const firstBackMidY = (rightPts[lastIdx].y + rightPts[lastIdx - 1].y) / 2;
-          ctx.lineTo(firstBackMidX, firstBackMidY);
           for (let i = lastIdx - 1; i > 0; i--) {
             const xc = (rightPts[i].x + rightPts[i - 1].x) / 2;
             const yc = (rightPts[i].y + rightPts[i - 1].y) / 2;
@@ -594,15 +527,9 @@ export function drawElement(
       const pts = element.points;
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
-
       if (pts.length === 2) {
         ctx.lineTo(pts[1].x, pts[1].y);
       } else {
-        // C1-continuous quadratic midpoint B-spline without endpoint hook/kink
-        const firstMidX = (pts[0].x + pts[1].x) / 2;
-        const firstMidY = (pts[0].y + pts[1].y) / 2;
-        ctx.lineTo(firstMidX, firstMidY);
-
         for (let i = 1; i < pts.length - 1; i++) {
           const xc = (pts[i].x + pts[i + 1].x) / 2;
           const yc = (pts[i].y + pts[i + 1].y) / 2;

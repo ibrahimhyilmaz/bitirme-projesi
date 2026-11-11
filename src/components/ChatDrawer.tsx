@@ -700,19 +700,6 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                       minute: '2-digit',
                     })}
                   </span>
-                  {isSelf && onDeleteMessage && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteMessage(msg.id);
-                      }}
-                      className="ml-1 p-1 rounded-md text-slate-400 hover:text-rose-500 hover:bg-rose-500/15 transition-colors cursor-pointer"
-                      title="Mesajı sil"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
                 </div>
 
                 <div className="relative max-w-[85%]">

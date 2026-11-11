@@ -24,7 +24,6 @@ import {
   hitTestTransformHandle,
   rotatePointAroundCenter,
   TransformHandleType,
-  smoothPoints,
   sampleShapeToWorldPoints,
 } from '../utils/canvasRenderer';
 import {
@@ -299,6 +298,7 @@ function drawSmoothLaserTrail(
   baseStrokeWidth: number
 ) {
   const maxAge = 1300;
+  const holdMs = 550;
   const active = points.filter((p) => now - p.time < maxAge);
   if (active.length === 0) return;
 
@@ -322,7 +322,7 @@ function drawSmoothLaserTrail(
         strokes.push(currentStroke);
         currentStroke = [pt];
       } else if (
-        Math.hypot(pt.x - prev.x, pt.y - prev.y) >= 0.75 / zoom ||
+        Math.hypot(pt.x - prev.x, pt.y - prev.y) >= 0.3 / zoom ||
         i === active.length - 1
       ) {
         currentStroke.push(pt);
@@ -333,245 +333,74 @@ function drawSmoothLaserTrail(
     strokes.push(currentStroke);
   }
 
-  const baseRadius = Math.max(2.8, (baseStrokeWidth || 5) * 0.62) / zoom;
+  const lineWidth = Math.max(4.5, (baseStrokeWidth || 5) * 1.15) / zoom;
+  const radius = lineWidth / 2;
 
   const getPointAlpha = (t: number) => {
     const age = now - t;
-    const lin = Math.max(0, Math.min(1, 1 - age / maxAge));
-    // Smoothstep easing for silky-smooth fade
+    if (age <= holdMs) return 1;
+    const lin = Math.max(0, Math.min(1, 1 - (age - holdMs) / (maxAge - holdMs)));
     return lin * lin * (3 - 2 * lin);
   };
 
   for (const stroke of strokes) {
     const newestPt = stroke[stroke.length - 1];
-    const strokeHeadAlpha = getPointAlpha(newestPt.time);
-    if (strokeHeadAlpha <= 0.01) continue;
+    const strokeAlpha = getPointAlpha(newestPt.time);
+    if (strokeAlpha <= 0.01) continue;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
     if (stroke.length === 1) {
       const p0 = stroke[0];
-      const r = baseRadius * (p0.w ?? 1.25) * (0.35 + 0.65 * strokeHeadAlpha);
-      ctx.save();
-      ctx.globalAlpha = strokeHeadAlpha;
+      ctx.globalAlpha = strokeAlpha;
       ctx.fillStyle = '#ff0022';
       ctx.shadowColor = '#ff002b';
-      ctx.shadowBlur = 15 / zoom;
+      ctx.shadowBlur = (14 * strokeAlpha) / zoom;
       ctx.beginPath();
-      ctx.arc(p0.x, p0.y, r, 0, Math.PI * 2);
+      ctx.arc(p0.x, p0.y, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
       ctx.fillStyle = '#ff99ac';
       ctx.beginPath();
-      ctx.arc(p0.x, p0.y, r * 0.45, 0, Math.PI * 2);
+      ctx.arc(p0.x, p0.y, radius * 0.42, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
       continue;
     }
 
-    // Build dense C1 quadratic midpoint spline samples with interpolated (x, y, w, alpha)
-    const rawSpine: { x: number; y: number; w: number; alpha: number }[] = [];
-
-    if (stroke.length === 2) {
-      const p0 = stroke[0];
-      const p1 = stroke[1];
-      const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
-      const steps = Math.max(6, Math.min(28, Math.ceil((dist * zoom) / 2.8)));
-      const a0 = getPointAlpha(p0.time);
-      const a1 = getPointAlpha(p1.time);
-      const w0 = p0.w ?? 1.25;
-      const w1 = p1.w ?? 1.25;
-      for (let s = 0; s <= steps; s++) {
-        const u = s / steps;
-        rawSpine.push({
-          x: p0.x + (p1.x - p0.x) * u,
-          y: p0.y + (p1.y - p0.y) * u,
-          w: w0 + (w1 - w0) * u,
-          alpha: a0 + (a1 - a0) * u,
-        });
-      }
-    } else {
-      const p0 = stroke[0];
-      const p1 = stroke[1];
-      const firstMid = {
-        x: (p0.x + p1.x) / 2,
-        y: (p0.y + p1.y) / 2,
-        w: ((p0.w ?? 1.25) + (p1.w ?? 1.25)) / 2,
-        alpha: (getPointAlpha(p0.time) + getPointAlpha(p1.time)) / 2,
-      };
-      const startSteps = 5;
-      const a0 = getPointAlpha(p0.time);
-      const w0 = p0.w ?? 1.25;
-      for (let s = 0; s < startSteps; s++) {
-        const u = s / startSteps;
-        rawSpine.push({
-          x: p0.x + (firstMid.x - p0.x) * u,
-          y: p0.y + (firstMid.y - p0.y) * u,
-          w: w0 + (firstMid.w - w0) * u,
-          alpha: a0 + (firstMid.alpha - a0) * u,
-        });
-      }
-
-      for (let i = 1; i < stroke.length - 1; i++) {
-        const prev = stroke[i - 1];
-        const curr = stroke[i];
-        const next = stroke[i + 1];
-
-        const aPrev = getPointAlpha(prev.time);
-        const aCurr = getPointAlpha(curr.time);
-        const aNext = getPointAlpha(next.time);
-
-        const wPrev = prev.w ?? 1.15;
-        const wCurr = curr.w ?? 1.15;
-        const wNext = next.w ?? 1.15;
-
-        const m1 = {
-          x: (prev.x + curr.x) / 2,
-          y: (prev.y + curr.y) / 2,
-          w: (wPrev + wCurr) / 2,
-          alpha: (aPrev + aCurr) / 2,
-        };
-        const m2 = {
-          x: (curr.x + next.x) / 2,
-          y: (curr.y + next.y) / 2,
-          w: (wCurr + wNext) / 2,
-          alpha: (aCurr + aNext) / 2,
-        };
-
-        const segLen =
-          Math.hypot(curr.x - m1.x, curr.y - m1.y) + Math.hypot(m2.x - curr.x, m2.y - curr.y);
-        const steps = Math.max(4, Math.min(18, Math.ceil((segLen * zoom) / 3)));
-
-        for (let s = 0; s < steps; s++) {
-          const t = s / steps;
-          const inv = 1 - t;
-          const b0 = inv * inv;
-          const b1 = 2 * inv * t;
-          const b2 = t * t;
-          rawSpine.push({
-            x: b0 * m1.x + b1 * curr.x + b2 * m2.x,
-            y: b0 * m1.y + b1 * curr.y + b2 * m2.y,
-            w: b0 * m1.w + b1 * wCurr + b2 * m2.w,
-            alpha: b0 * m1.alpha + b1 * aCurr + b2 * m2.alpha,
-          });
-        }
-      }
-
-      const pSecondLast = stroke[stroke.length - 2];
-      const pLast = stroke[stroke.length - 1];
-      const lastMid = {
-        x: (pSecondLast.x + pLast.x) / 2,
-        y: (pSecondLast.y + pLast.y) / 2,
-        w: ((pSecondLast.w ?? 1.15) + (pLast.w ?? 1.15)) / 2,
-        alpha: (getPointAlpha(pSecondLast.time) + getPointAlpha(pLast.time)) / 2,
-      };
-      const aLast = getPointAlpha(pLast.time);
-      const wLast = pLast.w ?? 1.15;
-      const endSteps = 5;
-      for (let s = 0; s <= endSteps; s++) {
-        const u = s / endSteps;
-        rawSpine.push({
-          x: lastMid.x + (pLast.x - lastMid.x) * u,
-          y: lastMid.y + (pLast.y - lastMid.y) * u,
-          w: lastMid.w + (wLast - lastMid.w) * u,
-          alpha: lastMid.alpha + (aLast - lastMid.alpha) * u,
-        });
-      }
-    }
-
-    // Filter active samples and compute tapered calligraphic radius
-    // Radius tapers smoothly down to 0 as each point ages, so the tail vanishes organically without dots!
-    const spine: { x: number; y: number; r: number; nx: number; ny: number }[] = [];
-    for (let i = 0; i < rawSpine.length; i++) {
-      const sp = rawSpine[i];
-      if (sp.alpha <= 0.01) continue;
-      if (
-        spine.length > 0 &&
-        Math.hypot(sp.x - spine[spine.length - 1].x, sp.y - spine[spine.length - 1].y) <
-          0.3 / zoom
-      ) {
-        continue;
-      }
-      const ageTaper = Math.pow(sp.alpha / Math.max(0.05, strokeHeadAlpha), 0.9);
-      const r = Math.max(0.15 / zoom, baseRadius * sp.w * Math.min(1.15, ageTaper));
-      spine.push({ x: sp.x, y: sp.y, r, nx: 0, ny: 0 });
-    }
-
-    if (spine.length < 2) continue;
-
-    // Smooth tail tip taper over first few samples so the fading tail always comes to a sleek calligraphic point
-    const tailTaperCount = Math.min(8, Math.floor(spine.length * 0.35));
-    for (let i = 0; i < tailTaperCount; i++) {
-      const factor = (i + 1) / (tailTaperCount + 1);
-      spine[i].r *= factor;
-    }
-
-    // Compute unit normals along the spline
-    for (let i = 0; i < spine.length; i++) {
-      const prev = spine[Math.max(0, i - 1)];
-      const next = spine[Math.min(spine.length - 1, i + 1)];
-      let dx = next.x - prev.x;
-      let dy = next.y - prev.y;
-      const len = Math.hypot(dx, dy);
-      if (len > 0.0001) {
-        dx /= len;
-        dy /= len;
-      } else if (i > 0) {
-        dx = -spine[i - 1].ny;
-        dy = spine[i - 1].nx;
+    const traceSmoothLaserPath = () => {
+      ctx.beginPath();
+      ctx.moveTo(stroke[0].x, stroke[0].y);
+      if (stroke.length === 2) {
+        ctx.lineTo(stroke[1].x, stroke[1].y);
       } else {
-        dx = 1;
-        dy = 0;
+        for (let i = 1; i < stroke.length - 1; i++) {
+          const xc = (stroke[i].x + stroke[i + 1].x) / 2;
+          const yc = (stroke[i].y + stroke[i + 1].y) / 2;
+          ctx.quadraticCurveTo(stroke[i].x, stroke[i].y, xc, yc);
+        }
+        ctx.lineTo(stroke[stroke.length - 1].x, stroke[stroke.length - 1].y);
       }
-      spine[i].nx = -dy;
-      spine[i].ny = dx;
-    }
+    };
 
-    // Render entire continuous sub-stroke as ONE single closed polygon (100% zero overlapping dots or seams!)
-    ctx.save();
-    ctx.globalAlpha = strokeHeadAlpha;
-    ctx.fillStyle = '#ff0022';
+    // Outer glowing red laser stroke using smooth C1 quadratic spline
+    ctx.globalAlpha = strokeAlpha;
+    ctx.strokeStyle = '#ff0022';
+    ctx.lineWidth = lineWidth;
     ctx.shadowColor = '#ff002b';
-    ctx.shadowBlur = (16 * strokeHeadAlpha) / zoom;
+    ctx.shadowBlur = (14 * strokeAlpha) / zoom;
+    traceSmoothLaserPath();
+    ctx.stroke();
 
-    ctx.beginPath();
-    const first = spine[0];
-    ctx.moveTo(first.x + first.nx * first.r, first.y + first.ny * first.r);
-    for (let i = 1; i < spine.length; i++) {
-      const pt = spine[i];
-      ctx.lineTo(pt.x + pt.nx * pt.r, pt.y + pt.ny * pt.r);
-    }
-    const last = spine[spine.length - 1];
-    const headAngle = Math.atan2(last.ny, last.nx);
-    ctx.arc(last.x, last.y, last.r, headAngle, headAngle + Math.PI, true);
-    for (let i = spine.length - 1; i >= 0; i--) {
-      const pt = spine[i];
-      ctx.lineTo(pt.x - pt.nx * pt.r, pt.y - pt.ny * pt.r);
-    }
-    const tailAngle = Math.atan2(-first.ny, -first.nx);
-    ctx.arc(first.x, first.y, first.r, tailAngle, tailAngle + Math.PI, true);
-    ctx.closePath();
-    ctx.fill();
-
-    // Inner luminous bright laser core pass (gives intense glowing red beam appearance)
+    // Inner luminous core pass along the exact same smooth path
     ctx.shadowBlur = 0;
-    ctx.globalAlpha = strokeHeadAlpha * 0.92;
-    ctx.fillStyle = '#ff8fa3';
-    const coreScale = 0.42;
-    ctx.beginPath();
-    ctx.moveTo(
-      first.x + first.nx * first.r * coreScale,
-      first.y + first.ny * first.r * coreScale
-    );
-    for (let i = 1; i < spine.length; i++) {
-      const pt = spine[i];
-      ctx.lineTo(pt.x + pt.nx * pt.r * coreScale, pt.y + pt.ny * pt.r * coreScale);
-    }
-    ctx.arc(last.x, last.y, last.r * coreScale, headAngle, headAngle + Math.PI, true);
-    for (let i = spine.length - 1; i >= 0; i--) {
-      const pt = spine[i];
-      ctx.lineTo(pt.x - pt.nx * pt.r * coreScale, pt.y - pt.ny * pt.r * coreScale);
-    }
-    ctx.closePath();
-    ctx.fill();
+    ctx.globalAlpha = strokeAlpha * 0.92;
+    ctx.strokeStyle = '#ff8fa3';
+    ctx.lineWidth = lineWidth * 0.42;
+    traceSmoothLaserPath();
+    ctx.stroke();
 
     ctx.restore();
   }
@@ -735,10 +564,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const mouseScreenPosRef = useRef<Point | null>(null);
   const lastCanvasPtRef = useRef<Point>({ x: 0, y: 0 });
 
-  // Velocity / pressure tracking for Fountain Pen (Dolma Kalem)
+  // Velocity / pressure & adaptive stabilization tracking for crisp, jitter-free drawing
   const lastDrawPointTimeRef = useRef<number>(0);
   const lastDrawScreenPtRef = useRef<Point>({ x: 0, y: 0 });
   const lastWidthFactorRef = useRef<number>(1.25);
+  const smoothedDrawPtRef = useRef<Point>({ x: 0, y: 0 });
 
   // Paint Bucket (Kova) Fill helper: fills enclosed areas (freehand or geometric) or shapes
   const applyBucketFill = useCallback(
@@ -1194,9 +1024,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       drawElement(ctx, liveEl);
     }
 
-    // Render in-progress drawing element
-    if (currentDrawingElement) {
-      drawElement(ctx, currentDrawingElement);
+    // Render in-progress drawing element directly from ref for zero-latency frame rendering
+    const activeDrawingEl = currentDrawingElementRef.current || currentDrawingElement;
+    if (activeDrawingEl) {
+      drawElement(ctx, activeDrawingEl);
     }
 
     // Render Marquee Selection Box
@@ -1373,7 +1204,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     eraserShape,
   ]);
 
-  // High DPI resize handler
+  const renderRef = useRef(render);
+  renderRef.current = render;
+
+  // High DPI resize handler (only reallocates canvas buffer when container dimensions actually change)
   useEffect(() => {
     const handleResize = () => {
       const canvas = canvasRef.current;
@@ -1383,19 +1217,23 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       const dpr = window.devicePixelRatio || 1;
       const width = container.clientWidth;
       const height = container.clientHeight;
+      const targetW = Math.round(width * dpr);
+      const targetH = Math.round(height * dpr);
 
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+      }
 
-      render();
+      renderRef.current();
     };
 
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [render]);
+  }, []);
 
   // Keyboard navigation & hotkeys
   useEffect(() => {
@@ -1508,16 +1346,16 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     zoom,
   ]);
 
-  // Request animation frame for continuous animations
+  // Request animation frame for continuous animations without restarting RAF on every state update
   useEffect(() => {
     let animId: number;
     const loop = () => {
-      render();
+      renderRef.current();
       animId = requestAnimationFrame(loop);
     };
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [render]);
+  }, []);
 
   // Wheel zoom & pan (attached with { passive: false } to avoid passive event listener console errors)
   const handleWheelNativeRef = useRef<(e: WheelEvent) => void>(() => {});
@@ -1733,19 +1571,21 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
     isPointerDownRef.current = true;
 
-    // Handle Laser Pointer (allowed for viewers too) - Fountain Pen style velocity tracking
+    // Handle Laser Pointer (allowed for viewers too)
     if (activeTool === 'laser') {
       laserStrokeIdRef.current += 1;
       const strokeId = laserStrokeIdRef.current;
       lastDrawPointTimeRef.current = performance.now();
       lastDrawScreenPtRef.current = screenPt;
-      lastWidthFactorRef.current = 1.35;
+      smoothedDrawPtRef.current = canvasPt;
       const nowMs = Date.now();
+      const initPt: LaserTrailPoint = { x: canvasPt.x, y: canvasPt.y, time: nowMs, w: 1, strokeId };
       setLaserPoints((prev) => [
         ...prev.filter((p) => nowMs - p.time < 1300),
-        { x: canvasPt.x, y: canvasPt.y, time: nowMs, w: 1.35, strokeId },
+        initPt,
+        { ...initPt },
       ]);
-      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1.35 });
+      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1 });
       return;
     }
 
@@ -2029,15 +1869,18 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
       lastDrawPointTimeRef.current = performance.now();
       lastDrawScreenPtRef.current = screenPt;
-      lastWidthFactorRef.current = 1.25;
+      lastWidthFactorRef.current = 1.2;
+      smoothedDrawPtRef.current = canvasPt;
       const firstPt: Point =
-        activeTool === 'fountain-pen' ? { x: canvasPt.x, y: canvasPt.y, w: 1.25 } : canvasPt;
+        activeTool === 'fountain-pen'
+          ? { x: canvasPt.x, y: canvasPt.y, w: 1.2 }
+          : { x: canvasPt.x, y: canvasPt.y };
       const newDrawing: CanvasElement = {
         id: `draw-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         type: activeTool,
         x: canvasPt.x,
         y: canvasPt.y,
-        points: [firstPt],
+        points: [firstPt, { ...firstPt }],
         color: strokeColor,
         strokeWidth,
         strokeStyle,
@@ -2486,65 +2329,61 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Laser trail (Fountain Pen velocity-sensitive thickness & 3-point curve stabilization)
+    // Handle Laser trail with adaptive anti-jitter smoothing + live tip
     if (activeTool === 'laser' && isPointerDownRef.current) {
-      const nowPerf = performance.now();
-      const dt = Math.max(1, nowPerf - lastDrawPointTimeRef.current);
+      const nowMs = Date.now();
+      const strokeId = laserStrokeIdRef.current;
       const screenDist = Math.hypot(
         screenPt.x - lastDrawScreenPtRef.current.x,
         screenPt.y - lastDrawScreenPtRef.current.y
       );
-      if (screenDist >= 1.5) {
-        const speed = screenDist / dt;
-        lastDrawPointTimeRef.current = nowPerf;
-        lastDrawScreenPtRef.current = screenPt;
+      lastDrawScreenPtRef.current = screenPt;
 
-        const normalizedSpeed = Math.min(1, Math.max(0, (speed - 0.08) / 1.65));
-        let targetW = 1.72 - normalizedSpeed * 1.48;
-        if (e.pointerType === 'pen' && e.pressure > 0) {
-          const pressureFactor = Math.max(0.25, Math.min(1.8, e.pressure * 1.8));
-          targetW = targetW * 0.55 + pressureFactor * 0.45;
-        }
-        const smoothedW = Number(
-          (lastWidthFactorRef.current * 0.64 + targetW * 0.36).toFixed(3)
-        );
-        lastWidthFactorRef.current = smoothedW;
+      // Adaptive EMA: strong tremor filtering at low speeds, instant tracking at high speeds
+      const alpha = Math.min(0.82, Math.max(0.45, screenDist / 14));
+      const prevSmoothed = smoothedDrawPtRef.current;
+      const smoothedPt = {
+        x: prevSmoothed.x + (canvasPt.x - prevSmoothed.x) * alpha,
+        y: prevSmoothed.y + (canvasPt.y - prevSmoothed.y) * alpha,
+      };
+      smoothedDrawPtRef.current = smoothedPt;
 
-        const nowMs = Date.now();
-        const strokeId = laserStrokeIdRef.current;
-        const nextPt: LaserTrailPoint = {
-          x: canvasPt.x,
-          y: canvasPt.y,
-          time: nowMs,
-          w: smoothedW,
-          strokeId,
-        };
+      const commitDist = 3.0 / zoom;
+      const nextLaserPt: LaserTrailPoint = {
+        x: smoothedPt.x,
+        y: smoothedPt.y,
+        time: nowMs,
+        w: 1,
+        strokeId,
+      };
+      const tipLaserPt: LaserTrailPoint = {
+        x: canvasPt.x,
+        y: canvasPt.y,
+        time: nowMs,
+        w: 1,
+        strokeId,
+      };
 
-        setLaserPoints((prev) => {
-          const alive = prev.filter((p) => nowMs - p.time < 1300).slice(-260);
-          if (alive.length >= 2) {
-            const lastPt = alive[alive.length - 1];
-            const prevPt = alive[alive.length - 2];
-            if (lastPt.strokeId === strokeId && prevPt.strokeId === strokeId) {
-              const stabilizedLast: LaserTrailPoint = {
-                ...lastPt,
-                x: 0.25 * prevPt.x + 0.5 * lastPt.x + 0.25 * nextPt.x,
-                y: 0.25 * prevPt.y + 0.5 * lastPt.y + 0.25 * nextPt.y,
-                w: Number(
-                  (
-                    0.25 * (prevPt.w ?? 1.2) +
-                    0.5 * (lastPt.w ?? 1.2) +
-                    0.25 * (nextPt.w ?? 1.2)
-                  ).toFixed(3)
-                ),
-              };
-              return [...alive.slice(0, -1), stabilizedLast, nextPt];
-            }
+      setLaserPoints((prev) => {
+        const alive = prev.filter((p) => nowMs - p.time < 1300).slice(-320);
+        if (alive.length >= 2 && alive[alive.length - 1].strokeId === strokeId) {
+          const lastCommitted = alive[alive.length - 2];
+          if (
+            lastCommitted.strokeId === strokeId &&
+            Math.hypot(smoothedPt.x - lastCommitted.x, smoothedPt.y - lastCommitted.y) < commitDist
+          ) {
+            const copy = [...alive];
+            copy[copy.length - 1] = nextLaserPt;
+            return copy;
           }
-          return [...alive, nextPt];
-        });
-        if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: smoothedW });
-      }
+          const copy = [...alive];
+          copy[copy.length - 1] = nextLaserPt;
+          copy.push(tipLaserPt);
+          return copy;
+        }
+        return [...alive, nextLaserPt, tipLaserPt];
+      });
+      if (onLaserMove) onLaserMove({ x: smoothedPt.x, y: smoothedPt.y, w: 1 });
       return;
     }
 
@@ -2558,63 +2397,67 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         curr.type === 'highlighter'
       ) {
         const pts = curr.points || [];
-        const lastPt = pts.length > 0 ? pts[pts.length - 1] : null;
-        if (!lastPt || Math.hypot(canvasPt.x - lastPt.x, canvasPt.y - lastPt.y) >= 1.5) {
-          let nextPt: Point = canvasPt;
+        const now = performance.now();
+        const dt = Math.max(1, now - lastDrawPointTimeRef.current);
+        const screenDist = Math.hypot(
+          screenPt.x - lastDrawScreenPtRef.current.x,
+          screenPt.y - lastDrawScreenPtRef.current.y
+        );
+        lastDrawPointTimeRef.current = now;
+        lastDrawScreenPtRef.current = screenPt;
 
-          if (curr.type === 'fountain-pen') {
-            const now = performance.now();
-            const dt = Math.max(1, now - lastDrawPointTimeRef.current);
-            const screenDist = Math.hypot(
-              screenPt.x - lastDrawScreenPtRef.current.x,
-              screenPt.y - lastDrawScreenPtRef.current.y
-            );
-            const speed = screenDist / dt; // px per ms (0.05 = slow, 2.0+ = fast)
-            lastDrawPointTimeRef.current = now;
-            lastDrawScreenPtRef.current = screenPt;
+        // Adaptive EMA filter: eliminates 1px mouse grid tremor while keeping fast strokes instant
+        const alpha = Math.min(0.82, Math.max(0.45, screenDist / 14));
+        const prevSmoothed = smoothedDrawPtRef.current;
+        const smoothedPt: Point = {
+          x: prevSmoothed.x + (canvasPt.x - prevSmoothed.x) * alpha,
+          y: prevSmoothed.y + (canvasPt.y - prevSmoothed.y) * alpha,
+        };
+        smoothedDrawPtRef.current = smoothedPt;
 
-            // Map speed inversely to width factor: slow -> thick (~1.72), fast -> thin (~0.22)
-            const normalizedSpeed = Math.min(1, Math.max(0, (speed - 0.08) / 1.65));
-            let targetW = 1.72 - normalizedSpeed * 1.5;
-            // Incorporate stylus pressure when using a pen tablet
-            if (e.pointerType === 'pen' && e.pressure > 0) {
-              const pressureFactor = Math.max(0.25, Math.min(1.8, e.pressure * 1.8));
-              targetW = targetW * 0.55 + pressureFactor * 0.45;
-            }
-            const smoothedW = Number(
-              (lastWidthFactorRef.current * 0.62 + targetW * 0.38).toFixed(3)
-            );
-            lastWidthFactorRef.current = smoothedW;
-            nextPt = { x: canvasPt.x, y: canvasPt.y, w: smoothedW };
+        let widthW: number | undefined;
+        if (curr.type === 'fountain-pen') {
+          const speed = screenDist / dt;
+          const normalizedSpeed = Math.min(1, Math.max(0, (speed - 0.08) / 1.65));
+          let targetW = 1.4 - normalizedSpeed * 0.95;
+          if (e.pointerType === 'pen' && e.pressure > 0) {
+            const pressureFactor = Math.max(0.4, Math.min(1.55, e.pressure * 1.55));
+            targetW = targetW * 0.55 + pressureFactor * 0.45;
           }
-
-          let nextPts: Point[];
-          if (pts.length >= 2) {
-            const prevPt = pts[pts.length - 2];
-            const stabilizedLast: Point = {
-              x: 0.25 * prevPt.x + 0.5 * lastPt!.x + 0.25 * nextPt.x,
-              y: 0.25 * prevPt.y + 0.5 * lastPt!.y + 0.25 * nextPt.y,
-              ...(lastPt!.w !== undefined
-                ? {
-                    w: Number(
-                      (
-                        0.25 * (prevPt.w ?? 1) +
-                        0.5 * (lastPt!.w ?? 1) +
-                        0.25 * (nextPt.w ?? 1)
-                      ).toFixed(3)
-                    ),
-                  }
-                : {}),
-            };
-            nextPts = [...pts.slice(0, -1), stabilizedLast, nextPt];
-          } else {
-            nextPts = [...pts, nextPt];
-          }
-          const updated = { ...curr, points: nextPts };
-          currentDrawingElementRef.current = updated;
-          setCurrentDrawingElement(updated);
-          emitLiveStroke(updated);
+          const smoothedW = Number(
+            (lastWidthFactorRef.current * 0.76 + targetW * 0.24).toFixed(3)
+          );
+          lastWidthFactorRef.current = smoothedW;
+          widthW = smoothedW;
         }
+
+        const commitPt: Point =
+          widthW !== undefined
+            ? { x: smoothedPt.x, y: smoothedPt.y, w: widthW }
+            : { x: smoothedPt.x, y: smoothedPt.y };
+        const liveTipPt: Point =
+          widthW !== undefined
+            ? { x: canvasPt.x, y: canvasPt.y, w: widthW }
+            : { x: canvasPt.x, y: canvasPt.y };
+
+        const commitDist = 3.0 / zoom;
+        let nextPts: Point[];
+        if (pts.length >= 2) {
+          const lastCommitted = pts[pts.length - 2];
+          if (Math.hypot(smoothedPt.x - lastCommitted.x, smoothedPt.y - lastCommitted.y) >= commitDist) {
+            nextPts = [...pts.slice(0, -1), commitPt, liveTipPt];
+          } else {
+            nextPts = [...pts.slice(0, -1), commitPt];
+          }
+        } else {
+          nextPts = [...pts, commitPt, liveTipPt];
+        }
+
+        const updated = { ...curr, points: nextPts };
+        currentDrawingElementRef.current = updated;
+        renderRef.current();
+        setCurrentDrawingElement(updated);
+        emitLiveStroke(updated);
       } else {
         let w = canvasPt.x - curr.x;
         let h = canvasPt.y - curr.y;
@@ -2737,19 +2580,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         Math.abs(finished.width || 0) > 4 ||
         Math.abs(finished.height || 0) > 4
       ) {
-        // Vector smoothing with Chaikin algorithm
-        if (
-          (finished.type === 'pencil' ||
-            finished.type === 'fountain-pen' ||
-            finished.type === 'highlighter') &&
-          finished.points &&
-          finished.points.length > 2
-        ) {
-          finished = {
-            ...finished,
-            points: smoothPoints(finished.points),
-          };
-        }
         onCreateElement(finished);
 
         // Continuous drawing: NEVER auto-select pencil, fountain-pen, or highlighter strokes
