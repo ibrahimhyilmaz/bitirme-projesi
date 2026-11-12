@@ -15,6 +15,13 @@ import {
   User,
   Maximize2,
   Minimize2,
+  Paperclip,
+  Download,
+  Plus,
+  Check,
+  FileText,
+  FileCode,
+  FileArchive,
 } from 'lucide-react';
 import { ChatMessage, UserReaction, UserPresence } from '../types';
 
@@ -25,6 +32,13 @@ export function formatUnreadBadge(count: number): string {
   return String(count);
 }
 
+function formatFileSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 interface ChatDrawerProps {
   messages: ChatMessage[];
   currentUserId: string;
@@ -33,7 +47,7 @@ interface ChatDrawerProps {
   reactions?: UserReaction[];
   onSendMessage: (
     text: string,
-    fileAttachment?: { name: string; url: string; type?: string },
+    fileAttachment?: { name: string; url: string; type?: string; size?: number; dataUrl?: string },
     recipientId?: string,
     recipientName?: string
   ) => void;
@@ -48,6 +62,13 @@ interface ChatDrawerProps {
   activeTab?: 'general' | string;
   onTabChange?: (tab: 'general' | string) => void;
   unreadByChannel?: Record<string, number>;
+  onAddFileToCanvas?: (file: {
+    name: string;
+    url?: string;
+    dataUrl?: string;
+    type?: string;
+    size?: number;
+  }) => void;
 }
 
 const QUICK_REACTIONS = ['❤️', '👍', '🚀', '🎉', '🔥', '💡', '👏', '😂'];
@@ -276,6 +297,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   activeTab: controlledActiveTab,
   onTabChange,
   unreadByChannel = {},
+  onAddFileToCanvas,
 }) => {
   const isDark = theme === 'dark' || theme === 'midnight';
   const [internalActiveTab, setInternalActiveTab] = useState<'general' | string>('general');
@@ -293,7 +315,76 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [customGifUrl, setCustomGifUrl] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, Record<string, string[]>>>({});
+  const [pendingFile, setPendingFile] = useState<{
+    file?: File;
+    name: string;
+    size: number;
+    type: string;
+    dataUrl: string;
+  } | null>(null);
+  const [addedMessageIds, setAddedMessageIds] = useState<Set<string>>(new Set());
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleDownloadFile = (att: { name: string; url?: string; dataUrl?: string }) => {
+    const fileUrl = att.dataUrl || att.url;
+    if (!fileUrl) return;
+    const a = document.createElement('a');
+    a.href = fileUrl;
+    a.download = att.name || 'dosya';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleAddAttachmentToCanvas = (
+    msgId: string,
+    att: { name: string; url: string; type?: string; size?: number; dataUrl?: string }
+  ) => {
+    if (!onAddFileToCanvas) return;
+    onAddFileToCanvas({
+      name: att.name,
+      url: att.url,
+      dataUrl: att.dataUrl || att.url,
+      type: att.type,
+      size: att.size,
+    });
+    setAddedMessageIds((prev) => new Set(prev).add(msgId));
+    setTimeout(() => {
+      setAddedMessageIds((prev) => {
+        const next = new Set(prev);
+        next.delete(msgId);
+        return next;
+      });
+    }, 2500);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    if (file.size > 25 * 1024 * 1024) {
+      alert('Sohbet üzerinden paylaşılan dosya boyutu maksimum 25 MB olabilir.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (dataUrl) {
+        setPendingFile({
+          file,
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          dataUrl,
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+    if (chatFileInputRef.current) {
+      chatFileInputRef.current.value = '';
+    }
+  };
 
   const otherUsers = useMemo(() => {
     return (users || []).filter((u) => u.id !== currentUserId);
@@ -380,23 +471,39 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
-
     const trimmed = inputText.trim();
+    if (!trimmed && !pendingFile) return;
+
     const isDirectGif =
-      trimmed.match(/^https?:\/\/.+\.(gif|webp|png|jpg|jpeg)(\?.*)?$/i) ||
-      trimmed.includes('giphy.com/media/') ||
-      trimmed.includes('tenor.com');
+      trimmed &&
+      (trimmed.match(/^https?:\/\/.+\.(gif|webp|png|jpg|jpeg)(\?.*)?$/i) ||
+        trimmed.includes('giphy.com/media/') ||
+        trimmed.includes('tenor.com'));
 
     const recipientId = activeTab !== 'general' ? activeTab : undefined;
     const recipientName = activeRecipient?.name;
 
-    if (isDirectGif) {
+    if (pendingFile) {
+      onSendMessage(
+        trimmed || pendingFile.name,
+        {
+          name: pendingFile.name,
+          url: pendingFile.dataUrl,
+          dataUrl: pendingFile.dataUrl,
+          type: pendingFile.type,
+          size: pendingFile.size,
+        },
+        recipientId,
+        recipientName
+      );
+      setPendingFile(null);
+    } else if (isDirectGif) {
       onSendMessage(
         trimmed,
         {
           name: 'GIF / Görsel',
           url: trimmed,
+          dataUrl: trimmed,
           type: 'image/gif',
         },
         recipientId,
@@ -812,15 +919,128 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                         </div>
                       )}
 
-                      {/* Animated GIF / Image Attachment */}
-                      {hasGifOrImageAttachment && (
-                        <div className={`mt-1.5 rounded-xl overflow-hidden border ${isDark ? 'border-slate-700 bg-slate-950/60' : 'border-black/10 bg-black/5'}`}>
-                          <img
-                            src={msg.fileAttachment!.url}
-                            alt="GIF / Görsel"
-                            className="max-h-52 w-full object-contain rounded-lg"
-                            loading="lazy"
-                          />
+                      {/* Attached File or Image/GIF Card */}
+                      {msg.fileAttachment && (
+                        <div
+                          className={`mt-2 rounded-xl overflow-hidden border p-2.5 transition-all ${
+                            isSelf
+                              ? 'bg-blue-700/80 border-blue-500/60 text-white'
+                              : isDark
+                              ? 'bg-slate-900/90 border-slate-700 text-slate-100'
+                              : 'bg-white border-slate-200 text-slate-800 shadow-2xs'
+                          }`}
+                        >
+                          {/* Image or Animated GIF Preview */}
+                          {hasGifOrImageAttachment ? (
+                            <div className="relative rounded-lg overflow-hidden border border-black/10 dark:border-white/10 bg-black/5 dark:bg-black/40 mb-2">
+                              <img
+                                src={msg.fileAttachment.dataUrl || msg.fileAttachment.url}
+                                alt={msg.fileAttachment.name || 'Görsel'}
+                                className="max-h-52 w-full object-contain rounded-lg"
+                                loading="lazy"
+                              />
+                              {(msg.fileAttachment.type === 'image/gif' ||
+                                msg.fileAttachment.url?.includes('.gif') ||
+                                msg.fileAttachment.name?.toLowerCase().endsWith('.gif')) && (
+                                <span className="absolute top-1.5 left-1.5 bg-black/75 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1 shadow-xs">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                  <span>GIF</span>
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2.5 mb-2">
+                              <div
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                  msg.fileAttachment.name?.toLowerCase().endsWith('.pdf')
+                                    ? 'bg-rose-500/15 text-rose-500'
+                                    : msg.fileAttachment.name?.match(/\.(js|ts|jsx|tsx|py|html|css|json)$/i)
+                                    ? 'bg-amber-500/15 text-amber-500'
+                                    : msg.fileAttachment.name?.match(/\.(zip|rar|7z|tar|gz)$/i)
+                                    ? 'bg-purple-500/15 text-purple-500'
+                                    : 'bg-blue-500/15 text-blue-500'
+                                }`}
+                              >
+                                {msg.fileAttachment.name?.toLowerCase().endsWith('.pdf') ? (
+                                  <FileText className="w-5 h-5" />
+                                ) : msg.fileAttachment.name?.match(/\.(js|ts|jsx|tsx|py|html|css|json)$/i) ? (
+                                  <FileCode className="w-5 h-5" />
+                                ) : msg.fileAttachment.name?.match(/\.(zip|rar|7z|tar|gz)$/i) ? (
+                                  <FileArchive className="w-5 h-5" />
+                                ) : (
+                                  <FileText className="w-5 h-5" />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-semibold truncate" title={msg.fileAttachment.name}>
+                                  {msg.fileAttachment.name}
+                                </p>
+                                <p className={`text-[10px] ${isSelf ? 'text-blue-200' : 'text-slate-400'}`}>
+                                  {formatFileSize(msg.fileAttachment.size)}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* File metadata row for Image/GIF */}
+                          {hasGifOrImageAttachment && (
+                            <div className="flex items-center justify-between gap-1 mb-2 text-[11px] font-medium opacity-90 truncate">
+                              <span className="truncate" title={msg.fileAttachment.name}>
+                                {msg.fileAttachment.name}
+                              </span>
+                              {msg.fileAttachment.size ? (
+                                <span className="text-[10px] opacity-75 shrink-0 ml-1">
+                                  {formatFileSize(msg.fileAttachment.size)}
+                                </span>
+                              ) : null}
+                            </div>
+                          )}
+
+                          {/* Action Buttons: İndir (Download) + Tahtaya Ekle (Add to Canvas) */}
+                          <div className="flex items-center gap-1.5 pt-1.5 border-t border-black/5 dark:border-white/10">
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadFile(msg.fileAttachment!)}
+                              className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                isSelf
+                                  ? 'bg-white/15 hover:bg-white/25 text-white'
+                                  : isDark
+                                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                              }`}
+                              title={`${msg.fileAttachment.name} dosyasını bilgisayarınıza indirin`}
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>İndir</span>
+                            </button>
+
+                            {onAddFileToCanvas && (
+                              <button
+                                type="button"
+                                onClick={() => handleAddAttachmentToCanvas(msg.id, msg.fileAttachment!)}
+                                className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                  addedMessageIds.has(msg.id)
+                                    ? 'bg-emerald-600 text-white'
+                                    : isSelf
+                                    ? 'bg-white text-blue-600 hover:bg-blue-50 shadow-xs'
+                                    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
+                                }`}
+                                title="Bu dosyayı beyaz tahta üzerine yerleştirin"
+                              >
+                                {addedMessageIds.has(msg.id) ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Eklendi!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>Tahtaya Ekle</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1107,6 +1327,55 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         </div>
       )}
 
+      {/* Hidden File Input for Chat Attachments */}
+      <input
+        ref={chatFileInputRef}
+        type="file"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
+      {/* Pending File Attachment Chip */}
+      {pendingFile && (
+        <div
+          className={`mx-3 mb-1.5 p-2 rounded-xl border flex items-center justify-between gap-2 text-xs shadow-xs ${
+            isDark
+              ? 'bg-slate-800 border-slate-700 text-slate-100'
+              : 'bg-blue-50/90 border-blue-200 text-slate-800'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {pendingFile.type.startsWith('image/') ? (
+              <img
+                src={pendingFile.dataUrl}
+                alt="Önizleme"
+                className="w-8 h-8 rounded-lg object-cover bg-white border border-slate-200 shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                <FileText className="w-4 h-4" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold truncate" title={pendingFile.name}>
+                {pendingFile.name}
+              </p>
+              <p className="text-[10px] text-slate-400 font-mono">
+                {formatFileSize(pendingFile.size)}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPendingFile(null)}
+            className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+            title="Eki kaldır"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Input Form */}
       <form
         onSubmit={handleSend}
@@ -1150,12 +1419,29 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           <Film className="w-4 h-4" />
         </button>
 
+        <button
+          type="button"
+          onClick={() => chatFileInputRef.current?.click()}
+          className={`p-2 rounded-xl transition-colors cursor-pointer ${
+            pendingFile
+              ? 'bg-blue-600 text-white shadow-xs'
+              : isDark
+              ? 'text-slate-400 hover:text-blue-400 hover:bg-slate-800'
+              : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
+          }`}
+          title="Dosya Gönder (Görsel, GIF, Belge, PDF...)"
+        >
+          <Paperclip className="w-4 h-4" />
+        </button>
+
         <input
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           placeholder={
-            activeRecipient
+            pendingFile
+              ? `${pendingFile.name} ekli (İsteğe bağlı mesaj yazın)...`
+              : activeRecipient
               ? `${activeRecipient.name} için özel mesaj yazın... (Enter)`
               : 'Genel odaya mesaj yazın... (Enter)'
           }
@@ -1168,9 +1454,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
         <button
           type="submit"
-          disabled={!inputText.trim()}
+          disabled={!inputText.trim() && !pendingFile}
           className={`p-2 rounded-xl text-white transition-all cursor-pointer ${
-            inputText.trim()
+            inputText.trim() || pendingFile
               ? 'bg-blue-600 hover:bg-blue-700 shadow-xs active:scale-95'
               : isDark
               ? 'bg-slate-800 text-slate-600 cursor-not-allowed'

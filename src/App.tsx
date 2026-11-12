@@ -2057,6 +2057,37 @@ export default function App() {
     }
   };
 
+  // Add a file received in chat directly onto the whiteboard canvas
+  const handleAddChatFileToCanvas = async (file: {
+    name: string;
+    url?: string;
+    dataUrl?: string;
+    type?: string;
+    size?: number;
+  }) => {
+    const fileUrl = file.dataUrl || file.url || '';
+    if (!fileUrl) return;
+    const lowerName = (file.name || '').toLowerCase();
+    const isPdf =
+      file.type === 'application/pdf' ||
+      lowerName.endsWith('.pdf') ||
+      fileUrl.startsWith('data:application/pdf');
+    const isVideo =
+      (file.type && file.type.startsWith('video/')) ||
+      /\.(mp4|webm|mov|ogg)$/i.test(lowerName) ||
+      fileUrl.startsWith('data:video/');
+
+    if (isPdf) {
+      await handleAddPdfToCanvas(fileUrl, file.name);
+      return;
+    }
+    if (isVideo) {
+      handleAddVideoToCanvas(fileUrl, file.name);
+      return;
+    }
+    handleAddImageToCanvas(fileUrl, file.name);
+  };
+
   const handleWelcomeOrProfileJoin = useCallback(
     (payload: RoomJoinPayload) => {
       clearRoomError();
@@ -2683,6 +2714,7 @@ export default function App() {
             activeTab={activeChatTab}
             onTabChange={setActiveChatTab}
             unreadByChannel={unreadCountsByChannel}
+            onAddFileToCanvas={handleAddChatFileToCanvas}
           />
         )}
       </div>

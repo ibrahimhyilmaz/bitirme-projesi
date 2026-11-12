@@ -123,6 +123,19 @@ function getFolderColorShades(hexColor?: string) {
   };
 }
 
+function isGifElement(el: CanvasElement): boolean {
+  if (el.type !== 'image') return false;
+  const url = el.imageUrl || '';
+  const name = (el.fileName || '').toLowerCase();
+  return (
+    url.startsWith('data:image/gif') ||
+    /\.gif(\?.*)?$/i.test(url) ||
+    name.endsWith('.gif') ||
+    url.includes('giphy.com') ||
+    url.includes('tenor.com')
+  );
+}
+
 
 interface CanvasBoardProps {
   elements: CanvasElement[];
@@ -1066,6 +1079,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     for (const el of elements) {
       if (editingElementId === el.id) continue; // Hidden while editing inline
       if (el.type === 'folder') continue; // Rendered as crisp pure folder icon DOM overlay
+      if (isGifElement(el)) continue; // Rendered as animated auto-playing DOM GIF overlay
       drawElement(ctx, el, () => render());
     }
 
@@ -1965,7 +1979,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         type: activeTool,
         x: canvasPt.x,
         y: canvasPt.y,
-        points: [firstPt, { ...firstPt }],
+        points: [firstPt],
         color: strokeColor,
         strokeWidth,
         strokeStyle,
@@ -2436,34 +2450,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Laser trail with adaptive anti-jitter smoothing + live tip
+    // Handle Laser trail (instant 1:1 cursor tracking with smooth luminous fade)
     if (activeTool === 'laser' && isPointerDownRef.current) {
       const nowMs = Date.now();
       const strokeId = laserStrokeIdRef.current;
-      const screenDist = Math.hypot(
-        screenPt.x - lastDrawScreenPtRef.current.x,
-        screenPt.y - lastDrawScreenPtRef.current.y
-      );
-      lastDrawScreenPtRef.current = screenPt;
-
-      // Adaptive EMA: strong tremor filtering at low speeds, instant tracking at high speeds
-      const alpha = Math.min(0.82, Math.max(0.45, screenDist / 14));
-      const prevSmoothed = smoothedDrawPtRef.current;
-      const smoothedPt = {
-        x: prevSmoothed.x + (canvasPt.x - prevSmoothed.x) * alpha,
-        y: prevSmoothed.y + (canvasPt.y - prevSmoothed.y) * alpha,
-      };
-      smoothedDrawPtRef.current = smoothedPt;
-
-      const commitDist = 3.0 / zoom;
       const nextLaserPt: LaserTrailPoint = {
-        x: smoothedPt.x,
-        y: smoothedPt.y,
-        time: nowMs,
-        w: 1,
-        strokeId,
-      };
-      const tipLaserPt: LaserTrailPoint = {
         x: canvasPt.x,
         y: canvasPt.y,
         time: nowMs,
@@ -2472,29 +2463,23 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       };
 
       setLaserPoints((prev) => {
-        const alive = prev.filter((p) => nowMs - p.time < 1300).slice(-320);
-        if (alive.length >= 2 && alive[alive.length - 1].strokeId === strokeId) {
-          const lastCommitted = alive[alive.length - 2];
+        const alive = prev.filter((p) => nowMs - p.time < 1200).slice(-320);
+        if (alive.length > 0) {
+          const last = alive[alive.length - 1];
           if (
-            lastCommitted.strokeId === strokeId &&
-            Math.hypot(smoothedPt.x - lastCommitted.x, smoothedPt.y - lastCommitted.y) < commitDist
+            last.strokeId === strokeId &&
+            Math.hypot(canvasPt.x - last.x, canvasPt.y - last.y) < 0.8 / zoom
           ) {
-            const copy = [...alive];
-            copy[copy.length - 1] = nextLaserPt;
-            return copy;
+            return alive;
           }
-          const copy = [...alive];
-          copy[copy.length - 1] = nextLaserPt;
-          copy.push(tipLaserPt);
-          return copy;
         }
-        return [...alive, nextLaserPt, tipLaserPt];
+        return [...alive, nextLaserPt];
       });
-      if (onLaserMove) onLaserMove({ x: smoothedPt.x, y: smoothedPt.y, w: 1 });
+      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1 });
       return;
     }
 
-    // Handle Active Drawing (Pencil / Shapes)
+    // Handle Active Drawing (Pencil / Fountain Pen / Highlighter)
     if (isPointerDownRef.current && currentDrawingElementRef.current) {
       const curr = currentDrawingElementRef.current;
 
@@ -2504,6 +2489,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         curr.type === 'highlighter'
       ) {
         const pts = curr.points || [];
+        const lastPt = pts[pts.length - 1];
+        const dist = lastPt ? Math.hypot(canvasPt.x - lastPt.x, canvasPt.y - lastPt.y) : 999;
+        const minDist = 1.0 / zoom;
+        if (dist < minDist) return;
+
         const now = performance.now();
         const dt = Math.max(1, now - lastDrawPointTimeRef.current);
         const screenDist = Math.hypot(
@@ -2512,15 +2502,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         );
         lastDrawPointTimeRef.current = now;
         lastDrawScreenPtRef.current = screenPt;
-
-        // Adaptive EMA filter: eliminates 1px mouse grid tremor while keeping fast strokes instant
-        const alpha = Math.min(0.82, Math.max(0.45, screenDist / 14));
-        const prevSmoothed = smoothedDrawPtRef.current;
-        const smoothedPt: Point = {
-          x: prevSmoothed.x + (canvasPt.x - prevSmoothed.x) * alpha,
-          y: prevSmoothed.y + (canvasPt.y - prevSmoothed.y) * alpha,
-        };
-        smoothedDrawPtRef.current = smoothedPt;
 
         let widthW: number | undefined;
         if (curr.type === 'fountain-pen') {
@@ -2532,34 +2513,18 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             targetW = targetW * 0.55 + pressureFactor * 0.45;
           }
           const smoothedW = Number(
-            (lastWidthFactorRef.current * 0.76 + targetW * 0.24).toFixed(3)
+            (lastWidthFactorRef.current * 0.72 + targetW * 0.28).toFixed(3)
           );
           lastWidthFactorRef.current = smoothedW;
           widthW = smoothedW;
         }
 
-        const commitPt: Point =
-          widthW !== undefined
-            ? { x: smoothedPt.x, y: smoothedPt.y, w: widthW }
-            : { x: smoothedPt.x, y: smoothedPt.y };
-        const liveTipPt: Point =
+        const newPt: Point =
           widthW !== undefined
             ? { x: canvasPt.x, y: canvasPt.y, w: widthW }
             : { x: canvasPt.x, y: canvasPt.y };
 
-        const commitDist = 3.0 / zoom;
-        let nextPts: Point[];
-        if (pts.length >= 2) {
-          const lastCommitted = pts[pts.length - 2];
-          if (Math.hypot(smoothedPt.x - lastCommitted.x, smoothedPt.y - lastCommitted.y) >= commitDist) {
-            nextPts = [...pts.slice(0, -1), commitPt, liveTipPt];
-          } else {
-            nextPts = [...pts.slice(0, -1), commitPt];
-          }
-        } else {
-          nextPts = [...pts, commitPt, liveTipPt];
-        }
-
+        const nextPts = [...pts, newPt];
         const updated = { ...curr, points: nextPts };
         currentDrawingElementRef.current = updated;
         renderRef.current();
@@ -4036,6 +4001,158 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                   className="w-full h-full object-contain"
                 />
               </div>
+            </div>
+          );
+        })}
+
+      {/* Interactive Auto-Playing Animated GIFs on Whiteboard */}
+      {elements
+        .filter((el) => isGifElement(el) && el.imageUrl)
+        .map((gifEl) => {
+          const bounds = getElementBounds(gifEl);
+          const screenX = bounds.minX * zoom + pan.x;
+          const screenY = bounds.minY * zoom + pan.y;
+          const screenW = bounds.width * zoom;
+          const screenH = bounds.height * zoom;
+
+          // Render only when within or near visible screen area
+          if (
+            screenX + screenW < -150 ||
+            screenX > window.innerWidth + 150 ||
+            screenY + screenH < -150 ||
+            screenY > window.innerHeight + 150
+          ) {
+            return null;
+          }
+
+          const isSelected = activeSelectedIds.includes(gifEl.id);
+          const startGifResize = (e: React.PointerEvent, handle: TransformHandleType) => {
+            if (!canEdit || gifEl.isLocked) return;
+            e.stopPropagation();
+            e.preventDefault();
+            const container = containerRef.current;
+            if (!container) return;
+            const rect = container.getBoundingClientRect();
+            const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            const canvasPt = screenToCanvas(screenPt, pan, zoom);
+
+            if (!isSelected) {
+              updateSelectedIds([gifEl.id]);
+            }
+            if (onSelectTool && activeTool !== 'select') {
+              onSelectTool('select');
+            }
+            if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+            isPointerDownRef.current = true;
+            activeTransformHandleRef.current = handle;
+            dragStartCanvasPointRef.current = canvasPt;
+            initialElementSnapshotRef.current = { ...gifEl };
+            initialBoundsRef.current = getElementBounds(gifEl);
+          };
+
+          const resizeHandles: {
+            handle: TransformHandleType;
+            className: string;
+          }[] = [
+            { handle: 'nw', className: '-top-1.5 -left-1.5 cursor-nwse-resize' },
+            { handle: 'n', className: '-top-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize' },
+            { handle: 'ne', className: '-top-1.5 -right-1.5 cursor-nesw-resize' },
+            { handle: 'e', className: 'top-1/2 -translate-y-1/2 -right-1.5 cursor-ew-resize' },
+            { handle: 'se', className: '-bottom-1.5 -right-1.5 cursor-nwse-resize' },
+            { handle: 's', className: '-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize' },
+            { handle: 'sw', className: '-bottom-1.5 -left-1.5 cursor-nesw-resize' },
+            { handle: 'w', className: 'top-1/2 -translate-y-1/2 -left-1.5 cursor-ew-resize' },
+          ];
+
+          return (
+            <div
+              key={`gif-player-${gifEl.id}`}
+              style={{
+                left: `${screenX}px`,
+                top: `${screenY}px`,
+                width: `${Math.max(48, screenW)}px`,
+                height: `${Math.max(48, screenH)}px`,
+                transform: gifEl.rotation ? `rotate(${gifEl.rotation}deg)` : undefined,
+                transformOrigin: 'center center',
+              }}
+              onPointerDown={(e) => {
+                if (activeTool === 'eraser' && canEdit && !gifEl.isLocked) {
+                  e.stopPropagation();
+                  if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                  onDeleteElements([gifEl.id]);
+                  return;
+                }
+                if (activeTool === 'select') {
+                  e.stopPropagation();
+                  const container = containerRef.current;
+                  if (!container) return;
+                  const rect = container.getBoundingClientRect();
+                  const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                  const canvasPt = screenToCanvas(screenPt, pan, zoom);
+
+                  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                    const next = isSelected
+                      ? activeSelectedIds.filter((id) => id !== gifEl.id)
+                      : [...activeSelectedIds, gifEl.id];
+                    updateSelectedIds(next);
+                    return;
+                  }
+
+                  if (!isSelected) {
+                    updateSelectedIds([gifEl.id]);
+                  }
+                  if (canEdit && !gifEl.isLocked) {
+                    if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                    isPointerDownRef.current = true;
+                    isDraggingSelectedRef.current = true;
+                    dragStartCanvasPointRef.current = canvasPt;
+                    const snapMap = new Map<string, CanvasElement>();
+                    snapMap.set(gifEl.id, { ...gifEl });
+                    initialElementsSnapshotRef.current = snapMap;
+                    initialElementSnapshotRef.current = { ...gifEl };
+                    initialBoundsRef.current = getElementBounds(gifEl);
+                  }
+                }
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!isSelected) {
+                  updateSelectedIds([gifEl.id]);
+                }
+                setRadialMenuPos(null);
+                setContextMenuPos({ x: e.clientX, y: e.clientY });
+              }}
+              className={`absolute z-10 group select-none rounded-xl transition-shadow ${
+                isSelected
+                  ? 'ring-2 ring-blue-500 shadow-xl'
+                  : 'hover:ring-1 hover:ring-purple-400/60'
+              }`}
+            >
+              {/* Resize Handles when selected */}
+              {isSelected && canEdit && !gifEl.isLocked &&
+                resizeHandles.map((rh) => (
+                  <div
+                    key={rh.handle}
+                    onPointerDown={(e) => startGifResize(e, rh.handle)}
+                    className={`absolute z-30 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs shadow-md hover:scale-125 transition-transform ${rh.className}`}
+                    title="GIF boyutunu ayarlamak için sürükleyin"
+                  />
+                ))}
+
+              {/* Minimal GIF label badge (top-left on hover) */}
+              <div className="absolute top-1.5 left-1.5 z-20 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1 shadow-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>GIF</span>
+              </div>
+
+              {/* Auto-playing Animated GIF Image */}
+              <img
+                src={gifEl.imageUrl}
+                alt={gifEl.fileName || 'Otomatik Oynatılan GIF'}
+                className="w-full h-full object-contain pointer-events-none select-none rounded-lg"
+                draggable={false}
+              />
             </div>
           );
         })}

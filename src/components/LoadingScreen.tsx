@@ -27,6 +27,12 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
     >
       <div className="relative w-44 h-44 sm:w-52 sm:h-52 rounded-3xl overflow-hidden shadow-2xl bg-white border border-slate-200/50 flex items-center justify-center p-2">
         <video
+          ref={(el) => {
+            if (el) {
+              el.muted = true;
+              el.play().catch(() => {});
+            }
+          }}
           src="/assets/aistudio/logo_loading_dd599067.mp4"
           autoPlay
           loop

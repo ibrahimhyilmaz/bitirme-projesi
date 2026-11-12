@@ -331,6 +331,8 @@ export interface ChatMessage {
     name: string;
     url: string;
     type?: string;
+    size?: number;
+    dataUrl?: string;
   };
 }
 

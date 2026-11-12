@@ -1946,7 +1946,7 @@ export function useWebSocket({
   const sendChatMessage = useCallback(
     (
       text: string,
-      fileAttachment?: { name: string; url: string; type?: string },
+      fileAttachment?: { name: string; url: string; type?: string; size?: number; dataUrl?: string },
       recipientId?: string,
       recipientName?: string
     ) => {
