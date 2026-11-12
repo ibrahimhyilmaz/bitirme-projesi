@@ -35,6 +35,7 @@ import {
   Eye,
   EyeOff,
   PaintBucket,
+  Folder,
 } from 'lucide-react';
 import { ALL_SHAPE_TYPES, ToolType } from '../types';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -1223,6 +1224,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               title="Metin Yazısı (T)"
             >
               <Type className="w-4 h-4" />
+            </button>
+
+            {/* Folder Tool (Klasör Aracı - Tahtaya birden fazla klasör ekle) */}
+            <button
+              onClick={() => onSelectTool('folder')}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                activeTool === 'folder'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+              title="Klasör Aracı - Tahtaya Yeni Klasör Ekle (F)"
+            >
+              <Folder className={`w-4 h-4 ${activeTool === 'folder' ? 'text-white' : 'text-amber-500 fill-amber-400/30'}`} />
             </button>
 
             {/* Quick Image Upload */}

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
   CanvasElement,
+  FolderFileItem,
   GOOGLE_FONT_FAMILIES,
   LaserStrokePoint,
   Point,
@@ -52,6 +53,10 @@ import {
   Compass,
   Layers,
   X,
+  Plus,
+  Upload,
+  Check,
+  FileText,
 } from 'lucide-react';
 import { getPdfInfo, renderPdfPage } from '../utils/pdfRenderer';
 import {
@@ -60,6 +65,8 @@ import {
   createDocumentCardSvgDataUrl,
   createMarkdownCardSvgDataUrl,
   extractTextFromDataUrl,
+  buildRealDocumentPreviewDataUrl,
+  normalizeImageDataUrl,
 } from '../utils/fileValidation';
 import { CanvasQuickAccess, getRadialToolAtAngle } from './CanvasQuickAccess';
 
@@ -83,6 +90,38 @@ const PING_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/
 
 const GRAB_CURSOR = 'grab';
 const GRABBING_CURSOR = 'grabbing';
+
+const FOLDER_COLOR_PRESETS = [
+  { color: '#f59e0b', label: 'Kehribar' },
+  { color: '#3b82f6', label: 'Mavi' },
+  { color: '#10b981', label: 'Zümrüt' },
+  { color: '#8b5cf6', label: 'Mor' },
+  { color: '#f43f5e', label: 'Mercan' },
+  { color: '#06b6d4', label: 'Turkuaz' },
+  { color: '#f97316', label: 'Turuncu' },
+  { color: '#ec4899', label: 'Pembe' },
+  { color: '#64748b', label: 'Gri' },
+];
+
+function getFolderColorShades(hexColor?: string) {
+  const raw =
+    hexColor && /^#[0-9a-fA-F]{6}$/.test(hexColor.trim()) ? hexColor.trim() : '#f59e0b';
+  const r = parseInt(raw.slice(1, 3), 16);
+  const g = parseInt(raw.slice(3, 5), 16);
+  const b = parseInt(raw.slice(5, 7), 16);
+
+  const clamp = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
+  const toHex = (nr: number, ng: number, nb: number) =>
+    `#${clamp(nr).toString(16).padStart(2, '0')}${clamp(ng).toString(16).padStart(2, '0')}${clamp(nb).toString(16).padStart(2, '0')}`;
+
+  return {
+    base: raw,
+    dark: toHex(r * 0.8, g * 0.8, b * 0.8),
+    light: toHex(r + (255 - r) * 0.28, g + (255 - g) * 0.28, b + (255 - b) * 0.28),
+    lighter: toHex(r + (255 - r) * 0.42, g + (255 - g) * 0.42, b + (255 - b) * 0.42),
+    rgb: `${r}, ${g}, ${b}`,
+  };
+}
 
 
 interface CanvasBoardProps {
@@ -529,6 +568,16 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState<string>('');
   const pendingNewTextRef = useRef<CanvasElement | null>(null);
+
+  // Interactive Folder Tool state on canvas
+  const [openFolderId, setOpenFolderId] = useState<string | null>(null);
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renamingFolderValue, setRenamingFolderValue] = useState<string>('');
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const dragOverFolderIdRef = useRef<string | null>(null);
+  const folderFileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeUploadFolderIdRef = useRef<string | null>(null);
+  const folderPointerMovedRef = useRef<boolean>(false);
 
   // Grid style & Right-Click Context Menus
   const [gridStyle, setGridStyle] = useState<'dots' | 'grid' | 'none'>(propGridStyle || 'dots');
@@ -1016,6 +1065,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     // Render all elements
     for (const el of elements) {
       if (editingElementId === el.id) continue; // Hidden while editing inline
+      if (el.type === 'folder') continue; // Rendered as crisp pure folder icon DOM overlay
       drawElement(ctx, el, () => render());
     }
 
@@ -1357,7 +1407,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  // Wheel zoom & pan (attached with { passive: false } to avoid passive event listener console errors)
+  // Wheel zoom: scroll up = zoom in, scroll down = zoom out around cursor position
   const handleWheelNativeRef = useRef<(e: WheelEvent) => void>(() => {});
   handleWheelNativeRef.current = (e: WheelEvent) => {
     e.preventDefault();
@@ -1368,22 +1418,23 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    if (e.ctrlKey || e.metaKey) {
-      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-      const newZoom = Math.min(3, Math.max(0.2, zoom * zoomFactor));
-
-      const mouseCanvasBefore = screenToCanvas({ x: mouseX, y: mouseY }, pan, zoom);
-      const newPanX = mouseX - mouseCanvasBefore.x * newZoom;
-      const newPanY = mouseY - mouseCanvasBefore.y * newZoom;
-
-      setZoom(newZoom);
-      setPan({ x: newPanX, y: newPanY });
-    } else {
+    if (e.deltaY === 0 && e.deltaX !== 0) {
       setPan((prev) => ({
         x: prev.x - e.deltaX,
-        y: prev.y - e.deltaY,
+        y: prev.y,
       }));
+      return;
     }
+
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    const newZoom = Math.min(3, Math.max(0.2, zoom * zoomFactor));
+
+    const mouseCanvasBefore = screenToCanvas({ x: mouseX, y: mouseY }, pan, zoom);
+    const newPanX = mouseX - mouseCanvasBefore.x * newZoom;
+    const newPanY = mouseY - mouseCanvasBefore.y * newZoom;
+
+    setZoom(newZoom);
+    setPan({ x: newPanX, y: newPanY });
   };
 
   useEffect(() => {
@@ -1858,6 +1909,40 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
+    // Handle Folder placement on canvas (multiple folders supported, pure folder icon + dropdown + rename)
+    if (activeTool === 'folder') {
+      const existingFolderCount = elements.filter((el) => el.type === 'folder').length;
+      const defaultFolderName =
+        existingFolderCount === 0 ? 'Yeni Klasör' : `Yeni Klasör ${existingFolderCount + 1}`;
+      const newFolder: CanvasElement = {
+        id: `folder-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'folder',
+        x: canvasPt.x - 34,
+        y: canvasPt.y - 34,
+        width: 68,
+        height: 68,
+        color: '#f59e0b',
+        folderName: defaultFolderName,
+        folderFiles: [],
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
+      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+      onCreateElement(newFolder);
+      updateSelectedIds([newFolder.id]);
+      setOpenFolderId(newFolder.id);
+      setRenamingFolderId(newFolder.id);
+      setRenamingFolderValue(defaultFolderName);
+      isPointerDownRef.current = false;
+      if (onSelectTool) {
+        onSelectTool('select');
+      }
+      return;
+    }
+
     // Handle Freehand Pencil / Fountain Pen (Dolma Kalem) / Highlighter
     if (
       activeTool === 'pencil' ||
@@ -2255,8 +2340,12 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       const dy = canvasPt.y - dragStartCanvasPointRef.current.y;
 
       const batchUpdates: { id: string; changes: Partial<CanvasElement> }[] = [];
+      let hasDraggableBoardFile = false;
       for (const [id, initEl] of initialElementsSnapshotRef.current.entries()) {
         if (initEl.isLocked) continue;
+        if (initEl.type === 'image' || initEl.type === 'pdf' || initEl.type === 'video') {
+          hasDraggableBoardFile = true;
+        }
         if (initEl.points && initEl.points.length > 0) {
           batchUpdates.push({
             id,
@@ -2278,6 +2367,24 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
       if (batchUpdates.length > 0) {
         onBatchUpdateElements(batchUpdates);
+      }
+
+      // Check if dragging a board file (image/document/pdf/video) over a Folder element on the board
+      if (hasDraggableBoardFile) {
+        const hitFolder = [...elements].reverse().find((el) => {
+          if (el.type !== 'folder' || initialElementsSnapshotRef.current.has(el.id)) return false;
+          if (isPointInsideElement(canvasPt, el)) return true;
+          const fb = getElementBounds(el);
+          return (
+            Math.hypot(canvasPt.x - fb.cx, canvasPt.y - fb.cy) <=
+            Math.max(fb.width, fb.height) * 0.78
+          );
+        });
+        const nextFolderId = hitFolder ? hitFolder.id : null;
+        if (dragOverFolderIdRef.current !== nextFolderId) {
+          dragOverFolderIdRef.current = nextFolderId;
+          setDragOverFolderId(nextFolderId);
+        }
       }
       return;
     }
@@ -2495,6 +2602,93 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
         setHoveredRadialTool(null);
         setRadialMenuPos(null);
+      }
+    }
+
+    // If dragging board files (image/pdf/video) and releasing over a Folder element on the board, move them into the folder
+    if (
+      isDraggingSelectedRef.current &&
+      initialElementsSnapshotRef.current &&
+      initialElementsSnapshotRef.current.size > 0
+    ) {
+      let releaseCanvasPt = lastCanvasPtRef.current;
+      if (e && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        releaseCanvasPt = screenToCanvas(
+          { x: e.clientX - rect.left, y: e.clientY - rect.top },
+          pan,
+          zoom
+        );
+      }
+
+      const targetFolder =
+        (dragOverFolderIdRef.current
+          ? elements.find((el) => el.id === dragOverFolderIdRef.current && el.type === 'folder')
+          : undefined) ||
+        [...elements].reverse().find((el) => {
+          if (el.type !== 'folder' || initialElementsSnapshotRef.current.has(el.id)) return false;
+          if (isPointInsideElement(releaseCanvasPt, el)) return true;
+          const fb = getElementBounds(el);
+          return (
+            Math.hypot(releaseCanvasPt.x - fb.cx, releaseCanvasPt.y - fb.cy) <=
+            Math.max(fb.width, fb.height) * 0.78
+          );
+        });
+
+      dragOverFolderIdRef.current = null;
+      setDragOverFolderId(null);
+
+      if (targetFolder) {
+        const absorbedIds: string[] = [];
+        const newFolderItems: FolderFileItem[] = [];
+
+        for (const [id, initEl] of initialElementsSnapshotRef.current.entries()) {
+          if (initEl.isLocked) continue;
+          if (initEl.type === 'image' || initEl.type === 'pdf' || initEl.type === 'video') {
+            const latestEl = elements.find((item) => item.id === id) || initEl;
+            const dataUrl = latestEl.pdfUrl || latestEl.videoUrl || latestEl.imageUrl || '';
+            if (!dataUrl) continue;
+
+            const defaultName =
+              latestEl.type === 'pdf'
+                ? 'Belge.pdf'
+                : latestEl.type === 'video'
+                ? 'Video.mp4'
+                : 'Görsel.png';
+            const fileName = latestEl.fileName || defaultName;
+            const mimeMatch = dataUrl.match(/^data:([^;,]+)/i);
+            const inferredType =
+              mimeMatch?.[1] ||
+              (latestEl.type === 'pdf'
+                ? 'application/pdf'
+                : latestEl.type === 'video'
+                ? 'video/mp4'
+                : 'image/png');
+            const approxSize = Math.max(1024, Math.round((dataUrl.length * 3) / 4));
+
+            absorbedIds.push(id);
+            newFolderItems.push({
+              id: `ffile-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+              name: fileName,
+              type: inferredType,
+              size: approxSize,
+              dataUrl,
+              addedAt: Date.now(),
+              canvasWidth: latestEl.width,
+              canvasHeight: latestEl.height,
+            });
+          }
+        }
+
+        if (newFolderItems.length > 0) {
+          onUpdateElement(targetFolder.id, {
+            folderFiles: [...newFolderItems, ...(targetFolder.folderFiles || [])],
+            updatedAt: Date.now(),
+          });
+          onDeleteElements(absorbedIds);
+          updateSelectedIds([targetFolder.id]);
+          setOpenFolderId(targetFolder.id);
+        }
       }
     }
 
@@ -2759,7 +2953,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     targetX: number,
     targetY: number,
     w = 320,
-    h = 240
+    h = 240,
+    fileName?: string
   ) => {
     if (onSaveHistorySnapshot) onSaveHistorySnapshot();
     const imgEl: CanvasElement = {
@@ -2769,7 +2964,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       y: targetY - h / 2,
       width: w,
       height: h,
-      imageUrl,
+      imageUrl: normalizeImageDataUrl(imageUrl, fileName),
+      fileName,
       rotation: 0,
       flipX: false,
       flipY: false,
@@ -2828,105 +3024,224 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     e.dataTransfer.dropEffect = 'copy';
   };
 
+  // Helper to add OS FileList or CollabFile into a specific Folder element on the board
+  const addFilesToFolderElement = useCallback(
+    async (folderEl: CanvasElement, fileList: FileList | File[]) => {
+      const incoming = Array.from(fileList);
+      if (incoming.length === 0) return;
+
+      const addedItems: FolderFileItem[] = [];
+      for (const file of incoming) {
+        const validation = validateFile(file.name, file.type, file.size);
+        if (!validation.valid) {
+          setDropErrorToast(validation.error || `"${file.name}" klasöre eklenemedi.`);
+          continue;
+        }
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(file);
+        });
+        if (!dataUrl) continue;
+        addedItems.push({
+          id: `ffile-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size,
+          dataUrl,
+          addedAt: Date.now(),
+        });
+      }
+
+      if (addedItems.length > 0) {
+        if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+        const currentFiles = folderEl.folderFiles || [];
+        onUpdateElement(folderEl.id, {
+          folderFiles: [...addedItems, ...currentFiles],
+          updatedAt: Date.now(),
+        });
+        setOpenFolderId(folderEl.id);
+      }
+    },
+    [onSaveHistorySnapshot, onUpdateElement]
+  );
+
+  // Helper to place a FolderFileItem or collab-file onto the canvas at (x, y) as its real content
+  const placeFileItemOnCanvas = useCallback(
+    async (
+      file: {
+        name: string;
+        type: string;
+        size: number;
+        dataUrl: string;
+        canvasWidth?: number;
+        canvasHeight?: number;
+      },
+      x: number,
+      y: number
+    ) => {
+      const lowerName = (file.name || '').toLowerCase();
+      const isPdf =
+        file.type === 'application/pdf' ||
+        lowerName.endsWith('.pdf') ||
+        (typeof file.dataUrl === 'string' && file.dataUrl.startsWith('data:application/pdf'));
+
+      const isVideo =
+        (file.type && file.type.startsWith('video/')) ||
+        /\.(mp4|webm|mov|ogg)$/i.test(lowerName) ||
+        (typeof file.dataUrl === 'string' && file.dataUrl.startsWith('data:video/'));
+
+      const isImage =
+        (file.type && file.type.startsWith('image/')) ||
+        /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(lowerName) ||
+        (typeof file.dataUrl === 'string' && file.dataUrl.startsWith('data:image/'));
+
+      const isMarkdown =
+        /\.(md|markdown)$/i.test(lowerName) ||
+        file.type === 'text/markdown' ||
+        file.type === 'text/x-markdown';
+
+      if (isPdf) {
+        await handleAddPdfAtPosition(file.dataUrl, file.name, x, y);
+        return;
+      }
+      if (isVideo) {
+        handleAddVideoAtPosition(
+          file.dataUrl,
+          file.name,
+          x,
+          y,
+          file.canvasWidth || 480,
+          file.canvasHeight || 270
+        );
+        return;
+      }
+      if (isImage) {
+        const normalizedUrl = normalizeImageDataUrl(file.dataUrl, file.name);
+        if (file.canvasWidth && file.canvasHeight) {
+          handleAddImageAtPosition(
+            normalizedUrl,
+            x,
+            y,
+            file.canvasWidth,
+            file.canvasHeight,
+            file.name
+          );
+          return;
+        }
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 360;
+          let w = img.naturalWidth || img.width || 320;
+          let h = img.naturalHeight || img.height || 240;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h / w) * maxDim);
+              w = maxDim;
+            } else {
+              w = Math.round((w / h) * maxDim);
+              h = maxDim;
+            }
+          }
+          handleAddImageAtPosition(normalizedUrl, x, y, w, h, file.name);
+        };
+        img.onerror = async () => {
+          const preview = await buildRealDocumentPreviewDataUrl({
+            name: file.name || 'Görsel',
+            size: file.size || 0,
+            type: file.type,
+            dataUrl: file.dataUrl,
+          });
+          handleAddImageAtPosition(preview.dataUrl, x, y, preview.width, preview.height, file.name);
+        };
+        img.src = normalizedUrl;
+        return;
+      }
+      if (isMarkdown) {
+        const mdText = extractTextFromDataUrl(file.dataUrl || '') || '';
+        const mdCard = createMarkdownCardSvgDataUrl({
+          name: file.name || 'Belge.md',
+          size: file.size || 0,
+          markdownContent: mdText,
+        });
+        handleAddImageAtPosition(mdCard.dataUrl, x, y, mdCard.width, mdCard.height, file.name);
+        return;
+      }
+
+      const realPreview = await buildRealDocumentPreviewDataUrl({
+        name: file.name || 'Belge',
+        size: file.size || 0,
+        type: file.type,
+        dataUrl: file.dataUrl,
+      });
+      handleAddImageAtPosition(
+        realPreview.dataUrl,
+        x,
+        y,
+        realPreview.width,
+        realPreview.height,
+        file.name
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pan, zoom, elements]
+  );
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
+    setDragOverFolderId(null);
     const container = containerRef.current;
     if (!container) return;
     const rect = container.getBoundingClientRect();
     const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const canvasPt = screenToCanvas(screenPt, pan, zoom);
 
-    // 1. Check for collab-file JSON data dragged from FileShareModal
+    // Check if dropped directly over a Folder element on the board
+    const targetFolder = [...elements]
+      .reverse()
+      .find((el) => el.type === 'folder' && isPointInsideElement(canvasPt, el));
+
+    // 1. Check for collab-file JSON data dragged from FileShareModal or Folder dropdown
     const rawCollabFile = e.dataTransfer.getData('application/json');
     if (rawCollabFile) {
       try {
         const parsed = JSON.parse(rawCollabFile);
         if (parsed.type === 'collab-file' && parsed.file) {
           const file = parsed.file;
-          const isPdf =
-            file.type === 'application/pdf' ||
-            file.name.toLowerCase().endsWith('.pdf') ||
-            (typeof file.dataUrl === 'string' && file.dataUrl.startsWith('data:application/pdf'));
-
-          const isVideo =
-            file.type.startsWith('video/') ||
-            file.name.toLowerCase().endsWith('.mp4') ||
-            file.name.toLowerCase().endsWith('.webm') ||
-            file.name.toLowerCase().endsWith('.mov') ||
-            (typeof file.dataUrl === 'string' && file.dataUrl.startsWith('data:video/'));
-
-          if (isPdf) {
-            await handleAddPdfAtPosition(file.dataUrl, file.name, canvasPt.x, canvasPt.y);
-            return;
-          } else if (isVideo) {
-            handleAddVideoAtPosition(file.dataUrl, file.name, canvasPt.x, canvasPt.y);
-            return;
-          } else if (
-            (file.type && file.type.startsWith('image/')) ||
-            /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(file.name || '')
-          ) {
-            const img = new Image();
-            img.src = file.dataUrl;
-            img.onload = () => {
-              const maxDim = 320;
-              let w = img.width || 300;
-              let h = img.height || 240;
-              if (w > maxDim || h > maxDim) {
-                if (w > h) {
-                  h = (h / w) * maxDim;
-                  w = maxDim;
-                } else {
-                  w = (w / h) * maxDim;
-                  h = maxDim;
-                }
-              }
-              handleAddImageAtPosition(file.dataUrl, canvasPt.x, canvasPt.y, w, h);
+          if (targetFolder && parsed.sourceFolderId !== targetFolder.id) {
+            if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+            const newItem: FolderFileItem = {
+              id: `ffile-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+              name: file.name || 'Dosya',
+              type: file.type || 'application/octet-stream',
+              size: file.size || 0,
+              dataUrl: file.dataUrl,
+              addedAt: Date.now(),
             };
-            return;
-          } else if (
-            /\.(md|markdown)$/i.test(file.name || '') ||
-            file.type === 'text/markdown' ||
-            file.type === 'text/x-markdown'
-          ) {
-            const mdText = extractTextFromDataUrl(file.dataUrl || '') || '';
-            const mdCard = createMarkdownCardSvgDataUrl({
-              name: file.name || 'Belge.md',
-              size: file.size || 0,
-              markdownContent: mdText,
+            onUpdateElement(targetFolder.id, {
+              folderFiles: [newItem, ...(targetFolder.folderFiles || [])],
+              updatedAt: Date.now(),
             });
-            handleAddImageAtPosition(
-              mdCard.dataUrl,
-              canvasPt.x,
-              canvasPt.y,
-              mdCard.width,
-              mdCard.height
-            );
-            return;
-          } else {
-            // Any other shared document (Word, Excel, PPTX, TXT, CSV, JSON, Audio, etc.)
-            const cardSvg = createDocumentCardSvgDataUrl({
-              name: file.name || 'Belge',
-              size: file.size || 0,
-              type: file.type,
-            });
-            handleAddImageAtPosition(
-              cardSvg.dataUrl,
-              canvasPt.x,
-              canvasPt.y,
-              cardSvg.width,
-              cardSvg.height
-            );
+            setOpenFolderId(targetFolder.id);
             return;
           }
+          await placeFileItemOnCanvas(file, canvasPt.x, canvasPt.y);
+          return;
         }
       } catch (err) {
         console.error('Error handling dropped collab-file:', err);
       }
     }
 
-    // 2. Direct drop of files from OS desktop or folder
+    // 2. Direct drop of files from OS desktop
     const files = e.dataTransfer.files;
     if (files.length === 0) return;
+
+    if (targetFolder) {
+      await addFilesToFolderElement(targetFolder, files);
+      return;
+    }
 
     const file = files[0];
     const validation = validateFile(file.name, file.type, file.size);
@@ -2936,47 +3251,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
 
     const lowerName = file.name.toLowerCase();
-    const isPdf = file.type === 'application/pdf' || lowerName.endsWith('.pdf');
     const isVideo =
       file.type.startsWith('video/') || /\.(mp4|webm|mov|ogg)$/.test(lowerName);
-    const isImage =
-      file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/.test(lowerName);
 
-    const isMarkdown =
-      lowerName.endsWith('.md') ||
-      lowerName.endsWith('.markdown') ||
-      file.type === 'text/markdown' ||
-      file.type === 'text/x-markdown';
-
-    if (isPdf) {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const dataUrl = event.target?.result as string;
-        if (dataUrl) {
-          await handleAddPdfAtPosition(dataUrl, file.name, canvasPt.x, canvasPt.y);
-        }
-      };
-      reader.readAsDataURL(file);
-    } else if (isMarkdown) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        const mdText = extractTextFromDataUrl(dataUrl) || '';
-        const mdCard = createMarkdownCardSvgDataUrl({
-          name: file.name,
-          size: file.size,
-          markdownContent: mdText,
-        });
-        handleAddImageAtPosition(
-          mdCard.dataUrl,
-          canvasPt.x,
-          canvasPt.y,
-          mdCard.width,
-          mdCard.height
-        );
-      };
-      reader.readAsDataURL(file);
-    } else if (isVideo) {
+    if (isVideo) {
       const videoCheck = await validateVideoFileMetadata(file);
       if (!videoCheck.valid) {
         setDropErrorToast(videoCheck.error || 'Video süre veya boyut sınırını aşıyor.');
@@ -2995,44 +3273,25 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
       };
       reader.readAsDataURL(file);
-    } else if (isImage) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        const img = new Image();
-        img.src = dataUrl;
-        img.onload = () => {
-          const maxDim = 320;
-          let w = img.width || 300;
-          let h = img.height || 240;
-          if (w > maxDim || h > maxDim) {
-            if (w > h) {
-              h = (h / w) * maxDim;
-              w = maxDim;
-            } else {
-              w = (w / h) * maxDim;
-              h = maxDim;
-            }
-          }
-          handleAddImageAtPosition(dataUrl, canvasPt.x, canvasPt.y, w, h);
-        };
-      };
-      reader.readAsDataURL(file);
-    } else {
-      // Office / Text / Audio / Other permitted file: instant SVG Document Card
-      const cardSvg = createDocumentCardSvgDataUrl({
-        name: file.name,
-        size: file.size,
-        type: file.type,
-      });
-      handleAddImageAtPosition(
-        cardSvg.dataUrl,
-        canvasPt.x,
-        canvasPt.y,
-        cardSvg.width,
-        cardSvg.height
-      );
+      return;
     }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = (event.target?.result as string) || '';
+      if (!dataUrl) return;
+      await placeFileItemOnCanvas(
+        {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          dataUrl,
+        },
+        canvasPt.x,
+        canvasPt.y
+      );
+    };
+    reader.readAsDataURL(file);
   };
 
   const getCursorStyle = (): React.CSSProperties['cursor'] => {
@@ -3777,6 +4036,585 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                   className="w-full h-full object-contain"
                 />
               </div>
+            </div>
+          );
+        })}
+
+      {/* Hidden File Input for adding files into a Canvas Folder */}
+      <input
+        ref={folderFileInputRef}
+        type="file"
+        multiple
+        onChange={async (e) => {
+          const files = e.target.files;
+          const folderId = activeUploadFolderIdRef.current;
+          if (files && files.length > 0 && folderId) {
+            const folderEl = elements.find((el) => el.id === folderId && el.type === 'folder');
+            if (folderEl) {
+              await addFilesToFolderElement(folderEl, files);
+            }
+          }
+          if (folderFileInputRef.current) {
+            folderFileInputRef.current.value = '';
+          }
+        }}
+        className="hidden"
+      />
+
+      {/* Interactive Pure Folder Icons on Canvas (Multiple folders, direct file drop, rename, color, dropdown contents below) */}
+      {elements
+        .filter((el) => el.type === 'folder')
+        .map((folderEl) => {
+          const w = folderEl.width || 68;
+          const h = folderEl.height || 68;
+          const left = folderEl.x * zoom + pan.x;
+          const top = folderEl.y * zoom + pan.y;
+          const width = w * zoom;
+          const height = h * zoom;
+          const isSelected = activeSelectedIds.includes(folderEl.id);
+          const isOpen = openFolderId === folderEl.id;
+          const isRenaming = renamingFolderId === folderEl.id;
+          const isDragOver = dragOverFolderId === folderEl.id;
+          const folderName = folderEl.folderName || 'Yeni Klasör';
+          const folderFiles = folderEl.folderFiles || [];
+          const shades = getFolderColorShades(folderEl.color);
+
+          const commitFolderRename = () => {
+            const nextName = renamingFolderValue.trim() || 'Yeni Klasör';
+            onUpdateElement(folderEl.id, {
+              folderName: nextName,
+              updatedAt: Date.now(),
+            });
+            setRenamingFolderId(null);
+          };
+
+          const handleSelectFolderColor = (nextColor: string) => {
+            if (!canEdit || folderEl.isLocked) return;
+            if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+            onUpdateElement(folderEl.id, {
+              color: nextColor,
+              updatedAt: Date.now(),
+            });
+          };
+
+          return (
+            <div
+              key={folderEl.id}
+              style={{
+                left: `${left}px`,
+                top: `${top}px`,
+                width: `${width}px`,
+              }}
+              onPointerEnter={() => {
+                if (
+                  isDraggingSelectedRef.current &&
+                  !initialElementsSnapshotRef.current.has(folderEl.id)
+                ) {
+                  dragOverFolderIdRef.current = folderEl.id;
+                  setDragOverFolderId(folderEl.id);
+                }
+              }}
+              onPointerLeave={() => {
+                if (isDraggingSelectedRef.current && dragOverFolderIdRef.current === folderEl.id) {
+                  dragOverFolderIdRef.current = null;
+                  setDragOverFolderId(null);
+                }
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!isSelected) {
+                  updateSelectedIds([folderEl.id]);
+                }
+                setRadialMenuPos(null);
+                setContextMenuPos({ x: e.clientX, y: e.clientY });
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = 'copy';
+                if (dragOverFolderId !== folderEl.id) {
+                  dragOverFolderIdRef.current = folderEl.id;
+                  setDragOverFolderId(folderEl.id);
+                }
+              }}
+              onDragLeave={(e) => {
+                e.stopPropagation();
+                if (dragOverFolderId === folderEl.id) {
+                  dragOverFolderIdRef.current = null;
+                  setDragOverFolderId(null);
+                }
+              }}
+              onDrop={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dragOverFolderIdRef.current = null;
+                setDragOverFolderId(null);
+
+                const rawCollabFile = e.dataTransfer.getData('application/json');
+                if (rawCollabFile) {
+                  try {
+                    const parsed = JSON.parse(rawCollabFile);
+                    if (parsed.type === 'collab-file' && parsed.file) {
+                      if (parsed.sourceFolderId === folderEl.id) return;
+                      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                      const file = parsed.file;
+                      const newItem: FolderFileItem = {
+                        id: `ffile-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                        name: file.name || 'Dosya',
+                        type: file.type || 'application/octet-stream',
+                        size: file.size || 0,
+                        dataUrl: file.dataUrl,
+                        addedAt: Date.now(),
+                        canvasWidth: file.canvasWidth,
+                        canvasHeight: file.canvasHeight,
+                      };
+                      onUpdateElement(folderEl.id, {
+                        folderFiles: [newItem, ...folderFiles],
+                        updatedAt: Date.now(),
+                      });
+                      setOpenFolderId(folderEl.id);
+                      return;
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }
+
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  await addFilesToFolderElement(folderEl, e.dataTransfer.files);
+                }
+              }}
+              className={`absolute flex flex-col items-center select-none ${
+                isOpen ? 'z-30' : 'z-20'
+              }`}
+            >
+              {/* Pure Folder Icon Graphic (NOT a button box) */}
+              <div
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.stopPropagation();
+                  folderPointerMovedRef.current = false;
+
+                  const container = containerRef.current;
+                  if (!container) return;
+                  const rect = container.getBoundingClientRect();
+                  const screenPt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                  const canvasPt = screenToCanvas(screenPt, pan, zoom);
+
+                  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                    const next = isSelected
+                      ? activeSelectedIds.filter((id) => id !== folderEl.id)
+                      : [...activeSelectedIds, folderEl.id];
+                    updateSelectedIds(next);
+                    return;
+                  }
+
+                  if (!isSelected) {
+                    updateSelectedIds([folderEl.id]);
+                  }
+
+                  if (canEdit && !folderEl.isLocked) {
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    const initX = folderEl.x;
+                    const initY = folderEl.y;
+                    let snapshotSaved = false;
+
+                    const onMove = (moveEv: PointerEvent) => {
+                      const dxScreen = moveEv.clientX - startX;
+                      const dyScreen = moveEv.clientY - startY;
+                      if (Math.hypot(dxScreen, dyScreen) > 4) {
+                        folderPointerMovedRef.current = true;
+                        if (!snapshotSaved) {
+                          if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                          snapshotSaved = true;
+                        }
+                        onUpdateElement(folderEl.id, {
+                          x: initX + dxScreen / zoom,
+                          y: initY + dyScreen / zoom,
+                        });
+                      }
+                    };
+
+                    const onUp = () => {
+                      window.removeEventListener('pointermove', onMove);
+                      window.removeEventListener('pointerup', onUp);
+                      if (!folderPointerMovedRef.current) {
+                        setOpenFolderId((prev) => (prev === folderEl.id ? null : folderEl.id));
+                      }
+                    };
+
+                    window.addEventListener('pointermove', onMove);
+                    window.addEventListener('pointerup', onUp);
+                  } else {
+                    setOpenFolderId((prev) => (prev === folderEl.id ? null : folderEl.id));
+                  }
+                  void canvasPt;
+                }}
+                style={{
+                  width: `${width}px`,
+                  height: `${height * 0.78}px`,
+                  filter: isDragOver
+                    ? `drop-shadow(0 0 14px rgba(${shades.rgb}, 0.8))`
+                    : undefined,
+                }}
+                className={`relative flex items-center justify-center cursor-pointer transition-transform ${
+                  isDragOver ? 'scale-115' : 'hover:scale-105'
+                }`}
+                title={`${folderName} (${folderFiles.length} dosya) — İçeriği görmek için tıklayın, tahtadaki veya bilgisayarınızdaki dosyaları üzerine sürükleyin`}
+              >
+                <svg
+                  viewBox="0 0 68 54"
+                  className="w-full h-full overflow-visible drop-shadow-md"
+                  fill="none"
+                >
+                  {/* Back folder tab */}
+                  <path
+                    d="M4 11C4 7.68629 6.68629 5 10 5H24.5C26.4 5 28.18 5.9 29.3 7.42L32.2 11.3H58C61.3137 11.3 64 13.9863 64 17.3V45C64 48.3137 61.3137 51 58 51H10C6.68629 51 4 48.3137 4 45V11Z"
+                    fill={isDragOver ? shades.dark : shades.base}
+                  />
+                  {/* Subtle paper sheet peeking inside if folder has files */}
+                  {folderFiles.length > 0 && (
+                    <rect
+                      x="11"
+                      y="10"
+                      width="46"
+                      height="16"
+                      rx="3"
+                      fill="#ffffff"
+                      stroke="#e2e8f0"
+                      strokeWidth="1"
+                    />
+                  )}
+                  {/* Front folder flap */}
+                  <path
+                    d={
+                      isOpen || isDragOver
+                        ? 'M2.5 21C2.5 18.2386 4.73858 16 7.5 16H60.5C63.2614 16 65.5 18.2386 65.5 21L63 46C62.7 48.8 60.3 51 57.5 51H10.5C7.7 51 5.3 48.8 5 46L2.5 21Z'
+                        : 'M4 18C4 15.2386 6.23858 13 9 13H59C61.7614 13 64 15.2386 64 18V45C64 48.3137 61.3137 51 58 51H10C6.68629 51 4 48.3137 4 45V18Z'
+                    }
+                    fill={isDragOver ? shades.lighter : shades.light}
+                    stroke={shades.dark}
+                    strokeWidth="1.5"
+                  />
+                </svg>
+
+                {/* File count badge on top-right of folder icon */}
+                {folderFiles.length > 0 && (
+                  <span
+                    style={{
+                      fontSize: `${Math.max(9, Math.min(13, 10 * zoom))}px`,
+                      backgroundColor: shades.dark,
+                    }}
+                    className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-white font-bold flex items-center justify-center shadow-sm border border-white"
+                  >
+                    {folderFiles.length}
+                  </span>
+                )}
+              </div>
+
+              {/* Folder Name Underneath Icon (Double-click or click edit to rename) */}
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                className="mt-0.5 flex items-center justify-center min-w-[96px] max-w-[160px]"
+              >
+                {isRenaming ? (
+                  <div
+                    style={{ borderColor: shades.base }}
+                    className="flex items-center gap-0.5 bg-white dark:bg-slate-900 border rounded-md px-1.5 py-0.5 shadow-md"
+                  >
+                    <input
+                      type="text"
+                      value={renamingFolderValue}
+                      autoFocus
+                      onChange={(e) => setRenamingFolderValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Enter') {
+                          commitFolderRename();
+                        } else if (e.key === 'Escape') {
+                          setRenamingFolderId(null);
+                        }
+                      }}
+                      onBlur={commitFolderRename}
+                      className="w-24 text-[11px] font-semibold text-slate-800 dark:text-slate-100 bg-transparent focus:outline-none text-center"
+                      placeholder="Klasör adı..."
+                    />
+                  </div>
+                ) : (
+                  <span
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      if (!canEdit || folderEl.isLocked) return;
+                      setRenamingFolderId(folderEl.id);
+                      setRenamingFolderValue(folderName);
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenFolderId((prev) => (prev === folderEl.id ? null : folderEl.id));
+                    }}
+                    style={{
+                      fontSize: `${Math.max(10, Math.min(15, 11.5 * zoom))}px`,
+                      ...(isSelected || isOpen
+                        ? {
+                            backgroundColor: `rgba(${shades.rgb}, 0.2)`,
+                            boxShadow: `0 0 0 1px rgba(${shades.rgb}, 0.55)`,
+                          }
+                        : {}),
+                    }}
+                    className={`px-1.5 py-0.5 rounded font-semibold text-center leading-tight truncate cursor-pointer transition-colors ${
+                      isSelected || isOpen
+                        ? 'text-slate-900 dark:text-white'
+                        : 'text-slate-800 dark:text-slate-100 drop-shadow-[0_1px_2px_rgba(255,255,255,0.85)] dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                    }`}
+                    title="Tıkla: Klasörü aç/kapat | Çift tıkla: Klasör adını değiştir"
+                  >
+                    {folderName}
+                  </span>
+                )}
+              </div>
+
+              {/* Dropdown Menu Directly Underneath Folder When Clicked */}
+              {isOpen && (
+                <div
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onWheel={(e) => e.stopPropagation()}
+                  className="mt-2 w-72 bg-white/98 dark:bg-slate-900/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-700/90 overflow-hidden z-40 animate-in fade-in zoom-in-95 duration-150"
+                >
+                  {/* Folder Header: Rename + Add File + Close */}
+                  <div
+                    style={{
+                      backgroundColor: `rgba(${shades.rgb}, 0.12)`,
+                    }}
+                    className="px-3 py-2 border-b border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-1.5"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      <span
+                        style={{ backgroundColor: shades.base }}
+                        className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
+                      />
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                        {folderName}
+                      </span>
+                      {canEdit && !folderEl.isLocked && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRenamingFolderId(folderEl.id);
+                            setRenamingFolderValue(folderName);
+                          }}
+                          className="p-1 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700 transition-colors cursor-pointer shrink-0"
+                          title="Klasör Adını Değiştir"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {canEdit && !folderEl.isLocked && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              activeUploadFolderIdRef.current = folderEl.id;
+                              folderFileInputRef.current?.click();
+                            }}
+                            style={{ backgroundColor: shades.base }}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold hover:opacity-90 text-white shadow-xs transition-opacity cursor-pointer"
+                            title="Klasöre Dosya Ekle"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Dosya Ekle
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                              onDeleteElements([folderEl.id]);
+                              setOpenFolderId(null);
+                            }}
+                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                            title="Klasörü Sil"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setOpenFolderId(null)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                        title="Menüyü Kapat"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Folder Color Picker Bar */}
+                  {canEdit && !folderEl.isLocked && (
+                    <div className="px-3 py-2 bg-slate-50/90 dark:bg-slate-800/50 border-b border-slate-200/70 dark:border-slate-700/70 flex items-center justify-between gap-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
+                        Renk
+                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {FOLDER_COLOR_PRESETS.map((preset) => {
+                          const isCurrentColor =
+                            shades.base.toLowerCase() === preset.color.toLowerCase();
+                          return (
+                            <button
+                              key={preset.color}
+                              type="button"
+                              onClick={() => handleSelectFolderColor(preset.color)}
+                              style={{ backgroundColor: preset.color }}
+                              className={`w-4 h-4 rounded-full transition-transform cursor-pointer ${
+                                isCurrentColor
+                                  ? 'scale-120 ring-2 ring-offset-1 ring-slate-900 dark:ring-white'
+                                  : 'hover:scale-110 opacity-85 hover:opacity-100'
+                              }`}
+                              title={`Klasör Rengi: ${preset.label}`}
+                            />
+                          );
+                        })}
+                        <label
+                          className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600 flex items-center justify-center cursor-pointer overflow-hidden hover:scale-110 transition-transform"
+                          style={{
+                            background:
+                              'conic-gradient(from 0deg, #ef4444, #f59e0b, #10b981, #3b82f6, #8b5cf6, #ec4899, #ef4444)',
+                          }}
+                          title="Özel Klasör Rengi Seç"
+                        >
+                          <input
+                            type="color"
+                            value={shades.base}
+                            onChange={(e) => handleSelectFolderColor(e.target.value)}
+                            className="opacity-0 w-0 h-0"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Folder Files List */}
+                  <div className="max-h-60 overflow-y-auto p-2 space-y-1.5">
+                    {folderFiles.length === 0 ? (
+                      <div
+                        onClick={() => {
+                          if (!canEdit || folderEl.isLocked) return;
+                          activeUploadFolderIdRef.current = folderEl.id;
+                          folderFileInputRef.current?.click();
+                        }}
+                        style={{ borderColor: `rgba(${shades.rgb}, 0.45)` }}
+                        className="py-5 px-3 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-center gap-1.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      >
+                        <Upload style={{ color: shades.base }} className="w-5 h-5" />
+                        <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                          Tahtadaki veya bilgisayarınızdaki dosyaları sürükleyin
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          veya dosya seçmek için buraya tıklayın
+                        </p>
+                      </div>
+                    ) : (
+                      folderFiles.map((fileItem) => {
+                        const isImg =
+                          fileItem.type.startsWith('image/') ||
+                          /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(fileItem.name);
+                        return (
+                          <div
+                            key={fileItem.id}
+                            draggable
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              e.dataTransfer.setData(
+                                'application/json',
+                                JSON.stringify({
+                                  type: 'collab-file',
+                                  sourceFolderId: folderEl.id,
+                                  file: fileItem,
+                                })
+                              );
+                              e.dataTransfer.effectAllowed = 'copy';
+                            }}
+                            className="group flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50/90 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/70 dark:border-slate-700/70 cursor-grab active:cursor-grabbing transition-all"
+                            title="Tahtaya sürükleyip bırakın veya + butonuna tıklayın"
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              {isImg ? (
+                                <img
+                                  src={normalizeImageDataUrl(fileItem.dataUrl, fileItem.name)}
+                                  alt={fileItem.name}
+                                  className="w-8 h-8 rounded-lg object-cover bg-white border border-slate-200 shrink-0"
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    backgroundColor: `rgba(${shades.rgb}, 0.15)`,
+                                    color: shades.dark,
+                                  }}
+                                  className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                                >
+                                  <FileText className="w-4 h-4" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                  {fileItem.name}
+                                </p>
+                                <p className="text-[10px] text-slate-400">
+                                  {fileItem.size >= 1024 * 1024
+                                    ? `${(fileItem.size / (1024 * 1024)).toFixed(1)} MB`
+                                    : `${Math.max(1, Math.round(fileItem.size / 1024))} KB`}{' '}
+                                  • Tahtaya sürükle
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await placeFileItemOnCanvas(
+                                    fileItem,
+                                    folderEl.x + w + 28,
+                                    folderEl.y
+                                  );
+                                }}
+                                style={{
+                                  backgroundColor: `rgba(${shades.rgb}, 0.16)`,
+                                  color: shades.dark,
+                                }}
+                                className="p-1.5 rounded-lg hover:opacity-85 transition-opacity cursor-pointer"
+                                title="Tahtaya Ekle"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                              </button>
+                              {canEdit && !folderEl.isLocked && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                                    onUpdateElement(folderEl.id, {
+                                      folderFiles: folderFiles.filter((f) => f.id !== fileItem.id),
+                                      updatedAt: Date.now(),
+                                    });
+                                  }}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                  title="Klasörden Kaldır"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}

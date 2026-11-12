@@ -444,5 +444,12 @@ export function renderMarkdownCard(
 ${groups.join('\n')}
 </svg>`;
 
-  return { dataUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`, width: totalW, height: totalH, pages: total };
+  const bytes = new TextEncoder().encode(svg);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 = btoa(binary);
+
+  return { dataUrl: `data:image/svg+xml;base64,${base64}`, width: totalW, height: totalH, pages: total };
 }

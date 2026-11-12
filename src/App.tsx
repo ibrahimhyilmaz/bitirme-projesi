@@ -29,7 +29,7 @@ import { RoomsModal, decodeRoomSnapshot } from './components/RoomsModal';
 import { OnboardingTour } from './components/OnboardingTour';
 import { SettingsModal } from './components/SettingsModal';
 import { ClockWidget } from './components/ClockWidget';
-import { FolderWidget } from './components/FolderWidget';
+import { LoadingScreen } from './components/LoadingScreen';
 import { getLanguage, translate, translatePhrase, useI18n, useAutoTranslateDOM } from './i18n';
 import { recordRoomVisit } from './utils/roomHistory';
 import { isMobileViewport, useIsMobile } from './hooks/useIsMobile';
@@ -37,6 +37,7 @@ import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { useCloudBoards, CloudBoardSummary } from './hooks/useCloudBoards';
 import type { BoardSnapshot } from './utils/cloudBoardCodec';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
+import { normalizeImageDataUrl } from './utils/fileValidation';
 
 function extractRoomInfoFromLocation(): {
   roomId: string;
@@ -201,6 +202,7 @@ export default function App() {
   );
   const lastActivityRef = useRef<number>(savedSession?.lastActivityAt ?? Date.now());
   const [joinedRoomId, setJoinedRoomId] = useState<string>('');
+  const [isSwitchingRoom, setIsSwitchingRoom] = useState<boolean>(false);
   const lastValidRoomRef = useRef<{
     roomId: string;
     roomName: string;
@@ -720,9 +722,14 @@ export default function App() {
       const cleanTarget = targetRoomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
       if (!cleanTarget) return;
 
+      const isActualRoomChange = cleanTarget !== roomId;
+      if (isActualRoomChange) {
+        setIsSwitchingRoom(true);
+      }
+
       // Switching to an existing room must never open a room that was not created:
       // verify with the server first and stay in the current room when it does not exist.
-      if (!creating && cleanTarget !== 'ana-oda' && cleanTarget !== roomId) {
+      if (!creating && cleanTarget !== 'ana-oda' && isActualRoomChange) {
         try {
           const res = await fetch(
             `/api/rooms/${encodeURIComponent(cleanTarget)}/status?ownerKey=${encodeURIComponent(getOrCreateOwnerKey())}`
@@ -731,6 +738,7 @@ export default function App() {
             const info = await res.json();
             const code = cleanTarget.toUpperCase();
             if (info && info.exists === false) {
+              setIsSwitchingRoom(false);
               setJoinGateError(
                 `#${code} kodlu bir oda bulunamadı. Yalnızca oluşturulmuş odalara geçiş yapılabilir.`
               );
@@ -738,10 +746,12 @@ export default function App() {
             }
             if (info && info.exists === true && !info.isOwner && !info.canResume) {
               if (info.isLocked) {
+                setIsSwitchingRoom(false);
                 setJoinGateError(`"${info.name}" (#${code}) odası kilitli.`);
                 return;
               }
               if (info.userCount >= info.maxUsers) {
+                setIsSwitchingRoom(false);
                 setJoinGateError(
                   `"${info.name}" (#${code}) odası dolu (${info.userCount}/${info.maxUsers}).`
                 );
@@ -761,6 +771,9 @@ export default function App() {
       setCustomMaxUsers(targetMaxUsers);
       setCustomRoomName(targetRoomName || '');
       setRoomId(cleanTarget);
+      if (isActualRoomChange) {
+        setTimeout(() => setIsSwitchingRoom(false), 550);
+      }
     },
     [clearRoomError, roomId]
   );
@@ -1839,6 +1852,10 @@ export default function App() {
           setActiveTool('text');
           setSelectedElementIds([]);
           break;
+        case 'f':
+          setActiveTool('folder');
+          setSelectedElementIds([]);
+          break;
         case 'k':
           setActiveTool('laser');
           setSelectedElementIds([]);
@@ -1941,6 +1958,8 @@ export default function App() {
     const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - width / 2;
     const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - height / 2;
 
+    const normalizedDataUrl = normalizeImageDataUrl(dataUrl, fileName);
+
     recordUndo();
     const imgEl: CanvasElement = {
       id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -1949,7 +1968,7 @@ export default function App() {
       y: canvasCenterY,
       width,
       height,
-      imageUrl: dataUrl,
+      imageUrl: normalizedDataUrl,
       fileName,
       rotation: 0,
       flipX: false,
@@ -2327,15 +2346,6 @@ export default function App() {
           />
         )}
 
-        {/* Folder tool: parks files and lets you drag them onto the board */}
-        {!uiHidden && showFolder && (
-          <FolderWidget
-            onHide={() => updateAppSettings({ showFolder: false })}
-            layoutResetCounter={layoutResetCounter}
-            zIndex={24}
-          />
-        )}
-
         {/* Contextual Style & Transform Bar (Draggable, Bottom Center by default) */}
         {canEdit && !uiHidden && (
           <StyleBar
@@ -2368,7 +2378,13 @@ export default function App() {
               if (selectedElementIds.length > 0) {
                 const updates = elements
                   .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
-                  .map((el) => ({ id: el.id, changes: { fillColor: fc } }));
+                  .map((el) => ({
+                    id: el.id,
+                    changes:
+                      el.type === 'folder' && fc !== 'transparent'
+                        ? { fillColor: fc, color: fc }
+                        : { fillColor: fc },
+                  }));
                 if (updates.length > 0) batchUpdateElements(updates);
               }
             }}
@@ -2952,6 +2968,14 @@ export default function App() {
             handleResetWidgetLayout();
           }}
           onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
+
+      {/* Animated Video Loading Screen for Room Transition */}
+      {isSwitchingRoom && (
+        <LoadingScreen
+          message="Odaya Geçiş Yapılıyor..."
+          subMessage="Çalışma alanı ve tahta verileri yükleniyor..."
         />
       )}
     </div>

@@ -73,7 +73,8 @@ export type ToolType =
   | 'text'
   | 'image'
   | 'laser'
-  | 'pan';
+  | 'pan'
+  | 'folder';
 
 export interface Point {
   x: number;
@@ -162,6 +163,17 @@ export interface ServerLimits {
   currentRoomsCount: number;
 }
 
+export interface FolderFileItem {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  dataUrl: string;
+  addedAt: number;
+  canvasWidth?: number;
+  canvasHeight?: number;
+}
+
 export interface CanvasElement {
   id: string;
   type:
@@ -175,7 +187,8 @@ export interface CanvasElement {
     | 'sticky'
     | 'image'
     | 'pdf'
-    | 'video';
+    | 'video'
+    | 'folder';
   x: number;
   y: number;
   width?: number;
@@ -203,6 +216,8 @@ export interface CanvasElement {
   currentPage?: number;
   totalPages?: number;
   fileName?: string;
+  folderName?: string;
+  folderFiles?: FolderFileItem[];
   rotation?: number;
   flipX?: boolean;
   flipY?: boolean;

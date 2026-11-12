@@ -21,9 +21,10 @@ import { SharedFile } from '../types';
 import {
   validateFile,
   validateVideoFileMetadata,
-  createDocumentCardSvgDataUrl,
+  buildRealDocumentPreviewDataUrl,
   createMarkdownCardSvgDataUrl,
   extractTextFromDataUrl,
+  normalizeImageDataUrl,
   FILE_INPUT_ACCEPT,
 } from '../utils/fileValidation';
 
@@ -501,7 +502,8 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          onAddImageToCanvas(file.dataUrl, file.name);
+                          const safeUrl = normalizeImageDataUrl(file.dataUrl, file.name);
+                          onAddImageToCanvas(safeUrl, file.name);
                         }}
                         className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors cursor-pointer"
                         title="Tuval Üzerine Ekle"
@@ -541,17 +543,19 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
 
                     {isOtherDoc && (
                       <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
-                          const cardSvg = createDocumentCardSvgDataUrl({
+                          const cardSvg = await buildRealDocumentPreviewDataUrl({
                             name: file.name,
                             size: file.size,
                             type: file.type,
+                            dataUrl: file.dataUrl,
+                            uploadedBy: file.uploadedBy,
                           });
                           onAddImageToCanvas(cardSvg.dataUrl, file.name, cardSvg.width, cardSvg.height);
                         }}
                         className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-medium transition-colors cursor-pointer"
-                        title="Belge Kartı Olarak Tahtaya Ekle"
+                        title="Dosyayı Gerçek Görünümüyle Tahtaya Ekle"
                       >
                         <PlusCircle className="w-3.5 h-3.5" />
                         <span>Tahtaya Ekle</span>

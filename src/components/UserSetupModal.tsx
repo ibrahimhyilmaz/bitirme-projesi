@@ -17,6 +17,7 @@ import {
   History,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
+import { LoadingScreen } from './LoadingScreen';
 import { RoomSummary } from '../types';
 import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
 import { RoomHistoryList } from './RoomHistoryList';
@@ -988,6 +989,14 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Animated Video Loading Screen when verifying and connecting to room */}
+      {isCheckingRoom && (
+        <LoadingScreen
+          message={isInitialSetup ? 'Odaya Bağlanılıyor...' : 'Odaya Geçiş Yapılıyor...'}
+          subMessage="Oda durumu doğrulanıyor ve çalışma alanı hazırlanıyor..."
+        />
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { CanvasElement, Point, UserPresence, UserPing, UserReaction } from '../types';
+import { createDocumentCardSvgDataUrl, normalizeImageDataUrl } from './fileValidation';
 
 export type TransformHandleType =
   | 'rot'
@@ -15,36 +16,78 @@ export type TransformHandleType =
 const imageCache = new Map<string, HTMLImageElement>();
 const brokenImages = new Set<string>();
 
-export function getCachedImage(url: string, onLoaded?: () => void): HTMLImageElement | null {
-  if (!url || brokenImages.has(url)) return null;
-  if (imageCache.has(url)) {
-    const img = imageCache.get(url)!;
-    if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+export function getCachedImage(
+  rawUrl: string,
+  onLoaded?: () => void,
+  fileName?: string
+): HTMLImageElement | null {
+  if (!rawUrl) return null;
+  const cacheKey = fileName ? `${rawUrl}::${fileName}` : rawUrl;
+  if (brokenImages.has(cacheKey)) return null;
+
+  if (imageCache.has(cacheKey)) {
+    const img = imageCache.get(cacheKey)!;
+    if (img.complete && (img.naturalWidth > 0 || img.width > 0)) {
       return img;
     }
     return null;
   }
 
+  let resolvedUrl = normalizeImageDataUrl(rawUrl, fileName);
+
+  // If a non-image data URL (e.g. text/csv/json/code/office) was placed as an image element,
+  // render its actual document/code/table visual instead of failing with onerror
+  if (
+    resolvedUrl.startsWith('data:') &&
+    !resolvedUrl.startsWith('data:image/')
+  ) {
+    const docPreview = createDocumentCardSvgDataUrl({
+      name: fileName || 'Belge',
+      size: Math.max(128, Math.round(rawUrl.length * 0.72)),
+      dataUrl: rawUrl,
+    });
+    resolvedUrl = docPreview.dataUrl;
+  }
+
   const img = new Image();
-  if (!url.startsWith('data:') && !url.startsWith('blob:')) {
+  if (!resolvedUrl.startsWith('data:') && !resolvedUrl.startsWith('blob:')) {
     img.crossOrigin = 'anonymous';
   }
+  let triedDocFallback = false;
   img.onload = () => {
-    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-      imageCache.set(url, img);
+    if (img.naturalWidth > 0 || img.width > 0) {
+      imageCache.set(cacheKey, img);
       if (onLoaded) onLoaded();
+    } else if (!triedDocFallback) {
+      triedDocFallback = true;
+      const fallback = createDocumentCardSvgDataUrl({
+        name: fileName || 'Dosya',
+        size: Math.max(128, Math.round(rawUrl.length * 0.72)),
+        dataUrl: rawUrl,
+      });
+      img.src = fallback.dataUrl;
     } else {
-      brokenImages.add(url);
-      imageCache.delete(url);
+      brokenImages.add(cacheKey);
+      imageCache.delete(cacheKey);
     }
   };
   img.onerror = () => {
-    brokenImages.add(url);
-    imageCache.delete(url);
+    if (!triedDocFallback) {
+      triedDocFallback = true;
+      const fallback = createDocumentCardSvgDataUrl({
+        name: fileName || 'Dosya',
+        size: Math.max(128, Math.round(rawUrl.length * 0.72)),
+        dataUrl: rawUrl,
+      });
+      img.src = fallback.dataUrl;
+      return;
+    }
+    brokenImages.add(cacheKey);
+    imageCache.delete(cacheKey);
     if (onLoaded) onLoaded();
   };
-  imageCache.set(url, img);
-  img.src = url;
+  imageCache.set(cacheKey, img);
+  img.src = resolvedUrl;
   return null;
 }
 
@@ -137,6 +180,21 @@ export function getElementBounds(el: CanvasElement): {
   if (el.type === 'sticky') {
     const w = Math.max(120, el.width || 180);
     const h = Math.max(100, el.height || 150);
+    return {
+      minX: el.x,
+      minY: el.y,
+      maxX: el.x + w,
+      maxY: el.y + h,
+      width: w,
+      height: h,
+      cx: el.x + w / 2,
+      cy: el.y + h / 2,
+    };
+  }
+
+  if (el.type === 'folder') {
+    const w = Math.max(52, el.width || 68);
+    const h = Math.max(52, el.height || 68);
     return {
       minX: el.x,
       minY: el.y,
@@ -1229,13 +1287,12 @@ export function drawElement(
       const h = element.height || 200;
 
       if (element.imageUrl) {
-        const img = getCachedImage(element.imageUrl, onImageLoadNeedRedraw);
+        const img = getCachedImage(element.imageUrl, onImageLoadNeedRedraw, element.fileName);
         let drawn = false;
-        if (img && img.complete && img.naturalWidth > 0) {
+        if (img && img.complete && (img.naturalWidth > 0 || img.width > 0)) {
           try {
             ctx.drawImage(img, element.x, element.y, w, h);
             drawn = true;
-            // Only stroke if explicitly configured by the user (strokeWidth > 0 and color is set and not transparent)
             if (element.strokeWidth && element.strokeWidth > 0 && element.color && element.color !== 'transparent') {
               ctx.strokeStyle = element.color;
               ctx.lineWidth = element.strokeWidth;
@@ -1246,19 +1303,19 @@ export function drawElement(
           }
         }
         if (!drawn) {
-          ctx.fillStyle = '#f8fafc';
+          ctx.fillStyle = '#ffffff';
           ctx.beginPath();
           ctx.roundRect(element.x, element.y, w, h, 8);
           ctx.fill();
-          ctx.strokeStyle = '#e2e8f0';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.lineWidth = 1.5;
           ctx.stroke();
-          ctx.fillStyle = '#94a3b8';
-          ctx.font = '12px "Plus Jakarta Sans", sans-serif';
+          ctx.fillStyle = '#475569';
+          ctx.font = '600 12px "Plus Jakarta Sans", sans-serif';
           ctx.fillText(
-            brokenImages.has(element.imageUrl) ? 'Görsel yüklenemedi' : 'Görsel yükleniyor...',
-            element.x + 12,
-            element.y + 24
+            element.fileName || 'Dosya hazırlanıyor...',
+            element.x + 14,
+            element.y + 26
           );
         }
       }
@@ -1399,6 +1456,53 @@ export function drawElement(
       ctx.roundRect(element.x, element.y, w, h, 8);
       ctx.stroke();
 
+      break;
+    }
+
+    case 'folder': {
+      // Pure folder icon rendered on canvas (interactive DOM overlay handles click, rename, color & drop)
+      const w = Math.max(52, element.width || 68);
+      const h = Math.max(52, element.height || 68);
+      const x = element.x;
+      const y = element.y;
+      const iconW = w * 0.84;
+      const iconH = h * 0.66;
+      const ix = x + (w - iconW) / 2;
+      const iy = y + 4;
+      const baseColor =
+        element.color && element.color !== 'transparent' ? element.color : '#f59e0b';
+
+      ctx.save();
+      ctx.setLineDash([]);
+      // Folder back tab
+      ctx.fillStyle = baseColor;
+      ctx.beginPath();
+      ctx.roundRect(ix, iy, iconW * 0.44, iconH * 0.32, [6, 6, 0, 0]);
+      ctx.fill();
+
+      ctx.fillStyle = baseColor;
+      ctx.beginPath();
+      ctx.roundRect(ix, iy + iconH * 0.14, iconW, iconH * 0.86, 7);
+      ctx.fill();
+
+      // White paper sheet peeking inside if folder has files
+      if ((element.folderFiles?.length || 0) > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect(ix + iconW * 0.12, iy + iconH * 0.2, iconW * 0.76, iconH * 0.45, 4);
+        ctx.fill();
+      }
+
+      // Folder front flap
+      ctx.fillStyle = baseColor;
+      ctx.beginPath();
+      ctx.roundRect(ix, iy + iconH * 0.3, iconW, iconH * 0.7, 7);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+      ctx.beginPath();
+      ctx.roundRect(ix, iy + iconH * 0.3, iconW, iconH * 0.7, 7);
+      ctx.fill();
+      ctx.restore();
       break;
     }
   }

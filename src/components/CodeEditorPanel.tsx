@@ -672,8 +672,8 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
       ref={panelRef}
       className={`fixed bg-slate-900 flex flex-col overflow-hidden transition-all duration-200 ${
         isFullscreen
-          ? 'inset-0 z-50 w-screen h-screen rounded-none border-0 shadow-none'
-          : 'inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[680px] md:max-w-[calc(100vw-32px)] z-30 border border-slate-700/80 md:rounded-2xl shadow-2xl'
+          ? 'inset-0 z-[120] w-screen h-screen rounded-none border-0 shadow-none'
+          : 'inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[680px] md:max-w-[calc(100vw-32px)] z-[110] border border-slate-700/80 md:rounded-2xl shadow-2xl'
       }`}
     >
       {/* Editor Header */}

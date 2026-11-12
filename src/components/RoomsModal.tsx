@@ -38,6 +38,8 @@ import {
 import { generateRoomCodeSeed } from './UserSetupModal';
 import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
 import { useI18n } from '../i18n';
+import { BrandLogo } from './BrandLogo';
+import { LoadingScreen } from './LoadingScreen';
 import { RoomHistoryList } from './RoomHistoryList';
 import type { CloudRoomSummary } from '../hooks/useFirebaseSync';
 import type { CloudBoardSummary, CloudSaveStatus } from '../hooks/useCloudBoards';
@@ -587,9 +589,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         {/* Header */}
         <div className="h-14 px-6 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center">
-              <Users className="w-4 h-4" />
-            </div>
+            <BrandLogo size="sm" />
             <div>
               <h2 className="text-sm font-bold text-slate-900">
                 Odalar, Yetkiler, QR Kod & Çoklu Cihaz Daveti
@@ -1547,6 +1547,14 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Animated Video Loading Screen when checking or switching rooms */}
+      {isCheckingRoom && (
+        <LoadingScreen
+          message="Odaya Geçiş Yapılıyor..."
+          subMessage="Oda durumu doğrulanıyor ve bağlanılıyor..."
+        />
       )}
     </div>
   );

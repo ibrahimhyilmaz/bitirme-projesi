@@ -252,7 +252,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
         {/* Top Accent Banner */}
         <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-indigo-950 px-5 py-4 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <BrandLogo size="sm" />
+            <BrandLogo size="md" className="shrink-0 drop-shadow-sm" />
             <div>
               <div className="text-[11px] font-semibold text-blue-300 uppercase tracking-wider">
                 {trPhrase(currentStep.badge)}
