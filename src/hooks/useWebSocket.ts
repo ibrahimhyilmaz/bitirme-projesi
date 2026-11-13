@@ -217,7 +217,7 @@ export function useWebSocket({
 
   // Publish helper for Serverless WSS Mesh Mode (GitHub Pages / Static Hosts)
   const safeTopicRoomId = useMemo(() => {
-    return roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'ana-oda';
+    return roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'oda';
   }, [roomId]);
 
   const publishMeshPacket = useCallback(
@@ -1292,7 +1292,7 @@ export function useWebSocket({
         });
       }
 
-      const safeRoom = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'ana-oda';
+      const safeRoom = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'oda';
       const safeUid = userRef.current.id.replace(/[^a-zA-Z0-9_-]/g, '_');
       const eventsTopic = `collabboard/v3/room/${safeRoom}/events`;
       const directPeerTopic = `collabboard/v3/room/${safeRoom}/peer/${safeUid}`;
@@ -1621,7 +1621,7 @@ export function useWebSocket({
 
   const deleteRoom = useCallback(async (targetRoomId: string): Promise<boolean> => {
     const cleanTarget = targetRoomId.trim().toLowerCase();
-    if (!cleanTarget || cleanTarget === 'ana-oda') return false;
+    if (!cleanTarget) return false;
     const ownerKey = getOrCreateOwnerKey();
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {

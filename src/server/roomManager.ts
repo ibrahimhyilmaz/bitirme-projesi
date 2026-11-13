@@ -9,9 +9,7 @@ export class RoomManager {
   public readonly rooms = new Map<string, RoomState>();
   private wss: WebSocketServer | null = null;
 
-  constructor() {
-    this.getOrCreateRoom('ana-oda', 'Genel Çalışma Alanı', 'system', 'Sistem', 15);
-  }
+  constructor() {}
 
   public attachWebSocketServer(wss: WebSocketServer): void {
     this.wss = wss;
@@ -35,6 +33,13 @@ export class RoomManager {
       elementCount: r.elements.size,
       createdAt: r.createdAt,
       ownerName: r.ownerName,
+      activeUsers: Array.from(r.users.values()).map((u) => ({
+        id: u.presence.id,
+        name: u.presence.name,
+        avatar: u.presence.avatar,
+        color: u.presence.color,
+        role: u.presence.role,
+      })),
     }));
   }
 
@@ -88,8 +93,7 @@ export class RoomManager {
         };
       }
 
-      const displayRoomName =
-        roomName || (roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : `Oda #${roomId}`);
+      const displayRoomName = roomName || `Oda #${roomId}`;
 
       const defaultCode = `// CollabBoard Ortak Kod Editörü — ${displayRoomName} (#${roomId})
 // Bu odadaki kod alanı yalnızca bu odaya özeldir ve odadaki üyelerle anlık senkronize olur.

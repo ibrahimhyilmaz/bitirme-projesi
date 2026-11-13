@@ -836,11 +836,11 @@ export function setupWebSocketHandler(wss: WebSocketServer): void {
             roomManager.broadcastGlobalRoomsList();
           }
 
-          if (room.users.size === 0 && currentRoomId !== 'ana-oda') {
+          if (room.users.size === 0) {
             const targetRoomId = currentRoomId;
             setTimeout(() => {
               const r = roomManager.rooms.get(targetRoomId);
-              if (r && r.users.size === 0 && targetRoomId !== 'ana-oda') {
+              if (r && r.users.size === 0) {
                 roomManager.rooms.delete(targetRoomId);
                 roomManager.broadcastGlobalRoomsList();
               }

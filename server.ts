@@ -185,7 +185,7 @@ function chatFilePath(roomId: string): string {
 }
 
 function loadSavedChat(roomId: string, ownerKey: string): unknown[] {
-  if (roomId === 'ana-oda' || !ownerKey) return [];
+  if (!roomId || !ownerKey) return [];
   try {
     const parsed = JSON.parse(fs.readFileSync(chatFilePath(roomId), 'utf-8'));
     // Only the owner who saved the history gets it back (a reused room code never leaks old chats)
@@ -199,7 +199,7 @@ function loadSavedChat(roomId: string, ownerKey: string): unknown[] {
 }
 
 function scheduleChatSave(room: { id: string; ownerKey?: string; settings: { saveChat: boolean }; messages: ChatMessage[] }) {
-  if (room.id === 'ana-oda' || room.settings.saveChat === false) return;
+  if (!room.id || room.settings.saveChat === false) return;
   const existing = chatSaveTimers.get(room.id);
   if (existing) clearTimeout(existing);
   chatSaveTimers.set(
@@ -241,9 +241,9 @@ function canManageRoom(role: UserRole): boolean {
   return role === 'owner' || role === 'admin';
 }
 
-function sanitizeRoomDisplayName(rawName: string | undefined, roomId: string): string {
+function sanitizeRoomDisplayName(rawName: string | undefined, _roomId: string): string {
   if (!rawName || !rawName.trim()) {
-    return roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : 'Çalışma Odası';
+    return 'Çalışma Odası';
   }
   // Strip any accidental (#CODE) or #CODE suffix from room name
   const cleaned = rawName
@@ -251,7 +251,7 @@ function sanitizeRoomDisplayName(rawName: string | undefined, roomId: string): s
     .replace(/\s*\(#[a-zA-Z0-9_-]+\)\s*$/g, '')
     .replace(/\s+#[a-zA-Z0-9_-]{3,8}\s*$/g, '')
     .trim();
-  return cleaned || (roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : 'Çalışma Odası');
+  return cleaned || 'Çalışma Odası';
 }
 
 function getRoomSummaries() {
@@ -268,6 +268,13 @@ function getRoomSummaries() {
     ownerKey: r.ownerKey,
     lockedByIdle: Boolean(r.lockedByIdle),
     lastActivityAt: r.lastActivityAt,
+    activeUsers: Array.from(r.users.values()).map((u) => ({
+      id: u.presence.id,
+      name: u.presence.name,
+      avatar: u.presence.avatar,
+      color: u.presence.color,
+      role: u.presence.role,
+    })),
   }));
 }
 
@@ -292,7 +299,6 @@ function broadcastGlobalRoomsList() {
 function countUserOwnedRooms(ownerKey?: string, creatorId?: string): RoomState[] {
   const owned: RoomState[] = [];
   for (const r of rooms.values()) {
-    if (r.id === 'ana-oda') continue;
     if (
       (ownerKey && r.ownerKey && r.ownerKey === ownerKey) ||
       (creatorId && r.settings.ownerId === creatorId)
@@ -323,7 +329,7 @@ function getOrCreateRoom(
       error: 'Geçerli bir 5 haneli oda kodu giriniz.',
     };
   }
-  if (cleanRaw !== 'ana-oda' && cleanRaw.length !== 5) {
+  if (cleanRaw.length !== 5) {
     return {
       room: null,
       code: 'INVALID_ROOM_CODE',
@@ -333,7 +339,7 @@ function getOrCreateRoom(
   const roomId = cleanRaw;
 
   if (!rooms.has(roomId)) {
-    if (!allowCreate && roomId !== 'ana-oda') {
+    if (!allowCreate) {
       return {
         room: null,
         code: 'ROOM_NOT_FOUND',
@@ -341,7 +347,7 @@ function getOrCreateRoom(
       };
     }
 
-    if (roomId !== 'ana-oda' && (ownerKey || creatorId)) {
+    if (ownerKey || creatorId) {
       const ownedRooms = countUserOwnedRooms(ownerKey, creatorId);
       if (ownedRooms.length >= MAX_ROOMS_PER_USER) {
         const names = ownedRooms.map((r) => `${r.name} (#${r.id.toUpperCase()})`).join(', ');
@@ -454,9 +460,6 @@ calculateSprintMetrics(sampleTasks);
   return { room: rooms.get(roomId)! };
 }
 
-// Initialize default main room
-getOrCreateRoom('ana-oda', 'Genel Çalışma Alanı', 'system', 'Sistem', 15, true, 'system');
-
 // Broadcast helper for a room
 function broadcastToRoom(roomId: string, message: object, excludeUserId?: string) {
   const room = rooms.get(roomId);
@@ -519,7 +522,7 @@ const idleSweepInterval = setInterval(() => {
   const now = Date.now();
   let changed = false;
   for (const room of rooms.values()) {
-    if (room.id === 'ana-oda' || room.lockedByIdle) continue;
+    if (room.lockedByIdle) continue;
     if (now - room.lastActivityAt < ROOM_IDLE_LOCK_MS) continue;
     room.settings.isLocked = true;
     room.lockedByIdle = true;
@@ -622,12 +625,12 @@ wss.on('connection', (ws: WebSocket) => {
           const targetRoomId = String(msg.roomId || '').trim().toLowerCase();
           const reqOwnerKey = String(msg.ownerKey || '');
           const reqUserId = String(msg.userId || currentUserId || '');
-          if (!targetRoomId || targetRoomId === 'ana-oda') {
+          if (!targetRoomId) {
             ws.send(
               JSON.stringify({
                 type: 'room-error',
                 code: 'FORBIDDEN',
-                message: 'Genel çalışma alanı silinemez.',
+                message: 'Silinecek oda kodu geçersiz.',
               })
             );
             break;
@@ -679,7 +682,7 @@ wss.on('connection', (ws: WebSocket) => {
             .toLowerCase()
             .replace(/[^a-z0-9_-]/g, '');
 
-          if (normalizedRoomId !== 'ana-oda' && normalizedRoomId.length !== 5) {
+          if (normalizedRoomId.length !== 5) {
             ws.send(
               JSON.stringify({
                 type: 'room-error',
@@ -691,7 +694,7 @@ wss.on('connection', (ws: WebSocket) => {
             return;
           }
 
-          if (isCreatingRoom && normalizedRoomId !== 'ana-oda' && rooms.has(normalizedRoomId)) {
+          if (isCreatingRoom && rooms.has(normalizedRoomId)) {
             ws.send(
               JSON.stringify({
                 type: 'room-error',
@@ -1757,11 +1760,11 @@ wss.on('connection', (ws: WebSocket) => {
           broadcastGlobalRoomsList();
         }
 
-        if (room.users.size === 0 && currentRoomId !== 'ana-oda') {
+        if (room.users.size === 0) {
           const targetRoomId = currentRoomId;
           setTimeout(() => {
             const r = rooms.get(targetRoomId);
-            if (r && r.users.size === 0 && targetRoomId !== 'ana-oda') {
+            if (r && r.users.size === 0) {
               rooms.delete(targetRoomId);
               deleteSavedChat(targetRoomId);
               broadcastGlobalRoomsList();
@@ -2290,8 +2293,8 @@ app.delete('/api/rooms/:roomId', (req, res) => {
   const ownerKey = String(req.query.ownerKey || req.body?.ownerKey || '');
   const userId = String(req.query.userId || req.body?.userId || '');
 
-  if (!targetRoomId || targetRoomId === 'ana-oda') {
-    res.status(403).json({ error: 'Genel çalışma alanı silinemez.' });
+  if (!targetRoomId) {
+    res.status(400).json({ error: 'Geçersiz oda kodu.' });
     return;
   }
 
@@ -2358,10 +2361,39 @@ app.get('/api/rooms/:roomId/status', (req, res) => {
   });
 });
 
+app.get('/api/rooms/:roomId/preview', (req, res) => {
+  const roomId = String(req.params.roomId || '').trim().toLowerCase();
+  const room = rooms.get(roomId);
+  if (!room) {
+    res.status(404).json({ error: 'Böyle bir çalışma odası bulunamadı.' });
+    return;
+  }
+  if (room.settings.isLocked) {
+    res.status(403).json({
+      error: 'Bu oda kilitli olduğu için tahta önizlemesi gizlenmiştir.',
+      isLocked: true,
+    });
+    return;
+  }
+  const elementsArray = room.elementOrder
+    .map((id) => room.elements.get(id))
+    .filter((el): el is CanvasElement => el !== undefined);
+
+  res.json({
+    roomId: room.id,
+    name: room.name,
+    ownerName: room.ownerName,
+    userCount: room.users.size,
+    maxUsers: room.settings.maxUsers,
+    elementCount: elementsArray.length,
+    elements: elementsArray,
+  });
+});
+
 app.get('/api/rooms/:roomId', (req, res) => {
-  const roomId = (req.params.roomId || 'ana-oda').trim().toLowerCase();
+  const roomId = (req.params.roomId || '').trim().toLowerCase();
   const roomName = typeof req.query.roomName === 'string' ? req.query.roomName : undefined;
-  const allowCreate = req.query.create === 'true' || roomId === 'ana-oda';
+  const allowCreate = req.query.create === 'true';
   const ownerKey = typeof req.query.ownerKey === 'string' ? req.query.ownerKey : undefined;
   const { room, error, code } = getOrCreateRoom(
     roomId,
@@ -2405,7 +2437,7 @@ app.get('/api/rooms/:roomId', (req, res) => {
 });
 
 app.post('/api/rooms/:roomId/sync', (req, res) => {
-  const roomId = (req.params.roomId || 'ana-oda').trim().toLowerCase();
+  const roomId = (req.params.roomId || '').trim().toLowerCase();
   const { roomName, elements, code, notes, chatMessage } = req.body as {
     roomName?: string;
     elements?: CanvasElement[];

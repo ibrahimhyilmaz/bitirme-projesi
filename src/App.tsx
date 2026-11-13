@@ -216,8 +216,8 @@ export default function App() {
       .replace(/\s+#[A-Za-z0-9_-]{3,10}\s*$/g, '')
       .trim();
     if (clean) return clean;
-    return roomId === 'ana-oda' ? 'Genel Çalışma Alanı' : 'Çalışma Alanı';
-  }, [roomId, customRoomName]);
+    return 'Çalışma Alanı';
+  }, [customRoomName]);
 
   // User Identity (Unique per browser tab via sessionStorage so multi-tab testing enforces maxUsers accurately)
   const [currentUser, setCurrentUser] = useState(() => {
@@ -729,7 +729,7 @@ export default function App() {
 
       // Switching to an existing room must never open a room that was not created:
       // verify with the server first and stay in the current room when it does not exist.
-      if (!creating && cleanTarget !== 'ana-oda' && isActualRoomChange) {
+      if (!creating && isActualRoomChange) {
         try {
           const res = await fetch(
             `/api/rooms/${encodeURIComponent(cleanTarget)}/status?ownerKey=${encodeURIComponent(getOrCreateOwnerKey())}`
@@ -920,7 +920,7 @@ export default function App() {
   // Keep a Firestore record of every room this signed-in owner runs (debounced)
   useEffect(() => {
     if (!hasEnteredWorkspace || !firebaseUser || roomError) return;
-    if (currentUserRole !== 'owner' || roomId === 'ana-oda') return;
+    if (currentUserRole !== 'owner') return;
     const timer = window.setTimeout(() => {
       Promise.resolve(syncRoomToCloud({ includeElements: false })).catch(() => {});
     }, 6000);
@@ -1326,7 +1326,7 @@ export default function App() {
   elementsRef.current = elements;
 
   const boardReady =
-    hasEnteredWorkspace && !roomError && joinedRoomId === roomId && roomId !== 'ana-oda';
+    hasEnteredWorkspace && !roomError && joinedRoomId === roomId;
 
   const boardSignature = useMemo(() => {
     let h = String(elements.length);

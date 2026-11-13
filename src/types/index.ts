@@ -141,6 +141,14 @@ export interface RoomSettings {
   ownerId: string;
 }
 
+export interface RoomActiveUser {
+  id: string;
+  name: string;
+  avatar: string;
+  color: string;
+  role: UserRole;
+}
+
 export interface RoomSummary {
   id: string;
   name: string;
@@ -154,6 +162,7 @@ export interface RoomSummary {
   ownerKey?: string;
   lockedByIdle?: boolean;
   lastActivityAt?: number;
+  activeUsers?: RoomActiveUser[];
 }
 
 export interface ServerLimits {

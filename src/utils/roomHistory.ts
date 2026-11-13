@@ -47,7 +47,7 @@ export function recordRoomVisit(visit: {
   owner?: boolean;
   created?: boolean;
 }) {
-  if (!visit.id || visit.id === 'ana-oda') return;
+  if (!visit.id) return;
   const now = Date.now();
   const list = readRoomHistory();
   const idx = list.findIndex((e) => e.id === visit.id);

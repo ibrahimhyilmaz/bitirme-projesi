@@ -111,7 +111,7 @@ export function useCloudBoards(firebaseUser: User | null) {
     async (input: { roomId: string; roomName: string; isOwner: boolean; maxUsers: number }) => {
       if (!uid) return;
       const id = safeId(input.roomId);
-      if (!id || id === 'ana-oda') return;
+      if (!id) return;
       const ref = doc(db, 'users', uid, 'boards', id);
       const name = (input.roomName || id).slice(0, 120);
       const maxUsers = Math.max(2, Math.min(30, Math.round(input.maxUsers || 8)));
@@ -153,7 +153,7 @@ export function useCloudBoards(firebaseUser: User | null) {
     async (input: SaveBoardInput): Promise<SaveBoardResult> => {
       if (!uid) return { ok: false, reason: 'signed-out' };
       const id = safeId(input.roomId);
-      if (!id || id === 'ana-oda') return { ok: false, reason: 'failed' };
+      if (!id) return { ok: false, reason: 'failed' };
       if (savingRef.current) return { ok: false, reason: 'failed' };
       savingRef.current = true;
       setStatus('saving');

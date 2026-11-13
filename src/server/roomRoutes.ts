@@ -32,7 +32,7 @@ roomRouter.get('/api/rooms', (_req, res) => {
 });
 
 roomRouter.get('/api/rooms/:roomId', (req, res) => {
-  const roomId = req.params.roomId || 'ana-oda';
+  const roomId = req.params.roomId || '';
   const roomName = typeof req.query.roomName === 'string' ? req.query.roomName : undefined;
   const { room, error } = roomManager.getOrCreateRoom(roomId, roomName);
   if (!room || error) {
@@ -64,7 +64,7 @@ roomRouter.get('/api/rooms/:roomId', (req, res) => {
 });
 
 roomRouter.post('/api/rooms/:roomId/sync', (req, res) => {
-  const roomId = req.params.roomId || 'ana-oda';
+  const roomId = req.params.roomId || '';
   const { roomName, elements, code, notes, chatMessage } = req.body as {
     roomName?: string;
     elements?: CanvasElement[];

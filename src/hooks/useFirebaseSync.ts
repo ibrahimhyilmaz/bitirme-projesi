@@ -70,7 +70,7 @@ export function useFirebaseSync({
       .trim()
       .toLowerCase()
       .replace(/[^a-zA-Z0-9_-]/g, '-')
-      .slice(0, 128) || 'ana-oda';
+      .slice(0, 128) || 'oda';
 
   // Purge any legacy fake fallback user from localStorage on mount and subscribe to real Firebase Auth
   useEffect(() => {
@@ -304,7 +304,7 @@ export function useFirebaseSync({
 
     try {
       const existingSnap = await getDoc(roomRef);
-      const safeRoomName = (roomName || 'Genel Çalışma Alanı').slice(0, 120);
+      const safeRoomName = (roomName || 'Çalışma Odası').slice(0, 120);
       const safeOwnerName = (firebaseUser.displayName || firebaseUser.email || 'Mimar').slice(0, 80);
       const safeCodeContent = (code.content || '').slice(0, 50000);
       const safeCodeLanguage = (code.language || 'javascript').slice(0, 32);

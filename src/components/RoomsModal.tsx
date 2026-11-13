@@ -37,10 +37,11 @@ import {
 } from '../types';
 import { generateRoomCodeSeed } from './UserSetupModal';
 import { getOrCreateOwnerKey } from '../hooks/useWebSocket';
-import { useI18n } from '../i18n';
 import { BrandLogo } from './BrandLogo';
 import { LoadingScreen } from './LoadingScreen';
 import { RoomHistoryList } from './RoomHistoryList';
+import { ActiveRoomUsersBadge } from './ActiveRoomUsersBadge';
+import { RoomPreviewModal } from './RoomPreviewModal';
 import type { CloudRoomSummary } from '../hooks/useFirebaseSync';
 import type { CloudBoardSummary, CloudSaveStatus } from '../hooks/useCloudBoards';
 import { CloudBoardsPanel } from './CloudBoardsPanel';
@@ -263,7 +264,6 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   onRefreshRooms,
   onClose,
 }) => {
-  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<'rooms' | 'permissions' | 'invite'>(initialTab);
   const [joinByCodeInput, setJoinByCodeInput] = useState('');
   const [newRoomName, setNewRoomName] = useState('');
@@ -275,6 +275,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   const [modalError, setModalError] = useState<string | null>(null);
   const [isCheckingRoom, setIsCheckingRoom] = useState(false);
   const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
+  const [previewingRoom, setPreviewingRoom] = useState<RoomSummary | null>(null);
 
   const [includeSnapshot, setIncludeSnapshot] = useState<boolean>(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
@@ -293,34 +294,6 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   }, [roomsList, ownerKey, currentUserId]);
 
   const hasReachedUserRoomLimit = myOwnedRooms.length >= maxRoomsPerUser;
-
-  const myRoomEntries = useMemo(() => {
-    const map = new Map<
-      string,
-      { id: string; name: string; maxUsers: number; isLocked: boolean; live: boolean; lockedByIdle: boolean }
-    >();
-    for (const c of cloudRooms) {
-      map.set(c.id, {
-        id: c.id,
-        name: c.name,
-        maxUsers: c.maxUsers,
-        isLocked: c.isLocked,
-        live: false,
-        lockedByIdle: false,
-      });
-    }
-    for (const r of myOwnedRooms) {
-      map.set(r.id, {
-        id: r.id,
-        name: r.name,
-        maxUsers: r.maxUsers,
-        isLocked: r.isLocked,
-        live: true,
-        lockedByIdle: Boolean(r.lockedByIdle),
-      });
-    }
-    return Array.from(map.values()).filter((r) => r.id !== 'ana-oda');
-  }, [cloudRooms, myOwnedRooms]);
 
   useEffect(() => {
     onRefreshRooms();
@@ -708,64 +681,6 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
             </form>
 
-            {/* My Rooms: every room I created (live on the server or saved in Firebase) */}
-            <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40">
-              <div className="text-xs font-bold text-slate-900">{t('rooms.myRooms')}</div>
-              <p className="text-[11px] text-slate-600 mb-2.5">{t('rooms.myRoomsDesc')}</p>
-              {myRoomEntries.length === 0 ? (
-                <div className="text-[11px] text-slate-500">{t('rooms.noMyRooms')}</div>
-              ) : (
-                <div className="space-y-1.5">
-                  {myRoomEntries.map((r) => (
-                    <div
-                      key={r.id}
-                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white border border-slate-200"
-                    >
-                      <div className="min-w-0 flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-900 truncate">{r.name}</span>
-                        <span className="text-[11px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                          #{r.id.toUpperCase()}
-                        </span>
-                        <span
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            r.live ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {r.live ? t('rooms.live') : t('rooms.saved')}
-                        </span>
-                        {r.isLocked && (
-                          <span
-                            className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700"
-                            title={r.lockedByIdle ? t('rooms.lockedIdle') : undefined}
-                          >
-                            <Lock className="w-3 h-3 inline" />
-                          </span>
-                        )}
-                      </div>
-                      {r.id === currentRoomId ? (
-                        <span className="px-2.5 py-1 rounded-lg bg-blue-100 text-blue-700 text-[11px] font-semibold">
-                          {t('rooms.live')}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            // Live room: join it. Missing on the server (restart): recreate it from the saved record.
-                            onSelectRoom(r.id, r.name, r.maxUsers, !r.live);
-                            onClose();
-                          }}
-                          className="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold flex items-center gap-1 shrink-0"
-                        >
-                          <span>{t('rooms.enter')}</span>
-                          <ArrowRight className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
             {/* Google account: saved boards + resume */}
             {firebaseUserEmail && onResumeCloudBoard && (
               <CloudBoardsPanel
@@ -789,12 +704,15 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               />
             )}
 
-            {/* Room history + created-room counts */}
+            {/* Unified My Rooms & Local Room History */}
             <RoomHistoryList
               activeOwnedCount={myOwnedRooms.length}
               maxRoomsPerUser={maxRoomsPerUser}
               extraOwnedIds={cloudRooms.map((c) => c.id)}
+              extraOwnedRooms={cloudRooms}
+              roomsList={roomsList}
               currentRoomId={currentRoomId}
+              onPreviewRoom={(room) => setPreviewingRoom(room)}
               onJoin={(entry) => {
                 onSelectRoom(entry.id, entry.name, undefined, false);
                 onClose();
@@ -814,108 +732,162 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 </span>
                 <button
                   onClick={onRefreshRooms}
-                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600"
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Yenile</span>
                 </button>
               </div>
 
-              <div className="space-y-2">
-                {roomsList.map((r) => {
-                  const isCurrent = r.id === currentRoomId;
-                  const isFull = r.userCount >= r.maxUsers;
-                  const isOwnedByMe =
-                    (r.ownerKey && r.ownerKey === ownerKey) ||
-                    (r.ownerId && currentUserId && r.ownerId === currentUserId);
-                  const cleanRName =
-                    r.name
-                      .replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
-                      .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
-                      .trim() || r.name;
+              {roomsList.length === 0 ? (
+                <div className="p-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/70 text-center text-xs text-slate-500">
+                  Şu anda sunucuda açık bir çalışma odası bulunmuyor. Aşağıdan yeni bir çalışma odası oluşturabilirsiniz.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {roomsList.map((r) => {
+                    const isCurrent = r.id === currentRoomId;
+                    const isFull = r.userCount >= r.maxUsers;
+                    const isOwnedByMe =
+                      (r.ownerKey && r.ownerKey === ownerKey) ||
+                      (r.ownerId && currentUserId && r.ownerId === currentUserId);
+                    const canEnter =
+                      !isCurrent && (!r.isLocked || Boolean(isOwnedByMe)) && (!isFull || Boolean(isOwnedByMe));
+                    const enterLabel = r.userCount === 0 ? 'Gir' : 'Katıl';
+                    const cleanRName =
+                      r.name
+                        .replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
+                        .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
+                        .trim() || r.name;
 
-                  return (
-                    <div
-                      key={r.id}
-                      className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
-                        isCurrent
-                          ? 'border-blue-600 bg-blue-50/40'
-                          : 'border-slate-200 hover:border-slate-300 bg-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                            r.isLocked
-                              ? 'bg-amber-50 text-amber-600'
-                              : isCurrent
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {r.isLocked ? (
-                            <Lock className="w-4 h-4" />
-                          ) : (
-                            <Users className="w-4 h-4" />
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-slate-900 truncate">
-                              {cleanRName}
-                            </span>
-                            <span className="text-[11px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                              #{r.id.toUpperCase()}
-                            </span>
-                            {isOwnedByMe && (
-                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                                Sizin Odanız
-                              </span>
+                    return (
+                      <div
+                        key={r.id}
+                        onDoubleClick={() => {
+                          if (canEnter) {
+                            onSelectRoom(r.id, cleanRName, r.maxUsers, false);
+                            onClose();
+                          }
+                        }}
+                        title={
+                          canEnter
+                            ? r.userCount === 0
+                              ? 'Odaya girmek için çift tıklayın'
+                              : 'Odaya katılmak için çift tıklayın'
+                            : undefined
+                        }
+                        className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
+                          isCurrent
+                            ? 'border-blue-600 bg-blue-50/40'
+                            : canEnter
+                            ? 'border-slate-200 hover:border-blue-300 bg-white cursor-pointer'
+                            : 'border-slate-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                              r.isLocked
+                                ? 'bg-amber-50 text-amber-600'
+                                : isCurrent
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {r.isLocked ? (
+                              <Lock className="w-4 h-4" />
+                            ) : (
+                              <Users className="w-4 h-4" />
                             )}
                           </div>
-                          <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
-                            {r.userCount}/{r.maxUsers} kullanıcı · {r.elementCount} nesne · Kurucu:{' '}
-                            {r.ownerName}
-                            {r.isLocked && ' · Kilitli'}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-900 truncate">
+                                {cleanRName}
+                              </span>
+                              <span className="text-[11px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                                #{r.id.toUpperCase()}
+                              </span>
+                              {isOwnedByMe && (
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                  Sizin Odanız
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 font-mono tabular-nums mt-1">
+                              <ActiveRoomUsersBadge room={r} compact />
+                              <span aria-hidden="true">·</span>
+                              <span>Kapasite: {r.maxUsers}</span>
+                              <span aria-hidden="true">·</span>
+                              <span>{r.elementCount} nesne</span>
+                              <span aria-hidden="true">·</span>
+                              <span className="truncate max-w-[140px]">Kurucu: {r.ownerName}</span>
+                              {r.isLocked && (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="text-amber-700 font-semibold">Kilitli</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="shrink-0 ml-3 flex items-center gap-1.5">
-                        {isOwnedByMe && onDeleteRoom && !isCurrent && (
-                          <button
-                            type="button"
-                            disabled={deletingRoomId === r.id}
-                            onClick={() => handleDeleteOwnedRoom(r.id)}
-                            className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 text-xs font-semibold transition-colors flex items-center gap-1"
-                            title="Bu odayı kapat ve sil (3 oda hakkınızı boşaltır)"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>{deletingRoomId === r.id ? 'Siliniyor...' : 'Odayı Sil'}</span>
-                          </button>
-                        )}
-                        {isCurrent ? (
-                          <span className="px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-xs font-semibold">
-                            Bu Odadasınız
-                          </span>
-                        ) : (
-                          <button
-                            disabled={(r.isLocked && !isOwnedByMe) || (isFull && !isOwnedByMe)}
-                            onClick={() => {
-                              onSelectRoom(r.id, cleanRName, r.maxUsers, false);
-                              onClose();
-                            }}
-                            className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold transition-colors flex items-center gap-1"
-                          >
-                            <span>{r.isLocked && !isOwnedByMe ? 'Kilitli' : isFull && !isOwnedByMe ? 'Dolu' : 'Katıl'}</span>
-                            {(isOwnedByMe || (!r.isLocked && !isFull)) && <ArrowRight className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
+                        <div
+                          className="shrink-0 ml-3 flex items-center gap-1.5"
+                          onDoubleClick={(e) => e.stopPropagation()}
+                        >
+                          {!r.isLocked && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewingRoom(r)}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                              title="Bu odadaki tahtanın genel ekran görüntüsünü önizle"
+                            >
+                              <Eye className="w-3.5 h-3.5 shrink-0" />
+                              <span>Önizle</span>
+                            </button>
+                          )}
+                          {isOwnedByMe && onDeleteRoom && !isCurrent && (
+                            <button
+                              type="button"
+                              disabled={deletingRoomId === r.id}
+                              onClick={() => handleDeleteOwnedRoom(r.id)}
+                              className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                              title="Bu odayı kapat ve sil (3 oda hakkınızı boşaltır)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>{deletingRoomId === r.id ? 'Siliniyor...' : 'Odayı Sil'}</span>
+                            </button>
+                          )}
+                          {isCurrent ? (
+                            <span className="px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-xs font-semibold whitespace-nowrap">
+                              Bu Odadasınız
+                            </span>
+                          ) : (
+                            <button
+                              disabled={!canEnter}
+                              onClick={() => {
+                                onSelectRoom(r.id, cleanRName, r.maxUsers, false);
+                                onClose();
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                            >
+                              <span>
+                                {r.isLocked && !isOwnedByMe
+                                  ? 'Kilitli'
+                                  : isFull && !isOwnedByMe
+                                  ? 'Dolu'
+                                  : enterLabel}
+                              </span>
+                              {canEnter && <ArrowRight className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Create New Room Form */}
@@ -1554,6 +1526,28 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         <LoadingScreen
           message="Odaya Geçiş Yapılıyor..."
           subMessage="Oda durumu doğrulanıyor ve bağlanılıyor..."
+        />
+      )}
+
+      {/* Board Overview Preview Modal */}
+      {previewingRoom && (
+        <RoomPreviewModal
+          room={previewingRoom}
+          isCurrentRoom={previewingRoom.id === currentRoomId}
+          isOwnedByMe={
+            Boolean(previewingRoom.ownerKey && previewingRoom.ownerKey === ownerKey) ||
+            Boolean(previewingRoom.ownerId && currentUserId && previewingRoom.ownerId === currentUserId)
+          }
+          onJoinRoom={(targetRoom) => {
+            const cleanTargetName =
+              targetRoom.name
+                .replace(/\s*\(#?[A-Z0-9_-]{3,8}\)\s*$/i, '')
+                .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
+                .trim() || targetRoom.name;
+            onSelectRoom(targetRoom.id, cleanTargetName, targetRoom.maxUsers, false);
+            onClose();
+          }}
+          onClose={() => setPreviewingRoom(null)}
         />
       )}
     </div>
