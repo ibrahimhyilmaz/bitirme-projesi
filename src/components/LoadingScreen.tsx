@@ -33,7 +33,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
               el.play().catch(() => {});
             }
           }}
-          src="/assets/aistudio/logo_loading_dd599067.mp4"
+          src={`${import.meta.env.BASE_URL}assets/aistudio/logo_loading_dd599067.mp4`}
           autoPlay
           loop
           muted

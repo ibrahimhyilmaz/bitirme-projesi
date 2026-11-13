@@ -22,7 +22,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({ size = 'md', className = '
       title="CollabBoard — Gerçek Zamanlı Ortak Çalışma Tahtası"
     >
       <img
-        src="/assets/aistudio/logo_smooth.png?v=2"
+        src={`${import.meta.env.BASE_URL}assets/aistudio/logo_smooth.png?v=2`}
         alt="CollabBoard Logo"
         className="w-full h-full object-contain drop-shadow-xs select-none"
         draggable={false}
