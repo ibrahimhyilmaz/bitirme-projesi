@@ -17,6 +17,7 @@ import {
   CodeFile,
 } from '../types';
 import { soundEffects } from '../utils/audio';
+import { meshClear, meshLoad, meshSave } from '../utils/meshStore';
 
 interface UseWebSocketOptions {
   roomId: string;
@@ -115,6 +116,9 @@ export function useWebSocket({
   const joinedAtRef = useRef<number>(Date.now());
   const peerLastSeenRef = useRef<Map<string, number>>(new Map());
   const seenPacketsRef = useRef<Set<string>>(new Set());
+  // Big messages are split into chunks (public brokers drop or stall on large payloads)
+  const chunkBuffersRef = useRef<Map<string, { n: number; parts: Map<number, string>; at: number }>>(new Map());
+  const meshLoadedRoomRef = useRef<string>('');
   const packetSeqRef = useRef<number>(0);
   const rejectedRoomRef = useRef<boolean>(false);
   const roomNameRef = useRef<string>(roomName);
@@ -209,6 +213,24 @@ export function useWebSocket({
   restoreRoomRef.current = restoreRoom;
   const onJoinedRef = useRef(onJoined);
   onJoinedRef.current = onJoined;
+
+  // Serverless rooms only live in the participants' browsers: keep my own copy across refreshes
+  useEffect(() => {
+    if (!enabled || !isMeshModeRef.current) return;
+    if (meshLoadedRoomRef.current !== roomId.trim().toLowerCase()) return; // not restored yet: never overwrite
+    const timer = window.setTimeout(() => {
+      void meshSave({
+        roomId: roomId.trim().toLowerCase(),
+        elements,
+        code: code.lastUpdatedBy === 'Sistem' ? null : code,
+        notes: notes.lastUpdatedBy === 'Sistem' ? null : notes,
+        files,
+        savedAt: Date.now(),
+      });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, roomId, elements, code, notes, files]);
   const onSessionTimeoutRef = useRef(onSessionTimeout);
   onSessionTimeoutRef.current = onSessionTimeout;
 
@@ -250,11 +272,34 @@ export function useWebSocket({
         ? `collabboard/v3/room/${safeTopicRoomId}/peer/${safeTarget}`
         : `collabboard/v3/room/${safeTopicRoomId}/events`;
 
-      for (const client of mqttClientsRef.current) {
-        if (client && client.connected) {
-          try {
-            client.publish(topic, envelope, { qos: 0 });
-          } catch {}
+      const sendRaw = (payload: string, qos: 0 | 1) => {
+        for (const client of mqttClientsRef.current) {
+          if (client && client.connected) {
+            try {
+              client.publish(topic, payload, { qos });
+            } catch {}
+          }
+        }
+      };
+
+      if (envelope.length <= 40_000) {
+        sendRaw(envelope, 0);
+      } else {
+        const CHUNK = 32_000;
+        const n = Math.ceil(envelope.length / CHUNK);
+        for (let i = 0; i < n; i++) {
+          sendRaw(
+            JSON.stringify({
+              type: 'mesh-chunk',
+              _roomId: roomId,
+              _senderId: userRef.current.id,
+              chunkId: `${pktId}-c`,
+              i,
+              n,
+              data: envelope.slice(i * CHUNK, (i + 1) * CHUNK),
+            }),
+            1
+          );
         }
       }
     },
@@ -333,6 +378,28 @@ export function useWebSocket({
           msg.type !== 'rooms-list-updated' &&
           msg.type !== 'room-error'
         ) {
+          return;
+        }
+
+        // Re-assemble chunked messages, then handle the complete packet
+        if (msg.type === 'mesh-chunk') {
+          const key = String(msg.chunkId);
+          const now = Date.now();
+          let entry = chunkBuffersRef.current.get(key);
+          if (!entry) {
+            entry = { n: Number(msg.n) || 1, parts: new Map(), at: now };
+            chunkBuffersRef.current.set(key, entry);
+          }
+          entry.parts.set(Number(msg.i), String(msg.data));
+          chunkBuffersRef.current.forEach((e, k) => {
+            if (now - e.at > 90_000) chunkBuffersRef.current.delete(k);
+          });
+          if (entry.parts.size >= entry.n) {
+            chunkBuffersRef.current.delete(key);
+            let full = '';
+            for (let i = 0; i < entry.n; i++) full += entry.parts.get(i) || '';
+            handleIncomingPacket(full);
+          }
           return;
         }
 
@@ -440,6 +507,7 @@ export function useWebSocket({
               joinedAt: joinedAtRef.current,
             };
 
+            // Light packet first (presence, settings, code, notes) ...
             publishMeshPacket(
               {
                 type: 'mesh-welcome',
@@ -447,14 +515,32 @@ export function useWebSocket({
                 joinedAt: joinedAtRef.current,
                 roomName: syncedRoomNameRef.current,
                 settings: roomSettingsRef.current,
-                elements: elementsRef.current,
                 code: codeRef.current,
                 notes: notesRef.current,
-                files: filesRef.current,
-                messages: chatMessagesRef.current,
               },
               joiningUser.id
             );
+            // ... then the heavy state in small batches so no single packet is too big
+            const sendParts = (key: 'elements' | 'files' | 'messages', items: unknown[]) => {
+              let batch: unknown[] = [];
+              let size = 0;
+              const flush = () => {
+                if (batch.length === 0) return;
+                publishMeshPacket({ type: 'mesh-state-part', [key]: batch }, joiningUser.id);
+                batch = [];
+                size = 0;
+              };
+              for (const item of items) {
+                const itemSize = JSON.stringify(item).length;
+                if (batch.length > 0 && size + itemSize > 30_000) flush();
+                batch.push(item);
+                size += itemSize;
+              }
+              flush();
+            };
+            sendParts('elements', elementsRef.current);
+            sendParts('messages', chatMessagesRef.current);
+            sendParts('files', filesRef.current);
             break;
           }
 
@@ -525,6 +611,39 @@ export function useWebSocket({
               });
             }
 
+            if (Array.isArray(msg.files) && msg.files.length > 0) {
+              setFiles((prev) => {
+                const map = new Map(prev.map((f) => [f.id, f]));
+                for (const f of msg.files) {
+                  if (f && f.id) map.set(f.id, f);
+                }
+                return Array.from(map.values());
+              });
+            }
+            break;
+          }
+
+          case 'mesh-state-part': {
+            if (Array.isArray(msg.elements) && msg.elements.length > 0) {
+              setElements((prev) => {
+                const map = new Map(prev.map((e) => [e.id, e]));
+                for (const el of msg.elements) {
+                  if (el && el.id) map.set(el.id, el);
+                }
+                return Array.from(map.values());
+              });
+            }
+            if (Array.isArray(msg.messages) && msg.messages.length > 0) {
+              setChatMessages((prev) => {
+                const map = new Map(prev.map((m) => [m.id, m]));
+                for (const m of msg.messages) {
+                  if (m && m.id && !deletedMessageIdsRef.current.has(m.id)) map.set(m.id, m);
+                }
+                return Array.from(map.values())
+                  .filter((m) => !deletedMessageIdsRef.current.has(m.id))
+                  .sort((a, b) => a.timestamp - b.timestamp);
+              });
+            }
             if (Array.isArray(msg.files) && msg.files.length > 0) {
               setFiles((prev) => {
                 const map = new Map(prev.map((f) => [f.id, f]));
@@ -1301,6 +1420,35 @@ export function useWebSocket({
       // and Google cloud boards work on static hosting too. The "creating" flag is frozen at start so the
       // join packets keep announcing the creator even after the app resets its own flag.
       const creatingAtStart = isCreatingRoomRef.current;
+      const meshRoomKey = roomId.trim().toLowerCase();
+      if (creatingAtStart) {
+        // a brand-new room must not inherit an old local copy that used the same code
+        void meshClear(meshRoomKey).finally(() => {
+          meshLoadedRoomRef.current = meshRoomKey;
+        });
+      } else {
+        void meshLoad(meshRoomKey).then((saved) => {
+          if (!isCancelled && saved) {
+            if (saved.elements.length > 0) {
+              setElements((prev) => {
+                const map = new Map(saved.elements.map((e) => [e.id, e]));
+                for (const el of prev) map.set(el.id, el); // whatever peers already sent wins
+                return Array.from(map.values());
+              });
+            }
+            if (saved.code && codeRef.current.lastUpdatedBy === 'Sistem') setCode(saved.code);
+            if (saved.notes && notesRef.current.lastUpdatedBy === 'Sistem') setNotes(saved.notes);
+            if (saved.files.length > 0) {
+              setFiles((prev) => {
+                const map = new Map(saved.files.map((f) => [f.id, f]));
+                for (const f of prev) map.set(f.id, f);
+                return Array.from(map.values());
+              });
+            }
+          }
+          meshLoadedRoomRef.current = meshRoomKey;
+        });
+      }
       let joinReported = false;
       const reportMeshJoined = () => {
         if (joinReported || isCancelled || rejectedRoomRef.current) return;
@@ -1359,6 +1507,25 @@ export function useWebSocket({
       });
       // Even if no broker answers, the local room is usable: do not leave the join unreported
       window.setTimeout(reportMeshJoined, 2500);
+
+      // If peers are here but their state did not reach us (dropped packet), ask again
+      for (const delay of [6000, 14000]) {
+        window.setTimeout(() => {
+          if (isCancelled || rejectedRoomRef.current) return;
+          if (usersRef.current.length > 1 && elementsRef.current.length === 0) {
+            const selfNow =
+              usersRef.current.find((u) => u.id === userRef.current.id) || initialSelfPresence;
+            publishMeshPacket({
+              type: 'mesh-join',
+              roomId,
+              roomName: syncedRoomNameRef.current || roomNameRef.current,
+              maxUsers: targetMaxUsers,
+              isCreatingRoom: false,
+              user: selfNow,
+            });
+          }
+        }, delay);
+      }
 
       // Periodic heartbeat & stale peer cleanup
       meshHeartbeatTimer = window.setInterval(() => {
