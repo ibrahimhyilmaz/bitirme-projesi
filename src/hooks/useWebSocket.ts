@@ -125,6 +125,7 @@ export function useWebSocket({
   roomNameRef.current = roomName;
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [reconnectTick, setReconnectTick] = useState<number>(0);
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [users, setUsers] = useState<UserPresence[]>([]);
   const [roomSettings, setRoomSettings] = useState<RoomSettings>(() => ({
@@ -306,14 +307,11 @@ export function useWebSocket({
     [roomId, safeTopicRoomId]
   );
 
-  // Unified message sender: Always broadcasts to mesh peers (MQTT + BroadcastChannel)
-  // and simultaneously notifies local WebSocket if connected.
+  // Unified message sender: use low-latency server WebSocket exclusively when connected;
+  // only publish over public MQTT mesh when running in serverless/fallback mode.
+  // Eliminates duplicate packet processing, stale MQTT rollbacks, and public broker rate-limit lag.
   const sendMessage = useCallback(
     (msg: Record<string, unknown>) => {
-      // 1. Always publish to mesh peers across all containers, preview hosts, and devices
-      publishMeshPacket(msg);
-
-      // 2. Also send to local WebSocket server to keep server-side in-memory room state updated
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         try {
           const payload = JSON.stringify({
@@ -323,7 +321,22 @@ export function useWebSocket({
           });
           wsRef.current.send(payload);
         } catch {}
-      } else {
+        return;
+      }
+
+      if (isMeshModeRef.current) {
+        publishMeshPacket(msg);
+        return;
+      }
+
+      // Queue durable messages only while WS is briefly reconnecting (skip ephemeral high-frequency frames)
+      const msgType = String(msg.type || '');
+      if (
+        msgType !== 'cursor-move' &&
+        msgType !== 'laser-move' &&
+        msgType !== 'stroke-live' &&
+        msgType !== 'webrtc-signal'
+      ) {
         const payload = JSON.stringify(msg);
         pendingQueue.current.push(payload);
         if (pendingQueue.current.length > 100) {
@@ -693,6 +706,7 @@ export function useWebSocket({
           // --- Standard Room & Workspace Events ---
           case 'init-room': {
             setRoomError(null);
+            setReconnectTick((t) => t + 1);
             if (onJoinedRef.current) onJoinedRef.current(msg.roomId || roomId);
             setSyncedRoomName(msg.roomName || roomNameRef.current);
             if (msg.settings) {
@@ -1286,6 +1300,10 @@ export function useWebSocket({
       setIsConnected(false);
       isWsConnectedRef.current = false;
       setUsers([]);
+      setFiles([]);
+      filesRef.current = [];
+      chunkBuffersRef.current.clear();
+      meshLoadedRoomRef.current = '';
       return;
     }
 
@@ -1295,10 +1313,17 @@ export function useWebSocket({
     isMeshModeRef.current = false;
     joinedAtRef.current = Date.now();
     peerLastSeenRef.current.clear();
+    chunkBuffersRef.current.clear();
+    meshLoadedRoomRef.current = '';
 
-    // Reset room-specific state when entering/switching rooms so stale users/elements never persist
+    // Reset room-specific state when entering/switching rooms so stale users/elements/files never persist
     setUsers([]);
     setElements([]);
+    setFiles([]);
+    filesRef.current = [];
+    setChatMessages([]);
+    chatMessagesRef.current = [];
+    setCodeFiles([]);
     setPings([]);
     setReactions([]);
     setRemoteLaserPoints([]);
@@ -1368,12 +1393,29 @@ export function useWebSocket({
 
       httpFallbackBaseRef.current = '';
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      return `${protocol}//${window.location.host}`;
+      return `${protocol}//${window.location.host}/ws`;
     }
 
     let meshHeartbeatTimer: number | null = null;
     let beforeUnloadHandler: (() => void) | null = null;
     let meshStarted = false;
+    let wsConsecutiveFailures = 0;
+
+    function stopMeshNetwork() {
+      if (!meshStarted) return;
+      meshStarted = false;
+      isMeshModeRef.current = false;
+      if (meshHeartbeatTimer) {
+        clearInterval(meshHeartbeatTimer);
+        meshHeartbeatTimer = null;
+      }
+      for (const client of mqttClientsRef.current) {
+        try {
+          client.end(true);
+        } catch {}
+      }
+      mqttClientsRef.current = [];
+    }
 
     function initMeshNetwork(serverlessOnly: boolean) {
       if (isCancelled || rejectedRoomRef.current || meshStarted) return;
@@ -1598,7 +1640,10 @@ export function useWebSocket({
 
       ws.onopen = () => {
         if (isCancelled || rejectedRoomRef.current) return;
+        wsConsecutiveFailures = 0;
         isWsConnectedRef.current = true;
+        // Shut down any fallback MQTT mesh once fast server WebSocket is connected
+        stopMeshNetwork();
         isMeshModeRef.current = false;
         setIsConnected(true);
 
@@ -1620,9 +1665,6 @@ export function useWebSocket({
           if (item) ws.send(item);
         }
 
-        // Start secondary mesh network for cross-tab/cross-container sync after WS joins
-        initMeshNetwork(false);
-
         if (keepAliveIntervalRef.current) {
           clearInterval(keepAliveIntervalRef.current);
         }
@@ -1630,7 +1672,7 @@ export function useWebSocket({
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'ping-keepalive' }));
           }
-        }, 25000);
+        }, 20000);
       };
 
       ws.onmessage = (event) => {
@@ -1642,17 +1684,20 @@ export function useWebSocket({
       ws.onclose = () => {
         isWsConnectedRef.current = false;
         if (isCancelled || rejectedRoomRef.current) return;
+        wsConsecutiveFailures += 1;
         if (keepAliveIntervalRef.current) {
           clearInterval(keepAliveIntervalRef.current);
         }
-        if (!meshStarted) {
+        // Only fall back to public MQTT mesh if the WS server repeatedly fails to connect
+        if (!meshStarted && wsConsecutiveFailures >= 2) {
           initMeshNetwork(true);
         }
+        const retryDelay = Math.min(8000, 1200 * Math.min(wsConsecutiveFailures, 5));
         reconnectTimeoutRef.current = window.setTimeout(() => {
           if (!rejectedRoomRef.current && !isCancelled) {
             connectWs();
           }
-        }, 2500);
+        }, retryDelay);
       };
 
       ws.onerror = () => {
@@ -1877,8 +1922,9 @@ export function useWebSocket({
     (cursor: Point, isDrawing: boolean, activeTool: string) => {
       localCursorRef.current = { cursor, isDrawing, activeTool };
       const now = Date.now();
-      // Throttle cursor packets to ~25fps on mesh to keep bandwidth crisp
-      if (isMeshModeRef.current && now - lastCursorSentAtRef.current < 40 && !isDrawing) {
+      // Throttle cursor packets to ~30fps to prevent socket backpressure & jitter across peers
+      const minInterval = isMeshModeRef.current ? 45 : 32;
+      if (now - lastCursorSentAtRef.current < minInterval) {
         return;
       }
       lastCursorSentAtRef.current = now;
@@ -1893,8 +1939,14 @@ export function useWebSocket({
     [sendMessage]
   );
 
+  const lastLiveStrokeSentAtRef = useRef<number>(0);
   const sendLiveStroke = useCallback(
     (element: CanvasElement | null) => {
+      const now = Date.now();
+      if (element !== null && now - lastLiveStrokeSentAtRef.current < 35) {
+        return;
+      }
+      lastLiveStrokeSentAtRef.current = now;
       sendMessage({
         type: 'stroke-live',
         userId: userRef.current.id,
@@ -2342,6 +2394,7 @@ export function useWebSocket({
 
   return {
     isConnected,
+    reconnectTick,
     syncedRoomName,
     roomSettings,
     roomsList,

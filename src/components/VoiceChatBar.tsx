@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   RotateCcw,
+  RefreshCw,
 } from 'lucide-react';
 import { UserPresence, ThemeMode } from '../types';
 
@@ -31,6 +32,7 @@ interface VoiceChatBarProps {
   getUserVolume: (userId: string) => number;
   onSetUserVolume: (userId: string, volume: number) => void;
   voiceLinks?: { connected: number; total: number };
+  onRefreshVoice?: () => void;
   isHidden?: boolean;
   onToggleHidden?: () => void;
   layoutResetCounter?: number;
@@ -50,6 +52,7 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   getUserVolume,
   onSetUserVolume,
   voiceLinks,
+  onRefreshVoice,
   isHidden,
   onToggleHidden,
   layoutResetCounter = 0,
@@ -379,6 +382,19 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
             >
               · ses {voiceLinks.connected}/{voiceLinks.total}
             </span>
+          )}
+          {onRefreshVoice && voiceLinks && voiceLinks.total > 0 && voiceLinks.connected < voiceLinks.total && (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onRefreshVoice}
+              className={`ml-0.5 p-0.5 rounded transition-colors ${
+                isDark ? 'text-amber-400 hover:bg-slate-700' : 'text-amber-600 hover:bg-amber-100'
+              }`}
+              title="Ses Bağlantısını Yenile"
+            >
+              <RefreshCw className="w-3 h-3" />
+            </button>
           )}
         </div>
 

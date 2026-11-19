@@ -39,6 +39,86 @@ import type { BoardSnapshot } from './utils/cloudBoardCodec';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 import { normalizeImageDataUrl } from './utils/fileValidation';
 
+interface ElementDelta {
+  id: string;
+  before: CanvasElement | null;
+  after: CanvasElement | null;
+}
+
+interface OrderChange {
+  movedIds: string[];
+  beforeIds: string[];
+  afterIds: string[];
+}
+
+interface UndoTransaction {
+  deltas: Map<string, ElementDelta>;
+  orderChange?: OrderChange;
+  committed: boolean;
+  mode: 'explicit' | 'auto';
+}
+
+function cloneCanvasElement(el: CanvasElement): CanvasElement {
+  return {
+    ...el,
+    points: el.points ? el.points.map((p) => ({ ...p })) : undefined,
+    folderFiles: el.folderFiles ? el.folderFiles.map((f) => ({ ...f })) : undefined,
+  };
+}
+
+function applyScopedOrderChange(
+  liveElements: CanvasElement[],
+  movedIds: string[],
+  targetOrderIds: string[]
+): CanvasElement[] {
+  const movedSet = new Set(movedIds);
+  const staying = liveElements.filter((el) => !movedSet.has(el.id));
+  const movingMap = new Map(
+    liveElements.filter((el) => movedSet.has(el.id)).map((el) => [el.id, el])
+  );
+  if (movingMap.size === 0) return liveElements;
+
+  const targetIndexMap = new Map(targetOrderIds.map((id, idx) => [id, idx]));
+  const orderedMoving = Array.from(movingMap.values()).sort(
+    (a, b) => (targetIndexMap.get(a.id) ?? 0) - (targetIndexMap.get(b.id) ?? 0)
+  );
+
+  const result = [...staying];
+  for (const item of orderedMoving) {
+    const targetIdx = targetIndexMap.get(item.id);
+    if (targetIdx === undefined) {
+      result.push(item);
+      continue;
+    }
+
+    let inserted = false;
+    // Prefer inserting right after the nearest surviving predecessor from targetOrderIds
+    for (let i = targetIdx - 1; i >= 0; i--) {
+      const predPos = result.findIndex((el) => el.id === targetOrderIds[i]);
+      if (predPos !== -1) {
+        result.splice(predPos + 1, 0, item);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      // Otherwise insert right before the nearest surviving successor
+      for (let i = targetIdx + 1; i < targetOrderIds.length; i++) {
+        const succPos = result.findIndex((el) => el.id === targetOrderIds[i]);
+        if (succPos !== -1) {
+          result.splice(succPos, 0, item);
+          inserted = true;
+          break;
+        }
+      }
+    }
+    if (!inserted) {
+      result.push(item);
+    }
+  }
+  return result;
+}
+
 function extractRoomInfoFromLocation(): {
   roomId: string;
   roomName: string;
@@ -400,26 +480,39 @@ export default function App() {
   const showFolder = settings.showFolder !== false;
 
   // Sync theme class to document element for Tailwind dark: variants
+  // Keep initial welcome / entry screen (!hasEnteredWorkspace) strictly light per user preference
   useEffect(() => {
-    const isDark = settings.theme === 'dark' || settings.theme === 'midnight';
+    const isDark = hasEnteredWorkspace && (settings.theme === 'dark' || settings.theme === 'midnight');
     if (isDark) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [settings.theme]);
+  }, [settings.theme, hasEnteredWorkspace]);
 
-  // Floating widget z-index stacking management (bring-to-front on click/drag)
+  // Floating widget z-index stacking management (above canvas overlays z-[6..18] & minimap z-[24], below cursors z-[48] & modals z-50)
   const [widgetZIndexes, setWidgetZIndexes] = useState<{ toolbar: number; voice: number; style: number }>({
-    toolbar: 22,
-    voice: 21,
-    style: 20,
+    toolbar: 32,
+    voice: 31,
+    style: 30,
   });
 
   const bringWidgetToFront = useCallback((widget: 'toolbar' | 'voice' | 'style') => {
     setWidgetZIndexes((prev) => {
-      const maxZ = Math.max(prev.toolbar, prev.voice, prev.style, 22);
-      if (prev[widget] === maxZ) return prev;
+      const maxZ = Math.max(prev.toolbar, prev.voice, prev.style, 32);
+      if (prev[widget] === maxZ && maxZ < 44) return prev;
+      if (maxZ >= 44) {
+        // Re-normalize into 30..32 so widgets never climb above remote cursors (z-48) or modals (z-50)
+        const others = (['toolbar', 'voice', 'style'] as const)
+          .filter((k) => k !== widget)
+          .sort((a, b) => prev[a] - prev[b]);
+        return {
+          ...prev,
+          [others[0]]: 30,
+          [others[1]]: 31,
+          [widget]: 32,
+        };
+      }
       return {
         ...prev,
         [widget]: maxZ + 1,
@@ -572,13 +665,14 @@ export default function App() {
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
 
-  // Undo / Redo stacks
-  const [undoStack, setUndoStack] = useState<CanvasElement[][]>([]);
-  const [redoStack, setRedoStack] = useState<CanvasElement[][]>([]);
+  // Per-user scoped delta Undo / Redo stacks
+  const [undoStack, setUndoStack] = useState<UndoTransaction[]>([]);
+  const [redoStack, setRedoStack] = useState<UndoTransaction[]>([]);
 
   // WebSocket Connection
   const {
     isConnected,
+    reconnectTick,
     syncedRoomName,
     elements,
     users,
@@ -600,13 +694,13 @@ export default function App() {
     codeCursors,
     sendCursor,
     sendLaserPoint,
-    createElement,
-    updateElement,
-    batchUpdateElements,
-    deleteElements,
-    replaceElements,
-    clearElements,
-    loadTemplate,
+    createElement: rawCreateElement,
+    updateElement: rawUpdateElement,
+    batchUpdateElements: rawBatchUpdateElements,
+    deleteElements: rawDeleteElements,
+    replaceElements: rawReplaceElements,
+    clearElements: rawClearElements,
+    loadTemplate: rawLoadTemplate,
     updateCode,
     sendCodeCursor,
     updateNotes,
@@ -694,6 +788,360 @@ export default function App() {
       }
     },
   });
+
+  // Always-fresh elements ref (also updated synchronously inside local mutators so multi-op frames record accurate deltas)
+  const elementsRef = useRef<CanvasElement[]>(elements);
+  elementsRef.current = elements;
+
+  // Per-user scoped delta transaction manager:
+  // Only records changes explicitly triggered by THIS user. Remote updates from other users never enter undoStack.
+  const activeTxRef = useRef<UndoTransaction | null>(null);
+  const autoCloseTimerRef = useRef<number | null>(null);
+  const isPointerDownGlobalRef = useRef<boolean>(false);
+
+  const clearAutoCloseTimer = useCallback(() => {
+    if (autoCloseTimerRef.current !== null) {
+      window.clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const closeActiveTx = useCallback(() => {
+    clearAutoCloseTimer();
+    activeTxRef.current = null;
+  }, [clearAutoCloseTimer]);
+
+  // Close active pointer-gesture transaction cleanly right after pointerup/pointercancel finishes
+  useEffect(() => {
+    const onPointerDownCapture = () => {
+      isPointerDownGlobalRef.current = true;
+    };
+    const onPointerRelease = () => {
+      window.setTimeout(() => {
+        isPointerDownGlobalRef.current = false;
+        if (activeTxRef.current) {
+          closeActiveTx();
+        }
+      }, 0);
+    };
+    window.addEventListener('pointerdown', onPointerDownCapture, true);
+    window.addEventListener('pointerup', onPointerRelease, false);
+    window.addEventListener('pointercancel', onPointerRelease, false);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDownCapture, true);
+      window.removeEventListener('pointerup', onPointerRelease, false);
+      window.removeEventListener('pointercancel', onPointerRelease, false);
+    };
+  }, [closeActiveTx]);
+
+  // Reset per-room undo/redo history when switching rooms
+  useEffect(() => {
+    closeActiveTx();
+    setUndoStack([]);
+    setRedoStack([]);
+  }, [roomId, closeActiveTx]);
+
+  const scheduleTxAutoClose = useCallback(
+    (delayMs: number) => {
+      clearAutoCloseTimer();
+      autoCloseTimerRef.current = window.setTimeout(() => {
+        autoCloseTimerRef.current = null;
+        if (!isPointerDownGlobalRef.current) {
+          activeTxRef.current = null;
+        }
+      }, delayMs);
+    },
+    [clearAutoCloseTimer]
+  );
+
+  // Begin an uncommitted local transaction; pushed to undoStack only on the first actual local mutation
+  const recordUndo = useCallback(() => {
+    clearAutoCloseTimer();
+    const tx: UndoTransaction = {
+      deltas: new Map(),
+      committed: false,
+      mode: 'explicit',
+    };
+    activeTxRef.current = tx;
+    // If not currently inside a pointer drag/draw gesture (e.g. keyboard shortcut or button click),
+    // automatically close this transaction right after the synchronous event completes.
+    if (!isPointerDownGlobalRef.current) {
+      scheduleTxAutoClose(0);
+    }
+  }, [clearAutoCloseTimer, scheduleTxAutoClose]);
+
+  const getOrOpenTx = useCallback((): UndoTransaction => {
+    if (activeTxRef.current) {
+      if (activeTxRef.current.mode === 'auto' && !isPointerDownGlobalRef.current) {
+        scheduleTxAutoClose(350);
+      }
+      return activeTxRef.current;
+    }
+    const tx: UndoTransaction = {
+      deltas: new Map(),
+      committed: false,
+      mode: 'auto',
+    };
+    activeTxRef.current = tx;
+    if (!isPointerDownGlobalRef.current) {
+      scheduleTxAutoClose(350);
+    }
+    return tx;
+  }, [scheduleTxAutoClose]);
+
+  const commitTx = useCallback((tx: UndoTransaction) => {
+    if (tx.committed) return;
+    tx.committed = true;
+    setUndoStack((prev) => [...prev.slice(-39), tx]);
+    setRedoStack([]);
+  }, []);
+
+  const recordElementDelta = useCallback(
+    (tx: UndoTransaction, id: string, before: CanvasElement | null, after: CanvasElement | null) => {
+      const existing = tx.deltas.get(id);
+      if (existing) {
+        existing.after = after ? cloneCanvasElement(after) : null;
+      } else {
+        tx.deltas.set(id, {
+          id,
+          before: before ? cloneCanvasElement(before) : null,
+          after: after ? cloneCanvasElement(after) : null,
+        });
+      }
+      commitTx(tx);
+    },
+    [commitTx]
+  );
+
+  // Tracked local element mutators (remote WS/MQTT packets bypass these and never enter local undo)
+  const createElement = useCallback(
+    (el: CanvasElement) => {
+      if (!canEdit) return;
+      const tx = getOrOpenTx();
+      const prevEl = elementsRef.current.find((e) => e.id === el.id) ?? null;
+      recordElementDelta(tx, el.id, prevEl, el);
+      if (!prevEl) {
+        elementsRef.current = [...elementsRef.current, el];
+      }
+      rawCreateElement(el);
+    },
+    [canEdit, getOrOpenTx, recordElementDelta, rawCreateElement]
+  );
+
+  const updateElement = useCallback(
+    (id: string, changes: Partial<CanvasElement>) => {
+      if (!canEdit) return;
+      const prevEl = elementsRef.current.find((e) => e.id === id);
+      if (prevEl) {
+        const tx = getOrOpenTx();
+        const nextEl: CanvasElement = { ...prevEl, ...changes, updatedAt: Date.now() };
+        recordElementDelta(tx, id, prevEl, nextEl);
+        elementsRef.current = elementsRef.current.map((e) => (e.id === id ? nextEl : e));
+      }
+      rawUpdateElement(id, changes);
+    },
+    [canEdit, getOrOpenTx, recordElementDelta, rawUpdateElement]
+  );
+
+  const batchUpdateElements = useCallback(
+    (updates: { id: string; changes: Partial<CanvasElement> }[]) => {
+      if (!canEdit || updates.length === 0) return;
+      const tx = getOrOpenTx();
+      const changeMap = new Map<string, CanvasElement>();
+      for (const u of updates) {
+        const prevEl = elementsRef.current.find((e) => e.id === u.id);
+        if (!prevEl) continue;
+        const nextEl: CanvasElement = { ...prevEl, ...u.changes, updatedAt: Date.now() };
+        recordElementDelta(tx, u.id, prevEl, nextEl);
+        changeMap.set(u.id, nextEl);
+      }
+      if (changeMap.size > 0) {
+        elementsRef.current = elementsRef.current.map((e) => changeMap.get(e.id) ?? e);
+      }
+      rawBatchUpdateElements(updates);
+    },
+    [canEdit, getOrOpenTx, recordElementDelta, rawBatchUpdateElements]
+  );
+
+  const deleteElements = useCallback(
+    (ids: string[]) => {
+      if (!canEdit || ids.length === 0) return;
+      const idSet = new Set(ids);
+      const existing = elementsRef.current.filter((e) => idSet.has(e.id));
+      if (existing.length > 0) {
+        const tx = getOrOpenTx();
+        for (const el of existing) {
+          recordElementDelta(tx, el.id, el, null);
+        }
+        elementsRef.current = elementsRef.current.filter((e) => !idSet.has(e.id));
+      }
+      rawDeleteElements(ids);
+    },
+    [canEdit, getOrOpenTx, recordElementDelta, rawDeleteElements]
+  );
+
+  const clearElements = useCallback(() => {
+    if (!canEdit) return;
+    if (elementsRef.current.length > 0) {
+      const tx = getOrOpenTx();
+      for (const el of elementsRef.current) {
+        recordElementDelta(tx, el.id, el, null);
+      }
+      elementsRef.current = [];
+    }
+    rawClearElements();
+  }, [canEdit, getOrOpenTx, recordElementDelta, rawClearElements]);
+
+  const loadTemplate = useCallback(
+    (templateElements: CanvasElement[]) => {
+      if (!canEdit || templateElements.length === 0) return;
+      const tx = getOrOpenTx();
+      const currentMap = new Map(elementsRef.current.map((e) => [e.id, e]));
+      for (const el of templateElements) {
+        const prevEl = currentMap.get(el.id) ?? null;
+        recordElementDelta(tx, el.id, prevEl, el);
+        currentMap.set(el.id, el);
+      }
+      elementsRef.current = Array.from(currentMap.values());
+      rawLoadTemplate(templateElements);
+    },
+    [canEdit, getOrOpenTx, recordElementDelta, rawLoadTemplate]
+  );
+
+  const replaceElements = useCallback(
+    (nextElements: CanvasElement[]) => {
+      if (!canEdit) return;
+      const tx = getOrOpenTx();
+      const prevMap = new Map(elementsRef.current.map((e) => [e.id, e]));
+      const nextMap = new Map(nextElements.map((e) => [e.id, e]));
+      for (const [id, prevEl] of prevMap) {
+        if (!nextMap.has(id)) {
+          recordElementDelta(tx, id, prevEl, null);
+        }
+      }
+      for (const [id, nextEl] of nextMap) {
+        const prevEl = prevMap.get(id) ?? null;
+        recordElementDelta(tx, id, prevEl, nextEl);
+      }
+      elementsRef.current = nextElements;
+      rawReplaceElements(nextElements);
+    },
+    [canEdit, getOrOpenTx, recordElementDelta, rawReplaceElements]
+  );
+
+  const reorderElements = useCallback(
+    (movedIds: string[], nextElements: CanvasElement[]) => {
+      if (!canEdit || movedIds.length === 0) return;
+      const tx = getOrOpenTx();
+      const beforeIds = elementsRef.current.map((e) => e.id);
+      const afterIds = nextElements.map((e) => e.id);
+      tx.orderChange = {
+        movedIds: [...movedIds],
+        beforeIds: tx.orderChange ? tx.orderChange.beforeIds : beforeIds,
+        afterIds,
+      };
+      commitTx(tx);
+      elementsRef.current = nextElements;
+      rawReplaceElements(nextElements);
+    },
+    [canEdit, getOrOpenTx, commitTx, rawReplaceElements]
+  );
+
+  const applyTransaction = useCallback(
+    (tx: UndoTransaction, direction: 'undo' | 'redo') => {
+      closeActiveTx();
+      const liveList = [...elementsRef.current];
+      const liveMap = new Map(liveList.map((e) => [e.id, e]));
+
+      const idsToDelete: string[] = [];
+      const elementsToCreate: CanvasElement[] = [];
+      const updatesToApply: { id: string; changes: Partial<CanvasElement> }[] = [];
+
+      for (const delta of tx.deltas.values()) {
+        const target = direction === 'undo' ? delta.before : delta.after;
+        const source = direction === 'undo' ? delta.after : delta.before;
+        if (!target && !source) continue;
+
+        const current = liveMap.get(delta.id) ?? null;
+        if (!target) {
+          if (current) {
+            idsToDelete.push(delta.id);
+            liveMap.delete(delta.id);
+          }
+        } else if (!current) {
+          const restored = cloneCanvasElement(target);
+          elementsToCreate.push(restored);
+          liveMap.set(delta.id, restored);
+        } else {
+          // If element type or points presence changed (e.g. precision eraser converting a shape to a stroke),
+          // recreate cleanly so no stale keys remain.
+          const needsRecreate =
+            current.type !== target.type || Boolean(current.points) !== Boolean(target.points);
+          if (needsRecreate) {
+            const restored = cloneCanvasElement(target);
+            idsToDelete.push(delta.id);
+            elementsToCreate.push(restored);
+            liveMap.set(delta.id, restored);
+          } else {
+            const restored = { ...cloneCanvasElement(target), updatedAt: Date.now() };
+            updatesToApply.push({ id: delta.id, changes: restored });
+            liveMap.set(delta.id, restored);
+          }
+        }
+      }
+
+      if (idsToDelete.length > 0) {
+        rawDeleteElements(idsToDelete);
+        const delSet = new Set(idsToDelete);
+        setSelectedElementIds((prev) => prev.filter((id) => !delSet.has(id)));
+      }
+      for (const el of elementsToCreate) {
+        rawCreateElement(el);
+      }
+      if (updatesToApply.length > 0) {
+        rawBatchUpdateElements(updatesToApply);
+      }
+
+      // Compute updated local snapshot for elementsRef & optional z-order restoration
+      let nextLive = liveList
+        .filter((e) => !idsToDelete.includes(e.id))
+        .map((e) => liveMap.get(e.id) ?? e);
+      if (elementsToCreate.length > 0) {
+        const existingSet = new Set(nextLive.map((e) => e.id));
+        for (const el of elementsToCreate) {
+          if (!existingSet.has(el.id)) {
+            nextLive.push(el);
+          }
+        }
+      }
+
+      if (tx.orderChange) {
+        const targetOrderIds =
+          direction === 'undo' ? tx.orderChange.beforeIds : tx.orderChange.afterIds;
+        nextLive = applyScopedOrderChange(nextLive, tx.orderChange.movedIds, targetOrderIds);
+        rawReplaceElements(nextLive);
+      }
+
+      elementsRef.current = nextLive;
+    },
+    [closeActiveTx, rawDeleteElements, rawCreateElement, rawBatchUpdateElements, rawReplaceElements]
+  );
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const tx = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev.slice(-39), tx]);
+    applyTransaction(tx, 'undo');
+  }, [undoStack, applyTransaction]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const tx = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setUndoStack((prev) => [...prev.slice(-39), tx]);
+    applyTransaction(tx, 'redo');
+  }, [redoStack, applyTransaction]);
 
   // Record last valid room after joining without errors so rejected room switches can revert cleanly
   useEffect(() => {
@@ -806,10 +1254,10 @@ export default function App() {
           updateNotes(cloudData.notesContent);
         }
         if (cloudData.elements && cloudData.elements.length > 0) {
-          loadTemplate(cloudData.elements);
+          rawLoadTemplate(cloudData.elements);
         }
       },
-      [updateCode, updateNotes, loadTemplate]
+      [updateCode, updateNotes, rawLoadTemplate]
     ),
   });
 
@@ -949,13 +1397,13 @@ export default function App() {
     const decoded = decodeRoomSnapshot(snapParam);
     if (decoded) {
       if (decoded.elements && decoded.elements.length > 0) {
-        loadTemplate(decoded.elements);
+        rawLoadTemplate(decoded.elements);
       }
       if (decoded.codeContent) {
         updateCode(decoded.codeContent, decoded.codeLanguage);
       }
     }
-  }, [loadTemplate, updateCode]);
+  }, [rawLoadTemplate, updateCode]);
 
   // If user becomes a viewer, switch active tool to 'select' if currently on a drawing tool
   useEffect(() => {
@@ -1181,7 +1629,6 @@ export default function App() {
     );
 
     voiceManagerRef.current = vm;
-    vm.initLocalMicrophone();
 
     return () => {
       vm.cleanup();
@@ -1189,14 +1636,30 @@ export default function App() {
     };
   }, []);
 
+  // Only initialize microphone once the user enters a workspace room (not on initial welcome screen)
+  useEffect(() => {
+    if (hasEnteredWorkspace && voiceManagerRef.current) {
+      voiceManagerRef.current.initLocalMicrophone();
+    } else if (!hasEnteredWorkspace && voiceManagerRef.current) {
+      voiceManagerRef.current.disconnectAllPeers();
+    }
+  }, [hasEnteredWorkspace]);
+
   // Sync WebRTC peers when room user list changes
   const usersForVoiceRef = useRef(users);
   usersForVoiceRef.current = users;
   useEffect(() => {
-    if (!voiceManagerRef.current) return;
+    if (!hasEnteredWorkspace || !voiceManagerRef.current) return;
     const activeIds = users.map((u) => u.id);
     voiceManagerRef.current.syncPeers(activeIds, currentUser.id);
-  }, [users, currentUser.id]);
+  }, [users, currentUser.id, hasEnteredWorkspace]);
+
+  // Immediately re-establish any incomplete voice peer links whenever WS connects/reconnects to the room
+  useEffect(() => {
+    if (!hasEnteredWorkspace || reconnectTick === 0 || !voiceManagerRef.current) return;
+    const activeIds = usersForVoiceRef.current.map((u) => u.id);
+    voiceManagerRef.current.refreshConnections(activeIds, currentUser.id);
+  }, [reconnectTick, hasEnteredWorkspace, currentUser.id]);
 
   // Periodically re-establish peers whose connection failed or was closed
   const [voiceLinks, setVoiceLinks] = useState<{ connected: number; total: number }>({
@@ -1204,6 +1667,10 @@ export default function App() {
     total: 0,
   });
   useEffect(() => {
+    if (!hasEnteredWorkspace) {
+      setVoiceLinks({ connected: 0, total: 0 });
+      return;
+    }
     const timer = window.setInterval(() => {
       voiceManagerRef.current?.pruneStalePeers();
       const states = voiceManagerRef.current?.getPeerStates() ?? [];
@@ -1217,8 +1684,16 @@ export default function App() {
         usersForVoiceRef.current.map((u) => u.id),
         currentUser.id
       );
-    }, 5000);
+    }, 3500);
     return () => window.clearInterval(timer);
+  }, [currentUser.id, hasEnteredWorkspace]);
+
+  const handleRefreshVoice = useCallback(() => {
+    if (!voiceManagerRef.current) return;
+    voiceManagerRef.current.refreshConnections(
+      usersForVoiceRef.current.map((u) => u.id),
+      currentUser.id
+    );
   }, [currentUser.id]);
 
   // Voice Toggles
@@ -1274,28 +1749,6 @@ export default function App() {
     }
   }, []);
 
-  // Snapshot for Undo before modifying
-  const recordUndo = useCallback(() => {
-    setUndoStack((prev) => [...prev.slice(-30), elements]);
-    setRedoStack([]);
-  }, [elements]);
-
-  const handleUndo = useCallback(() => {
-    if (undoStack.length === 0) return;
-    const prevElements = undoStack[undoStack.length - 1];
-    setUndoStack((prev) => prev.slice(0, -1));
-    setRedoStack((prev) => [...prev, elements]);
-    replaceElements(prevElements);
-  }, [undoStack, elements, replaceElements]);
-
-  const handleRedo = useCallback(() => {
-    if (redoStack.length === 0) return;
-    const nextElements = redoStack[redoStack.length - 1];
-    setRedoStack((prev) => prev.slice(0, -1));
-    setUndoStack((prev) => [...prev, elements]);
-    replaceElements(nextElements);
-  }, [redoStack, elements, replaceElements]);
-
   // ---- Google account: cloud board save / resume ----
   const [cloudAutoSave, setCloudAutoSave] = useState<boolean>(() => {
     try {
@@ -1322,8 +1775,6 @@ export default function App() {
   const autoRestoredRef = useRef<string>('');
   const roomNowRef = useRef(roomId);
   roomNowRef.current = roomId;
-  const elementsRef = useRef(elements);
-  elementsRef.current = elements;
 
   const boardReady =
     hasEnteredWorkspace && !roomError && joinedRoomId === roomId;
@@ -1340,13 +1791,17 @@ export default function App() {
   }, [elements, code.content, code.language, notes.content, codeFiles]);
 
   const applyBoardSnapshot = useCallback(
-    (snap: BoardSnapshot) => {
-      replaceElements(snap.elements);
+    (snap: BoardSnapshot, trackInUndo = false) => {
+      if (trackInUndo) {
+        replaceElements(snap.elements);
+      } else {
+        rawReplaceElements(snap.elements);
+      }
       if (snap.codeContent) updateCode(snap.codeContent, snap.codeLanguage);
       if (snap.notesContent) updateNotes(snap.notesContent);
       snap.codeFiles.forEach((f) => upsertCodeFile(f));
     },
-    [replaceElements, updateCode, updateNotes, upsertCodeFile]
+    [replaceElements, rawReplaceElements, updateCode, updateNotes, upsertCodeFile]
   );
 
   const saveBoardNow = useCallback(
@@ -1503,7 +1958,7 @@ export default function App() {
         return;
       }
       recordUndo();
-      applyBoardSnapshot(snap);
+      applyBoardSnapshot(snap, true);
       showCloudToast('Son kayıt yüklendi');
     },
     [loadBoard, recordUndo, applyBoardSnapshot, showCloudToast]
@@ -1626,16 +2081,16 @@ export default function App() {
     recordUndo();
     const toBring = elements.filter((e) => selectedElementIds.includes(e.id));
     const remaining = elements.filter((e) => !selectedElementIds.includes(e.id));
-    replaceElements([...remaining, ...toBring]);
-  }, [selectedElementIds, elements, recordUndo, replaceElements]);
+    reorderElements(selectedElementIds, [...remaining, ...toBring]);
+  }, [selectedElementIds, elements, recordUndo, reorderElements]);
 
   const handleSendBackward = useCallback(() => {
     if (selectedElementIds.length === 0) return;
     recordUndo();
     const toSend = elements.filter((e) => selectedElementIds.includes(e.id));
     const remaining = elements.filter((e) => !selectedElementIds.includes(e.id));
-    replaceElements([...toSend, ...remaining]);
-  }, [selectedElementIds, elements, recordUndo, replaceElements]);
+    reorderElements(selectedElementIds, [...toSend, ...remaining]);
+  }, [selectedElementIds, elements, recordUndo, reorderElements]);
 
   // Step-by-step layer ordering: Bring 1 layer forward / Send 1 layer backward
   const handleBringStepForward = useCallback(() => {
@@ -1655,9 +2110,9 @@ export default function App() {
 
     if (changed) {
       recordUndo();
-      replaceElements(next);
+      reorderElements(selectedElementIds, next);
     }
-  }, [selectedElementIds, elements, recordUndo, replaceElements]);
+  }, [selectedElementIds, elements, recordUndo, reorderElements]);
 
   const handleSendStepBackward = useCallback(() => {
     if (selectedElementIds.length === 0 || elements.length <= 1) return;
@@ -1676,9 +2131,9 @@ export default function App() {
 
     if (changed) {
       recordUndo();
-      replaceElements(next);
+      reorderElements(selectedElementIds, next);
     }
-  }, [selectedElementIds, elements, recordUndo, replaceElements]);
+  }, [selectedElementIds, elements, recordUndo, reorderElements]);
 
   // Global Keyboard Shortcuts (Tools, Voice, Undo/Redo, Duplicate, Rotate, Flip, Layer Order, Select All)
   useEffect(() => {
@@ -1889,7 +2344,9 @@ export default function App() {
 
   // Element Actions
   const handleCreateElement = (el: CanvasElement) => {
-    recordUndo();
+    if (!activeTxRef.current) {
+      recordUndo();
+    }
     createElement(el);
   };
 
@@ -1898,7 +2355,9 @@ export default function App() {
   };
 
   const handleDeleteElements = (ids: string[]) => {
-    recordUndo();
+    if (!activeTxRef.current) {
+      recordUndo();
+    }
     deleteElements(ids);
     setSelectedElementIds((prev) => prev.filter((id) => !ids.includes(id)));
   };
@@ -2114,6 +2573,52 @@ export default function App() {
     [clearRoomError]
   );
 
+  // Cleanly leave the current room and return to the initial entry screen
+  const handleLeaveRoom = useCallback(() => {
+    if (voiceManagerRef.current) {
+      if (!isMuted) {
+        voiceManagerRef.current.setMuted(true);
+      }
+      voiceManagerRef.current.disconnectAllPeers();
+    }
+    setIsMuted(true);
+    setLocalVolume(0);
+    clearSavedSession();
+    lastValidRoomRef.current = null;
+    clearRoomError();
+    setJoinGateError(null);
+    setSelectedElementIds([]);
+    setActivePanel('none');
+    setIsRoomsModalOpen(false);
+    setIsSettingsOpen(false);
+    setIsExportOpen(false);
+    setIsTemplatesOpen(false);
+    setIsAIPromptOpen(false);
+    setIsOnboardingOpen(false);
+    setIsCreatingRoom(false);
+    setRestoreRoom(false);
+    setJoinedRoomId('');
+    setHasEnteredWorkspace(false);
+    setIsInitialSetup(true);
+    setIsUserSetupOpen(true);
+
+    // Strip room query params from URL so refreshing on the welcome screen stays on the welcome screen
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('room');
+      url.searchParams.delete('rname');
+      if (url.hash && (url.hash.includes('room=') || url.hash.includes('/room/'))) {
+        url.hash = '';
+      }
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+
+    // Refresh live room list shortly after disconnect so user count updates accurately
+    window.setTimeout(() => {
+      requestRoomsList();
+    }, 180);
+  }, [isMuted, clearRoomError, requestRoomsList]);
+
   // Resume a board saved to my Google account: join the live room, or re-create it from the last save
   const handleResumeCloudBoard = useCallback(
     async (
@@ -2272,6 +2777,7 @@ export default function App() {
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
         onSwitchRoomByCode={(codeStr) => handleSelectOrSwitchRoom(codeStr, undefined, undefined, false)}
+        onLeaveRoom={handleLeaveRoom}
         theme={settings.theme}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -2358,6 +2864,7 @@ export default function App() {
           getUserVolume={handleGetUserVolume}
           onSetUserVolume={handleSetUserVolume}
           voiceLinks={voiceLinks}
+          onRefreshVoice={handleRefreshVoice}
           isHidden={!showVoiceBar}
           onToggleHidden={handleToggleVoiceBar}
           layoutResetCounter={layoutResetCounter}
@@ -2863,6 +3370,9 @@ export default function App() {
         <ExportModal
           elements={elements}
           roomName={effectiveRoomName}
+          theme={settings.theme}
+          pan={pan}
+          zoom={zoom}
           onImportElements={(importedElements) => {
             recordUndo();
             loadTemplate(importedElements);

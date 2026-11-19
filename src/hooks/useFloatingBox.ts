@@ -119,6 +119,10 @@ export function useFloatingBox({
     );
 
   const reset = useCallback(() => setRect(clamp(defaultRect)), [clamp, defaultRect]);
+  const updateRect = useCallback(
+    (updater: (prev: FloatingRect) => FloatingRect) => setRect((prev) => clamp(updater(prev))),
+    [clamp]
+  );
 
-  return { rect, ref, startDrag, startResize, reset };
+  return { rect, ref, startDrag, startResize, reset, updateRect };
 }

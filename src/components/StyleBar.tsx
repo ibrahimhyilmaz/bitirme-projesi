@@ -532,8 +532,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         <EyeOff className="w-4 h-4" />
       </button>
 
-      {/* Eraser Shape Selector (Square / Circle) */}
-      {(activeTool === 'eraser' || activeTool === 'point-eraser') && (
+      {/* Eraser Shape Selector (Square / Circle) — Precision Eraser Only */}
+      {activeTool === 'point-eraser' && (
         <div className="flex items-center gap-1.5 border-r border-slate-200 pr-2">
           <span className="text-[11px] font-semibold text-slate-600 hidden sm:inline">Silgi Alanı:</span>
           <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
@@ -652,24 +652,31 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       {/* Stroke Width & Advanced Style Picker */}
       {!isImage && !isText && !isSticky && (
         <div className="flex items-center gap-1 border-r border-slate-200 pr-2" ref={advancedMenuRef}>
-          {[2, 4, 8, 12].map((w) => (
-            <button
-              key={w}
-              onClick={() => onChangeStrokeWidth(w)}
-              className={`w-6 h-6 rounded flex items-center justify-center text-slate-700 hover:bg-slate-100 ${
-                activeStrokeWidth === w ? 'bg-slate-200 font-bold text-blue-600' : ''
-              }`}
-              title={`Çizgi Kalınlığı: ${w}px`}
-            >
-              <span
-                className="bg-current rounded-full"
-                style={{
-                  width: `${Math.min(14, w * 1.5)}px`,
-                  height: `${Math.min(14, w * 1.5)}px`,
-                }}
-              />
-            </button>
-          ))}
+          {[2, 4, 8, 12].map((w) => {
+            const isSelected = activeStrokeWidth === w;
+            return (
+              <button
+                key={w}
+                type="button"
+                onClick={() => onChangeStrokeWidth(w)}
+                data-selected-option={isSelected ? 'true' : undefined}
+                className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
+                  isSelected
+                    ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-400/60 dark:bg-blue-600/30 dark:text-blue-300 dark:ring-blue-400/70'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+                title={`Çizgi Kalınlığı: ${w}px`}
+              >
+                <span
+                  className="bg-current rounded-full"
+                  style={{
+                    width: `${Math.min(14, w * 1.5)}px`,
+                    height: `${Math.min(14, w * 1.5)}px`,
+                  }}
+                />
+              </button>
+            );
+          })}
 
           {/* Stroke Style, Opacity, Thickness Slider & Live Preview Popover */}
           <div className="relative">

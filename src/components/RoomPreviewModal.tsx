@@ -30,6 +30,40 @@ interface PreviewResponse {
   elements: CanvasElement[];
 }
 
+type PreviewBackgroundMode = 'white' | 'dark' | 'transparent';
+
+const PREVIEW_BG_STORAGE_KEY = 'collab_preview_bg';
+
+const PREVIEW_BG_OPTIONS: ReadonlyArray<{
+  id: PreviewBackgroundMode;
+  label: string;
+  swatch: string;
+}> = [
+  { id: 'white', label: 'Beyaz', swatch: 'bg-white border-slate-300' },
+  { id: 'dark', label: 'Koyu', swatch: 'bg-slate-900 border-slate-600' },
+  {
+    id: 'transparent',
+    label: 'Saydam',
+    swatch:
+      'border-slate-300 dark:border-slate-600 bg-[linear-gradient(45deg,#cbd5e1_25%,transparent_25%,transparent_75%,#cbd5e1_75%),linear-gradient(45deg,#cbd5e1_25%,#ffffff_25%,#ffffff_75%,#cbd5e1_75%)] bg-[length:8px_8px] bg-[position:0_0,4px_4px]',
+  },
+];
+
+const getInitialPreviewBg = (): PreviewBackgroundMode => {
+  try {
+    const saved = sessionStorage.getItem(PREVIEW_BG_STORAGE_KEY);
+    if (saved === 'white' || saved === 'dark' || saved === 'transparent') {
+      return saved;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  if (typeof document !== 'undefined' && document.documentElement.classList.contains('dark')) {
+    return 'dark';
+  }
+  return 'white';
+};
+
 export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
   room,
   isCurrentRoom = false,
@@ -42,6 +76,16 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
   const [isLockedError, setIsLockedError] = useState(false);
   const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
   const [redrawTick, setRedrawTick] = useState(0);
+  const [previewBg, setPreviewBg] = useState<PreviewBackgroundMode>(getInitialPreviewBg);
+
+  const handleSelectPreviewBg = useCallback((mode: PreviewBackgroundMode) => {
+    setPreviewBg(mode);
+    try {
+      sessionStorage.setItem(PREVIEW_BG_STORAGE_KEY, mode);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -136,17 +180,29 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
     ctx.save();
     ctx.scale(dpr, dpr);
 
-    // Clean whiteboard surface + subtle dot grid
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(0, 0, cssWidth, cssHeight);
+    // Paint chosen preview background surface (Beyaz / Koyu / Saydam)
+    if (previewBg === 'transparent') {
+      const tile = 16;
+      for (let gx = 0; gx < cssWidth; gx += tile) {
+        for (let gy = 0; gy < cssHeight; gy += tile) {
+          const isAlt = (Math.floor(gx / tile) + Math.floor(gy / tile)) % 2 === 0;
+          ctx.fillStyle = isAlt ? '#e2e8f0' : '#cbd5e1';
+          ctx.fillRect(gx, gy, tile, tile);
+        }
+      }
+    } else {
+      const isDarkSurface = previewBg === 'dark';
+      ctx.fillStyle = isDarkSurface ? '#0f172a' : '#f8fafc';
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-    ctx.fillStyle = '#cbd5e1';
-    const dotStep = 24;
-    for (let gx = 12; gx < cssWidth; gx += dotStep) {
-      for (let gy = 12; gy < cssHeight; gy += dotStep) {
-        ctx.beginPath();
-        ctx.arc(gx, gy, 1, 0, Math.PI * 2);
-        ctx.fill();
+      ctx.fillStyle = isDarkSurface ? '#334155' : '#cbd5e1';
+      const dotStep = 24;
+      for (let gx = 12; gx < cssWidth; gx += dotStep) {
+        for (let gy = 12; gy < cssHeight; gy += dotStep) {
+          ctx.beginPath();
+          ctx.arc(gx, gy, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     }
 
@@ -192,7 +248,7 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
     }
 
     ctx.restore();
-  }, [previewData, scheduleRedraw]);
+  }, [previewData, previewBg, scheduleRedraw]);
 
   useEffect(() => {
     if (status !== 'ready') return;
@@ -223,24 +279,24 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-4xl h-[82vh] max-h-[760px] flex flex-col overflow-hidden cb-anim-scale-in"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl h-[82vh] max-h-[760px] flex flex-col overflow-hidden cb-anim-scale-in"
       >
         {/* Modal Header */}
-        <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+        <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-800/70 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
               <Eye className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-slate-900 truncate">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
                   {cleanRoomName}
                 </h3>
-                <span className="text-[11px] font-mono font-bold text-blue-600 shrink-0">
+                <span className="text-[11px] font-mono font-bold text-blue-600 dark:text-blue-400 shrink-0">
                   #{room.id.toUpperCase()}
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
+              <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5">
                 <span>Tahta Genel Önizlemesi</span>
                 <span aria-hidden="true">·</span>
                 <span>{elementCount} nesne</span>
@@ -250,45 +306,108 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition-colors cursor-pointer shrink-0"
-            title="Önizlemeyi Kapat"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2.5 shrink-0 ml-auto">
+            {/* Background Mode Selector (matching ExportModal) */}
+            <div className="flex items-center gap-1.5">
+              <span className="hidden md:inline text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                Arka Plan
+              </span>
+              <div
+                className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-200/75 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80"
+                role="group"
+                aria-label="Önizleme arka planı"
+              >
+                {PREVIEW_BG_OPTIONS.map((opt) => {
+                  const active = previewBg === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => handleSelectPreviewBg(opt.id)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                        active
+                          ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-300 shadow-xs ring-1 ring-slate-200/80 dark:ring-slate-600'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title={`Arka plan: ${opt.label}`}
+                    >
+                      <span
+                        className={`w-3 h-3 rounded-[3px] border shrink-0 ${opt.swatch}`}
+                        aria-hidden="true"
+                      />
+                      <span>{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+              title="Önizlemeyi Kapat"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Preview Stage */}
         <div
           ref={stageRef}
-          className="relative flex-1 bg-slate-100 overflow-hidden flex items-center justify-center"
+          className={`relative flex-1 overflow-hidden flex items-center justify-center transition-colors ${
+            previewBg === 'dark' ? 'bg-slate-950' : 'bg-slate-100'
+          }`}
         >
           {status === 'loading' && (
-            <div className="flex flex-col items-center gap-3 text-slate-500">
-              <div className="w-9 h-9 rounded-full border-2 border-slate-300 border-t-blue-600 animate-spin" />
+            <div
+              className={`flex flex-col items-center gap-3 ${
+                previewBg === 'dark' ? 'text-slate-300' : 'text-slate-500'
+              }`}
+            >
+              <div
+                className={`w-9 h-9 rounded-full border-2 animate-spin ${
+                  previewBg === 'dark'
+                    ? 'border-slate-700 border-t-blue-400'
+                    : 'border-slate-300 border-t-blue-600'
+                }`}
+              />
               <span className="text-xs font-medium">Tahta görüntüsü hazırlanıyor...</span>
             </div>
           )}
 
           {status === 'error' && (
             <div className="max-w-sm text-center p-6 space-y-3">
-              <div className="w-11 h-11 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+              <div
+                className={`w-11 h-11 rounded-xl border flex items-center justify-center mx-auto ${
+                  previewBg === 'dark'
+                    ? 'bg-rose-950/50 border-rose-800/70 text-rose-400'
+                    : 'bg-rose-50 border-rose-200 text-rose-600'
+                }`}
+              >
                 {isLockedError ? (
                   <Lock className="w-5 h-5" />
                 ) : (
                   <AlertTriangle className="w-5 h-5" />
                 )}
               </div>
-              <div className="text-xs font-semibold text-slate-800">
+              <div
+                className={`text-xs font-semibold ${
+                  previewBg === 'dark' ? 'text-slate-200' : 'text-slate-800'
+                }`}
+              >
                 {errorMessage || 'Tahta önizlemesi yüklenemedi.'}
               </div>
               {!isLockedError && (
                 <button
                   type="button"
                   onClick={() => void fetchPreview()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-colors cursor-pointer"
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
+                    previewBg === 'dark'
+                      ? 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-200'
+                      : 'bg-white border-slate-300 hover:bg-slate-50 text-slate-700'
+                  }`}
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Tekrar Dene</span>
@@ -299,11 +418,27 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
 
           {status === 'ready' && previewData && previewData.elements.length === 0 && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 pointer-events-none z-10">
-              <div className="w-12 h-12 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-center text-slate-400 mb-3">
+              <div
+                className={`w-12 h-12 rounded-2xl border shadow-xs flex items-center justify-center mb-3 ${
+                  previewBg === 'dark'
+                    ? 'bg-slate-900 border-slate-700 text-slate-400'
+                    : 'bg-white border-slate-200 text-slate-400'
+                }`}
+              >
                 <Layers className="w-6 h-6" />
               </div>
-              <p className="text-sm font-bold text-slate-700">Bu tahta henüz boş</p>
-              <p className="text-xs text-slate-500 mt-1 max-w-xs">
+              <p
+                className={`text-sm font-bold ${
+                  previewBg === 'dark' ? 'text-slate-100' : 'text-slate-700'
+                }`}
+              >
+                Bu tahta henüz boş
+              </p>
+              <p
+                className={`text-xs mt-1 max-w-xs ${
+                  previewBg === 'dark' ? 'text-slate-400' : 'text-slate-500'
+                }`}
+              >
                 Odaya katılarak ilk çizimi, notu veya görseli ekleyebilirsiniz.
               </p>
             </div>
@@ -318,12 +453,12 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
         </div>
 
         {/* Footer Action Bar */}
-        <div className="px-5 py-3 bg-white border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+        <div className="px-5 py-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
           <button
             type="button"
             onClick={() => void fetchPreview()}
             disabled={status === 'loading'}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-xs font-semibold text-slate-700 transition-colors cursor-pointer whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer whitespace-nowrap"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${status === 'loading' ? 'animate-spin' : ''}`} />
             <span>Görünümü Yenile</span>
@@ -333,13 +468,13 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-colors cursor-pointer whitespace-nowrap"
+              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer whitespace-nowrap"
             >
               Kapat
             </button>
 
             {isCurrentRoom ? (
-              <span className="px-4 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold whitespace-nowrap">
+              <span className="px-4 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs font-bold whitespace-nowrap">
                 Bu Odadasınız
               </span>
             ) : (
@@ -350,7 +485,7 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
                   onClose();
                   onJoinRoom(room);
                 }}
-                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-500 text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
               >
                 <span>
                   {!canJoin

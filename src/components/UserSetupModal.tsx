@@ -476,7 +476,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       )}
 
       {/* Main Welcome / Login Card — Fixed consistent dimensions across all devices with internal scroll */}
-      <div className="relative z-10 bg-white text-slate-900 border border-slate-200/90 rounded-2xl shadow-2xl w-[440px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-32px)] flex flex-col overflow-hidden cb-anim-scale-in">
+      <div className="relative z-10 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700/80 rounded-2xl shadow-2xl w-[440px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-32px)] flex flex-col overflow-hidden cb-anim-scale-in">
         {/* Top Brand Header (Fixed non-scrolling) */}
         <div className="shrink-0 relative px-6 pt-5 pb-4 bg-slate-900 text-white flex flex-col items-center text-center border-b border-slate-800">
           {onClose && !isInitialSetup && (
@@ -504,8 +504,8 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
           {/* Room Full / Locked / Not Found / Validation Error Alert */}
           {(joinError || localValidationError) && (
-            <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-800 flex items-start gap-2.5 cb-anim-fade-in">
-              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+            <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-red-800 dark:text-red-200 flex items-start gap-2.5 cb-anim-fade-in">
+              <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
               <div className="flex-1 text-xs font-medium leading-relaxed">
                 {joinError || localValidationError}
               </div>
@@ -515,7 +515,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   setLocalValidationError(null);
                   if (onClearJoinError) onClearJoinError();
                 }}
-                className="text-red-400 hover:text-red-700 p-0.5 cursor-pointer"
+                className="text-red-400 hover:text-red-700 dark:hover:text-red-200 p-0.5 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -562,14 +562,14 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
           />
 
           {/* Active Working Rooms (Unified list with Gir/Katıl, Double-Click, Preview, Active Users) */}
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 space-y-2">
             <div className="flex items-center justify-between gap-2 text-[11px]">
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="font-bold text-slate-700">
+                <span className="font-bold text-slate-700 dark:text-slate-200">
                   Aktif Çalışma Odaları ({orderedActiveRooms.length})
                 </span>
                 {myOwnedRooms.length >= MAX_ROOMS_PER_USER && (
-                  <span className="text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-semibold shrink-0">
+                  <span className="text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.5 rounded font-semibold shrink-0">
                     Sınır ({myOwnedRooms.length}/{MAX_ROOMS_PER_USER})
                   </span>
                 )}
@@ -577,7 +577,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
               <button
                 type="button"
                 onClick={() => void refreshServerRooms()}
-                className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-blue-600 transition-colors cursor-pointer shrink-0"
+                className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer shrink-0"
               >
                 <RefreshCw className="w-3 h-3" />
                 <span>Yenile</span>
@@ -585,7 +585,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             </div>
 
             {orderedActiveRooms.length === 0 ? (
-              <div className="py-3 px-2 rounded-lg border border-dashed border-slate-200 bg-white/80 text-center text-[11px] text-slate-500">
+              <div className="py-3 px-2 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/60 text-center text-[11px] text-slate-500 dark:text-slate-400">
                 Şu anda açık bir çalışma odası yok. Yukarıdan yeni bir oda oluşturabilirsiniz.
               </div>
             ) : (
@@ -616,21 +616,21 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                             : 'Odaya katılmak için çift tıklayın'
                           : undefined
                       }
-                      className={`flex flex-col gap-1.5 px-2.5 py-2 rounded-lg bg-white border text-xs transition-colors ${
+                      className={`flex flex-col gap-1.5 px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900/80 border text-xs transition-colors ${
                         canEnter
-                          ? 'border-slate-200 hover:border-blue-300 cursor-pointer'
-                          : 'border-slate-200'
+                          ? 'border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-500/70 cursor-pointer'
+                          : 'border-slate-200 dark:border-slate-700'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1 flex items-center gap-1.5">
-                          {r.isLocked && <Lock className="w-3 h-3 text-amber-600 shrink-0" />}
-                          <span className="font-bold text-slate-800 truncate">{cleanRName}</span>
-                          <span className="text-[10px] font-mono font-bold text-blue-600 shrink-0">
+                          {r.isLocked && <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />}
+                          <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{cleanRName}</span>
+                          <span className="text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400 shrink-0">
                             #{r.id.toUpperCase()}
                           </span>
                           {isOwned && (
-                            <span className="text-[10px] font-semibold text-emerald-700 shrink-0">
+                            <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
                               · Sizin
                             </span>
                           )}
@@ -643,7 +643,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                             <button
                               type="button"
                               onClick={() => setPreviewingRoom(r)}
-                              className="px-2 py-1 rounded bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                              className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/60 text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-blue-300 border border-slate-200 dark:border-slate-700 font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
                               title="Tahtanın genel ekran görüntüsünü önizle"
                             >
                               <Eye className="w-3 h-3" />
@@ -654,7 +654,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                             type="button"
                             disabled={!canEnter}
                             onClick={() => handleJoinRoomFromList(r)}
-                            className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
+                            className="px-2.5 py-1 rounded bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-500 text-white font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
                           >
                             <span>
                               {r.isLocked && !isOwned
@@ -669,7 +669,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handleDeleteOwnedRoom(r.id)}
-                              className="p-1 rounded text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors cursor-pointer"
+                              className="p-1 rounded text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:text-rose-700 dark:hover:text-rose-300 transition-colors cursor-pointer"
                               title="Bu odayı kapat / sil"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -677,7 +677,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center justify-between gap-2 text-[10px] font-mono tabular-nums text-slate-500">
+                      <div className="flex items-center justify-between gap-2 text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                         <ActiveRoomUsersBadge room={r} compact />
                         <span>
                           Kapasite: {r.maxUsers} · {r.elementCount} nesne
@@ -694,13 +694,13 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
           {onSignInGoogle && (
             <div>
               {firebaseUser ? (
-                <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
                     {firebaseUser.photoURL ? (
                       <img
                         src={firebaseUser.photoURL}
                         alt={firebaseUser.displayName || 'Google'}
-                        className="w-7 h-7 rounded-full border border-slate-300 shrink-0"
+                        className="w-7 h-7 rounded-full border border-slate-300 dark:border-slate-600 shrink-0"
                         referrerPolicy="no-referrer"
                       />
                     ) : (
@@ -711,10 +711,10 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                       </div>
                     )}
                     <div className="min-w-0">
-                      <div className="text-xs font-bold text-slate-800 truncate">
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
                         {firebaseUser.displayName || 'Google Kullanıcısı'}
                       </div>
-                      <div className="text-[11px] text-slate-500 truncate">
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                         {firebaseUser.email}
                       </div>
                     </div>
@@ -723,7 +723,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                     <button
                       type="button"
                       onClick={onSignOutGoogle}
-                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
                       title="Google Hesabından Çıkış Yap"
                     >
                       <LogOut className="w-3.5 h-3.5" />
@@ -737,7 +737,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   type="button"
                   onClick={handleGoogleLoginClick}
                   disabled={isGoogleLoading}
-                  className="w-full py-2.5 px-4 rounded-xl border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-all flex items-center justify-center gap-2.5 shadow-2xs disabled:opacity-60 cursor-pointer"
+                  className="w-full py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs transition-all flex items-center justify-center gap-2.5 shadow-2xs disabled:opacity-60 cursor-pointer"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
                     <path
@@ -813,18 +813,18 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
 
           {/* Divider */}
           <div className="relative flex items-center py-0.5">
-            <div className="grow border-t border-slate-200" />
+            <div className="grow border-t border-slate-200 dark:border-slate-700" />
             <span className="shrink-0 mx-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               veya Oda Kodu ile Giriş
             </span>
-            <div className="grow border-t border-slate-200" />
+            <div className="grow border-t border-slate-200 dark:border-slate-700" />
           </div>
 
           {/* Option 2: Join Room by Strict 5-Character Code Form */}
           <form onSubmit={handleJoinWithCodeSubmit} className="space-y-3.5">
             {/* User Name */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
                 Adınız / Görünür İsminiz
               </label>
               <input
@@ -834,13 +834,13 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Örn. Ahmet Yılmaz"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
               />
             </div>
 
             {/* Avatar Color Picker */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
                 İmleç ve Avatar Renginiz
               </label>
               <div className="flex items-center gap-2">
@@ -851,7 +851,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                     onClick={() => setColor(c)}
                     className={`w-6 h-6 rounded-full transition-transform cursor-pointer ${
                       color === c
-                        ? 'scale-120 ring-2 ring-blue-500 ring-offset-2'
+                        ? 'scale-120 ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
                         : 'hover:scale-110 opacity-85 hover:opacity-100'
                     }`}
                     style={{ backgroundColor: c }}
@@ -863,7 +863,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             {/* Strict 5-Digit Room Code */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-bold text-slate-700">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
                   5 Haneli Oda Kodu
                 </label>
                 <div className="flex items-center gap-1.5">
@@ -871,7 +871,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                     {joinRoomCode.length}/5
                   </span>
                   {hasUrlRoomParam && joinRoomCode.length === 5 && (
-                    <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800/70">
                       Davet Kodu Yüklendi
                     </span>
                   )}
@@ -894,7 +894,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                     if (localValidationError) setLocalValidationError(null);
                   }}
                   placeholder="Örn: K7X9A"
-                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono font-bold tracking-[0.22em] uppercase text-slate-900 placeholder:text-slate-400 placeholder:tracking-normal focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-mono font-bold tracking-[0.22em] uppercase text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 placeholder:tracking-normal focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
                 />
               </div>
               <p className="text-[11px] text-slate-400 mt-1">
@@ -905,7 +905,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             <button
               type="submit"
               disabled={isCheckingRoom}
-              className="w-full py-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold rounded-xl text-sm shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-3 bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:opacity-60 text-white font-bold rounded-xl text-sm shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <DoorOpen className="w-4 h-4" />
               <span>
@@ -923,7 +923,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       {/* Dedicated Create Room Modal (Opened when clicking "Yeni Çalışma Odası Oluştur") */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-60 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-hidden cb-anim-fade-in">
-          <div className="bg-white text-slate-900 border border-slate-200 rounded-2xl shadow-2xl w-[440px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-32px)] flex flex-col overflow-hidden cb-anim-scale-in">
+          <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl w-[440px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-32px)] flex flex-col overflow-hidden cb-anim-scale-in">
             {/* Create Room Modal Header */}
             <div className="shrink-0 px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -996,7 +996,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
 
               {/* Step 1: User's Own Name */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
                   1. Adınız (Oda Kurucusu)
                 </label>
                 <input
@@ -1005,13 +1005,13 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   value={createUserName}
                   onChange={(e) => setCreateUserName(e.target.value)}
                   placeholder="Örn. Ahmet Yılmaz"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
                 />
               </div>
 
               {/* Step 2: Room Name */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
                   2. Oda Adı
                 </label>
                 <input
@@ -1020,13 +1020,13 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   value={createRoomName}
                   onChange={(e) => setCreateRoomName(e.target.value)}
                   placeholder="Örn. Sistem Mimarisi & Sprint Odası"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
                 />
               </div>
 
               {/* Step 3: 5-Digit Random Seed Room Code */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
                   3. Oda Kodu (5 Haneli Random Seed)
                 </label>
                 <div className="space-y-2">
@@ -1040,13 +1040,13 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                         e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5)
                       )
                     }
-                    className="block w-full min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-base font-mono font-extrabold tracking-[0.25em] text-center uppercase text-blue-700 focus:outline-hidden focus:border-blue-600"
+                    className="block w-full min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-base font-mono font-extrabold tracking-[0.25em] text-center uppercase text-blue-700 dark:text-blue-400 focus:outline-hidden focus:border-blue-600"
                   />
                   <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={handleRegenerateSeed}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     title="Yeni Rastgele 5 Haneli Kod Üret"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
@@ -1055,13 +1055,13 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   <button
                     type="button"
                     onClick={handleCopySeed}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     title="Oda Kodunu Kopyala"
                   >
                     {copiedSeed ? (
                       <>
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span className="text-emerald-600">Kopyalandı</span>
+                        <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-emerald-600 dark:text-emerald-400">Kopyalandı</span>
                       </>
                     ) : (
                       <>
@@ -1072,7 +1072,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                   </button>
                   </div>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                   Diğer kullanıcılar bu 5 haneli kodu girerek odanıza katılabilir.
                 </p>
               </div>
@@ -1080,11 +1080,11 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
               {/* Step 4: Maximum Room Capacity */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5 text-blue-600" />
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                     <span>4. Maksimum Oda Kapasitesi (Kişi Sınırı)</span>
                   </label>
-                  <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200">
+                  <span className="text-xs font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-0.5 rounded-md border border-blue-200 dark:border-blue-800/70">
                     {`${createMaxUsers} Kişi`}
                   </span>
                 </div>
@@ -1107,10 +1107,10 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                         Math.min(30, Math.max(2, Number(e.target.value) || 2))
                       )
                     }
-                    className="w-16 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-mono font-bold text-center text-slate-800"
+                    className="w-16 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono font-bold text-center text-slate-800 dark:text-slate-100"
                   />
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                   {`Oda kapasitesi (${createMaxUsers} kişi) dolduğunda yeni kullanıcıların girişi otomatik engellenir.`}
                 </p>
               </div>
@@ -1120,7 +1120,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                  className="px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Geri Dön
                 </button>

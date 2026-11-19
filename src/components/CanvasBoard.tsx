@@ -16,7 +16,6 @@ import {
 import {
   drawElement,
   drawSelectionGizmo,
-  drawRemoteCursors,
   drawPings,
   drawReactions,
   screenToCanvas,
@@ -57,6 +56,8 @@ import {
   Upload,
   Check,
   FileText,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { getPdfInfo, renderPdfPage } from '../utils/pdfRenderer';
 import {
@@ -1238,10 +1239,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
     ctx.restore(); // Restore world transform
 
-    // Render screen-space overlays (Remote cursors, pings, reactions)
+    // Render screen-space overlays (pings, reactions; remote cursors render in topmost DOM overlay)
     drawPings(ctx, pings, pan, zoom);
     drawReactions(ctx, reactions, pan, zoom);
-    drawRemoteCursors(ctx, users, currentUser.id, pan, zoom);
 
     ctx.restore(); // Restore DPR
   }, [
@@ -1260,8 +1260,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     editingElementId,
     pings,
     reactions,
-    users,
-    currentUser.id,
     activeTool,
     strokeColor,
     strokeWidth,
@@ -2838,8 +2836,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     };
   }, []);
 
-  // PDF Page Loading states and drop error notification banner
+  // PDF Page Loading states, fullscreen camera-fit state, and drop error notification banner
   const [loadingPdfPages, setLoadingPdfPages] = useState<Record<string, boolean>>({});
+  const [fullscreenPdfId, setFullscreenPdfId] = useState<string | null>(null);
+  const prevCameraBeforePdfFullscreenRef = useRef<{ pan: Point; zoom: number } | null>(null);
   const [dropErrorToast, setDropErrorToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -2848,26 +2848,136 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     return () => clearTimeout(t);
   }, [dropErrorToast]);
 
-  const handlePdfPageTurn = async (el: CanvasElement, direction: 'prev' | 'next') => {
-    if (!el.pdfUrl || loadingPdfPages[el.id]) return;
-    const cur = el.currentPage || 1;
-    const total = el.totalPages || 1;
-    const targetPage = direction === 'prev' ? cur - 1 : cur + 1;
-    if (targetPage < 1 || targetPage > total) return;
+  const fitPdfToViewport = useCallback(
+    (pdfEl: CanvasElement) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      const viewW = rect?.width || window.innerWidth;
+      const viewH = rect?.height || window.innerHeight;
+      // Leave clean margin on left/right for outside page-turn buttons and top/bottom for bars + PDF title badge
+      const marginX = 88;
+      const marginTop = 94;
+      const marginBottom = 96;
+      const availW = Math.max(220, viewW - marginX * 2);
+      const availH = Math.max(180, viewH - marginTop - marginBottom);
 
-    try {
-      setLoadingPdfPages((prev) => ({ ...prev, [el.id]: true }));
-      const newPageImageUrl = await renderPdfPage(el.pdfUrl, targetPage);
-      onUpdateElement(el.id, {
-        currentPage: targetPage,
-        imageUrl: newPageImageUrl,
+      const bounds = getElementBounds(pdfEl);
+      const rawZoom = Math.min(
+        availW / Math.max(1, bounds.width),
+        availH / Math.max(1, bounds.height)
+      );
+      const nextZoom = Math.max(0.15, Math.min(4, rawZoom));
+      const centerScreenX = viewW / 2;
+      const centerScreenY = marginTop + availH / 2;
+
+      setZoom(nextZoom);
+      setPan({
+        x: centerScreenX - bounds.cx * nextZoom,
+        y: centerScreenY - bounds.cy * nextZoom,
       });
-    } catch (err) {
-      console.error('Failed to turn PDF page:', err);
-    } finally {
-      setLoadingPdfPages((prev) => ({ ...prev, [el.id]: false }));
+    },
+    [setPan, setZoom]
+  );
+
+  const exitPdfFullscreen = useCallback(() => {
+    setFullscreenPdfId(null);
+    const prev = prevCameraBeforePdfFullscreenRef.current;
+    prevCameraBeforePdfFullscreenRef.current = null;
+    if (prev) {
+      setZoom(prev.zoom);
+      setPan(prev.pan);
     }
-  };
+  }, [setPan, setZoom]);
+
+  const handleTogglePdfFullscreen = useCallback(
+    (pdfEl: CanvasElement) => {
+      if (fullscreenPdfId === pdfEl.id) {
+        exitPdfFullscreen();
+        return;
+      }
+      if (!fullscreenPdfId) {
+        prevCameraBeforePdfFullscreenRef.current = {
+          pan: { x: pan.x, y: pan.y },
+          zoom,
+        };
+      }
+      setFullscreenPdfId(pdfEl.id);
+      fitPdfToViewport(pdfEl);
+    },
+    [fullscreenPdfId, exitPdfFullscreen, pan.x, pan.y, zoom, fitPdfToViewport]
+  );
+
+  const handlePdfPageTurn = useCallback(
+    async (el: CanvasElement, direction: 'prev' | 'next') => {
+      if (!el.pdfUrl || loadingPdfPages[el.id]) return;
+      const cur = el.currentPage || 1;
+      const total = el.totalPages || 1;
+      const targetPage = direction === 'prev' ? cur - 1 : cur + 1;
+      if (targetPage < 1 || targetPage > total) return;
+
+      try {
+        setLoadingPdfPages((prev) => ({ ...prev, [el.id]: true }));
+        const newPageImageUrl = await renderPdfPage(el.pdfUrl, targetPage);
+        onUpdateElement(el.id, {
+          currentPage: targetPage,
+          imageUrl: newPageImageUrl,
+        });
+      } catch (err) {
+        console.error('Failed to turn PDF page:', err);
+      } finally {
+        setLoadingPdfPages((prev) => ({ ...prev, [el.id]: false }));
+      }
+    },
+    [loadingPdfPages, onUpdateElement]
+  );
+
+  // Auto-exit PDF fullscreen if the document is removed from the board
+  useEffect(() => {
+    if (!fullscreenPdfId) return;
+    const stillExists = elements.some((el) => el.id === fullscreenPdfId && el.type === 'pdf');
+    if (!stillExists) {
+      exitPdfFullscreen();
+    }
+  }, [fullscreenPdfId, elements, exitPdfFullscreen]);
+
+  // Keyboard shortcuts (Esc to exit, Left/Right arrows to turn pages) and resize refit in PDF fullscreen
+  useEffect(() => {
+    if (!fullscreenPdfId) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isTextInput =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable);
+
+      if (e.key === 'Escape' && !editingElementId) {
+        e.preventDefault();
+        exitPdfFullscreen();
+        return;
+      }
+
+      if (isTextInput || editingElementId) return;
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const pdfEl = elements.find((el) => el.id === fullscreenPdfId && el.type === 'pdf');
+        if (!pdfEl || (pdfEl.totalPages || 1) <= 1) return;
+        e.preventDefault();
+        void handlePdfPageTurn(pdfEl, e.key === 'ArrowLeft' ? 'prev' : 'next');
+      }
+    };
+
+    const onResize = () => {
+      const pdfEl = elements.find((el) => el.id === fullscreenPdfId && el.type === 'pdf');
+      if (pdfEl) fitPdfToViewport(pdfEl);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [fullscreenPdfId, elements, editingElementId, exitPdfFullscreen, fitPdfToViewport, handlePdfPageTurn]);
 
   const handleAddPdfAtPosition = async (
     pdfUrl: string,
@@ -3479,7 +3589,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             onPointerUp={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="absolute z-40 flex flex-col gap-1.5"
+            className="absolute z-[18] flex flex-col gap-1.5"
             style={{
               left: `${Math.max(12, Math.min(window.innerWidth - 360, editingInfo.screenX))}px`,
               top: `${Math.max(16, Math.min(window.innerHeight - 230, editingInfo.screenY))}px`,
@@ -3697,7 +3807,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         );
       })()}
 
-      {/* Interactive PDF Page Navigation Controls (Left & Right side buttons) */}
+      {/* Interactive PDF Page Navigation Controls (Outside left & right edges + bottom bar with fullscreen) */}
       {elements
         .filter((el) => el.type === 'pdf')
         .map((pdfEl) => {
@@ -3707,12 +3817,12 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           const screenW = bounds.width * zoom;
           const screenH = bounds.height * zoom;
 
-          // Render only when within or near visible screen area
+          // Render only when within or near visible screen area (accounting for outside buttons)
           if (
-            screenX + screenW < -60 ||
-            screenX > window.innerWidth + 60 ||
-            screenY + screenH < -60 ||
-            screenY > window.innerHeight + 60
+            screenX + screenW < -90 ||
+            screenX > window.innerWidth + 90 ||
+            screenY + screenH < -90 ||
+            screenY > window.innerHeight + 90
           ) {
             return null;
           }
@@ -3721,10 +3831,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           const totalPgs = pdfEl.totalPages || 1;
           const isLoading = !!loadingPdfPages[pdfEl.id];
           const isSelected = activeSelectedIds.includes(pdfEl.id);
+          const isFullscreenPdf = fullscreenPdfId === pdfEl.id;
 
           return (
             <React.Fragment key={`pdf-nav-${pdfEl.id}`}>
-              {/* Left Page Turn Button (<) */}
+              {/* Left Page Turn Button (<) — positioned completely outside the left edge */}
               <button
                 type="button"
                 disabled={curPage <= 1 || isLoading}
@@ -3734,10 +3845,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                   handlePdfPageTurn(pdfEl, 'prev');
                 }}
                 style={{
-                  left: `${screenX - 22}px`,
+                  left: `${screenX - 48}px`,
                   top: `${screenY + screenH / 2 - 20}px`,
                 }}
-                className={`absolute z-30 w-10 h-10 rounded-full bg-white text-slate-700 shadow-xl border border-slate-300 flex items-center justify-center transition-all ${
+                className={`absolute z-[12] w-10 h-10 rounded-full bg-white text-slate-700 shadow-xl border border-slate-300 flex items-center justify-center transition-[background-color,color,border-color,opacity,transform] duration-150 ${
                   curPage <= 1 || isLoading
                     ? 'opacity-40 cursor-not-allowed'
                     : 'hover:bg-blue-600 hover:text-white hover:scale-110 active:scale-95 cursor-pointer hover:border-blue-600'
@@ -3751,7 +3862,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 )}
               </button>
 
-              {/* Right Page Turn Button (>) */}
+              {/* Right Page Turn Button (>) — positioned completely outside the right edge */}
               <button
                 type="button"
                 disabled={curPage >= totalPgs || isLoading}
@@ -3761,10 +3872,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                   handlePdfPageTurn(pdfEl, 'next');
                 }}
                 style={{
-                  left: `${screenX + screenW - 18}px`,
+                  left: `${screenX + screenW + 8}px`,
                   top: `${screenY + screenH / 2 - 20}px`,
                 }}
-                className={`absolute z-30 w-10 h-10 rounded-full bg-white text-slate-700 shadow-xl border border-slate-300 flex items-center justify-center transition-all ${
+                className={`absolute z-[12] w-10 h-10 rounded-full bg-white text-slate-700 shadow-xl border border-slate-300 flex items-center justify-center transition-[background-color,color,border-color,opacity,transform] duration-150 ${
                   curPage >= totalPgs || isLoading
                     ? 'opacity-40 cursor-not-allowed'
                     : 'hover:bg-blue-600 hover:text-white hover:scale-110 active:scale-95 cursor-pointer hover:border-blue-600'
@@ -3778,20 +3889,53 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 )}
               </button>
 
-              {/* Page Counter Badge underneath PDF */}
+              {/* Bottom Page Counter & Fullscreen Camera Fit Bar underneath PDF */}
               <div
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
                 style={{
                   left: `${screenX + screenW / 2}px`,
-                  top: `${screenY + screenH + 8}px`,
+                  top: `${screenY + screenH + 10}px`,
                   transform: 'translateX(-50%)',
                 }}
-                className={`absolute z-20 px-3.5 py-1 bg-slate-900/90 text-white rounded-full text-xs font-semibold shadow-lg flex items-center gap-1.5 backdrop-blur-xs select-none pointer-events-none transition-opacity ${
-                  isSelected ? 'ring-2 ring-blue-500' : ''
+                className={`absolute z-[12] pl-3 pr-1.5 py-1 bg-slate-900/92 text-white border border-white/10 rounded-full text-xs font-semibold shadow-lg flex items-center gap-2 backdrop-blur-xs select-none pointer-events-auto transition-shadow ${
+                  isSelected || isFullscreenPdf ? 'ring-2 ring-blue-500' : ''
                 }`}
               >
-                <span>Sayfa {curPage} / {totalPgs}</span>
+                <span className="tabular-nums whitespace-nowrap">
+                  Sayfa {curPage} / {totalPgs}
+                </span>
+                <span className="w-px h-3.5 bg-white/20 shrink-0" />
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleTogglePdfFullscreen(pdfEl);
+                  }}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                    isFullscreenPdf
+                      ? 'bg-blue-600 text-white hover:bg-blue-500'
+                      : 'text-slate-200 hover:bg-white/15 hover:text-white'
+                  }`}
+                  title={
+                    isFullscreenPdf
+                      ? 'Tam ekrandan çık ve önceki görünüme dön (Esc)'
+                      : 'Sayfayı ekrana tam sığdır'
+                  }
+                >
+                  {isFullscreenPdf ? (
+                    <>
+                      <Minimize2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Çık</span>
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Tam Ekran</span>
+                    </>
+                  )}
+                </button>
               </div>
             </React.Fragment>
           );
@@ -3907,7 +4051,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 setRadialMenuPos(null);
                 setContextMenuPos({ x: e.clientX, y: e.clientY });
               }}
-              className={`absolute z-20 rounded-xl flex flex-col bg-slate-950 border-2 shadow-2xl transition-shadow ${
+              className={`absolute z-[8] rounded-xl flex flex-col bg-slate-950 border-2 shadow-2xl transition-shadow ${
                 isSelected
                   ? 'border-blue-500 ring-4 ring-blue-500/20'
                   : 'border-slate-700/80 hover:border-slate-500'
@@ -3919,7 +4063,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                   <div
                     key={rh.handle}
                     onPointerDown={(e) => startVideoResize(e, rh.handle)}
-                    className={`absolute z-30 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs shadow-md hover:scale-125 transition-transform ${rh.className}`}
+                    className={`absolute z-[11] w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs shadow-md hover:scale-125 transition-transform ${rh.className}`}
                     title="Videoyu boyutlandırmak için sürükleyin"
                   />
                 ))}
@@ -4123,7 +4267,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 setRadialMenuPos(null);
                 setContextMenuPos({ x: e.clientX, y: e.clientY });
               }}
-              className={`absolute z-10 group select-none rounded-xl transition-shadow ${
+              className={`absolute z-[6] group select-none rounded-xl transition-shadow ${
                 isSelected
                   ? 'ring-2 ring-blue-500 shadow-xl'
                   : 'hover:ring-1 hover:ring-purple-400/60'
@@ -4135,13 +4279,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                   <div
                     key={rh.handle}
                     onPointerDown={(e) => startGifResize(e, rh.handle)}
-                    className={`absolute z-30 w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs shadow-md hover:scale-125 transition-transform ${rh.className}`}
+                    className={`absolute z-[11] w-3.5 h-3.5 bg-white border-2 border-blue-600 rounded-xs shadow-md hover:scale-125 transition-transform ${rh.className}`}
                     title="GIF boyutunu ayarlamak için sürükleyin"
                   />
                 ))}
 
               {/* Minimal GIF label badge (top-left on hover) */}
-              <div className="absolute top-1.5 left-1.5 z-20 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1 shadow-xs">
+              <div className="absolute top-1.5 left-1.5 z-[9] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1 shadow-xs">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span>GIF</span>
               </div>
@@ -4303,7 +4447,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 }
               }}
               className={`absolute flex flex-col items-center select-none ${
-                isOpen ? 'z-30' : 'z-20'
+                isOpen ? 'z-[16]' : 'z-[9]'
               }`}
             >
               {/* Pure Folder Icon Graphic (NOT a button box) */}
@@ -4497,7 +4641,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 <div
                   onPointerDown={(e) => e.stopPropagation()}
                   onWheel={(e) => e.stopPropagation()}
-                  className="mt-2 w-72 bg-white/98 dark:bg-slate-900/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-700/90 overflow-hidden z-40 animate-in fade-in zoom-in-95 duration-150"
+                  className="mt-2 w-72 bg-white/98 dark:bg-slate-900/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-700/90 overflow-hidden z-[17] animate-in fade-in zoom-in-95 duration-150"
                 >
                   {/* Folder Header: Rename + Add File + Close */}
                   <div
@@ -5152,6 +5296,53 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         onResetWidgetLayout={onResetWidgetLayout}
         theme={theme}
       />
+
+      {/* Remote User Cursors — Highest Board Z-Index Overlay (Always above GIFs, videos, folders, PDF controls & text editors) */}
+      <div
+        className="pointer-events-none absolute inset-0 z-[48] overflow-hidden select-none"
+        aria-hidden="true"
+      >
+        {users.map((user) => {
+          if (user.id === currentUser.id || !user.cursor) return null;
+          const screenX = user.cursor.x * zoom + pan.x;
+          const screenY = user.cursor.y * zoom + pan.y;
+          const userColor = user.color || '#2563eb';
+          return (
+            <div
+              key={`remote-cursor-${user.id}`}
+              style={{
+                transform: `translate3d(${screenX}px, ${screenY}px, 0)`,
+              }}
+              className="absolute top-0 left-0 will-change-transform"
+            >
+              <svg
+                width="16"
+                height="22"
+                viewBox="0 0 16 22"
+                fill="none"
+                className="drop-shadow-sm overflow-visible"
+              >
+                <path
+                  d="M0 0L0 16L4.5 12L8.5 19L11 17.5L7 10.5L12 10.5Z"
+                  fill={userColor}
+                  stroke="#ffffff"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <div
+                style={{ backgroundColor: userColor }}
+                className="absolute left-[14px] top-[14px] px-2 py-0.5 rounded text-[11px] font-medium text-white shadow-md whitespace-nowrap flex items-center gap-1.5 leading-tight"
+              >
+                <span>{user.name}</span>
+                {user.isDrawing && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-300 ring-1 ring-white/80 shrink-0" />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

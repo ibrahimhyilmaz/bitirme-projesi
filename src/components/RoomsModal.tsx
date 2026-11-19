@@ -546,28 +546,28 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   const getRoleIcon = (role: UserRole) => {
     switch (role) {
       case 'owner':
-        return <Crown className="w-3.5 h-3.5 text-amber-500" />;
+        return <Crown className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />;
       case 'admin':
-        return <Shield className="w-3.5 h-3.5 text-blue-600" />;
+        return <Shield className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />;
       case 'editor':
-        return <Edit3 className="w-3.5 h-3.5 text-emerald-600" />;
+        return <Edit3 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />;
       case 'viewer':
-        return <Eye className="w-3.5 h-3.5 text-slate-500" />;
+        return <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />;
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 select-none cb-anim-fade-in">
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden cb-anim-scale-in">
+    <div className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 select-none cb-anim-fade-in">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden cb-anim-scale-in">
         {/* Header */}
-        <div className="h-14 px-6 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+        <div className="h-14 px-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/95">
           <div className="flex items-center gap-2.5">
             <BrandLogo size="sm" />
             <div>
-              <h2 className="text-sm font-bold text-slate-900">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                 Odalar, Yetkiler, QR Kod & Çoklu Cihaz Daveti
               </h2>
-              <p className="text-[11px] text-slate-500 font-mono tabular-nums">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                 Odalarınız: {myOwnedRooms.length}/{maxRoomsPerUser} · Bu Oda:{' '}
                 {users.length}/{roomSettings.maxUsers} Kişi · Rolünüz:{' '}
                 {getRoleLabel(currentUserRole)}
@@ -577,7 +577,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             title="Kapat"
           >
             <X className="w-4 h-4" />
@@ -585,13 +585,13 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="px-3 md:px-6 pt-3 border-b border-slate-200 bg-slate-50/50 flex flex-wrap md:flex-nowrap items-center gap-x-2 gap-y-0 md:overflow-x-auto">
+        <div className="px-3 md:px-6 pt-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 flex flex-wrap md:flex-nowrap items-center gap-x-2 gap-y-0 md:overflow-x-auto">
           <button
             onClick={() => setActiveTab('rooms')}
-            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'rooms'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
             }`}
           >
             Odalar ({roomsList.length}/{serverLimits.maxRooms})
@@ -599,14 +599,14 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('permissions')}
-            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'permissions'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
             }`}
           >
             {roomSettings.isLocked ? (
-              <Lock className="w-3.5 h-3.5 text-amber-600" />
+              <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
             ) : (
               <Shield className="w-3.5 h-3.5" />
             )}
@@ -615,10 +615,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('invite')}
-            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'invite'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
             }`}
           >
             <QrCode className="w-3.5 h-3.5" />
@@ -630,12 +630,12 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         {activeTab === 'rooms' && (
           <div className="p-4 md:p-6 space-y-5 max-h-[68vh] overflow-y-auto">
             {modalError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center justify-between gap-2">
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/70 text-xs text-rose-800 dark:text-rose-200 flex items-center justify-between gap-2">
                 <span className="font-semibold">{modalError}</span>
                 <button
                   type="button"
                   onClick={() => setModalError(null)}
-                  className="p-1 rounded hover:bg-rose-100 text-rose-600 shrink-0"
+                  className="p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-300 shrink-0 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -645,14 +645,14 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             {/* Switch Room by 5-Digit Code Card */}
             <form
               onSubmit={handleJoinByCode}
-              className="p-4 rounded-xl bg-blue-50/60 border border-blue-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              className="p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
             >
               <div>
-                <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                  <KeyRound className="w-4 h-4 text-blue-600" />
+                <div className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                  <KeyRound className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                   <span>5 Haneli Oda Kodu ile Başka Bir Odaya Geç</span>
                 </div>
-                <p className="text-[11px] text-slate-600 mt-0.5">
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                   Katılmak istediğiniz mevcut odanın 5 haneli kodunu girin (Olmayan odaya giriş yapılmaz).
                 </p>
               </div>
@@ -668,12 +668,12 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     );
                   }}
                   placeholder="K7X9A"
-                  className="w-28 px-3 py-2 bg-white rounded-lg border border-blue-300 text-xs font-mono font-bold tracking-widest uppercase text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600"
+                  className="w-28 px-3 py-2 bg-white dark:bg-slate-950 rounded-lg border border-blue-300 dark:border-slate-700 text-xs font-mono font-bold tracking-widest uppercase text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 dark:focus:border-blue-500"
                 />
                 <button
                   type="submit"
                   disabled={joinByCodeInput.trim().length !== 5 || isCheckingRoom}
-                  className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0"
+                  className="px-3.5 py-2 rounded-lg bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:bg-slate-300 dark:disabled:bg-slate-700 dark:disabled:text-slate-400 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
                 >
                   <span>{isCheckingRoom ? 'Kontrol...' : 'Odaya Geç'}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -727,12 +727,12 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             {/* Active Rooms List */}
             <div>
               <div className="flex items-center justify-between mb-2.5">
-                <span className="text-xs font-bold text-slate-800">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
                   Açık Çalışma Odaları ({roomsList.length} Aktif Oda · Sizin Odalarınız: {myOwnedRooms.length}/{maxRoomsPerUser})
                 </span>
                 <button
                   onClick={onRefreshRooms}
-                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 cursor-pointer"
+                  className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Yenile</span>
@@ -740,7 +740,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
 
               {roomsList.length === 0 ? (
-                <div className="p-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/70 text-center text-xs text-slate-500">
+                <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 text-center text-xs text-slate-500 dark:text-slate-400">
                   Şu anda sunucuda açık bir çalışma odası bulunmuyor. Aşağıdan yeni bir çalışma odası oluşturabilirsiniz.
                 </div>
               ) : (
@@ -778,20 +778,20 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                         }
                         className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
                           isCurrent
-                            ? 'border-blue-600 bg-blue-50/40'
+                            ? 'border-blue-600 dark:border-blue-500 bg-blue-50/40 dark:bg-blue-950/40'
                             : canEnter
-                            ? 'border-slate-200 hover:border-blue-300 bg-white cursor-pointer'
-                            : 'border-slate-200 bg-white'
+                            ? 'border-slate-200 dark:border-slate-700/80 hover:border-blue-300 dark:hover:border-blue-500/70 bg-white dark:bg-slate-800/50 cursor-pointer'
+                            : 'border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40'
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div
                             className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
                               r.isLocked
-                                ? 'bg-amber-50 text-amber-600'
+                                ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
                                 : isCurrent
                                 ? 'bg-blue-600 text-white'
-                                : 'bg-slate-100 text-slate-700'
+                                : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200'
                             }`}
                           >
                             {r.isLocked ? (
@@ -802,19 +802,19 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-900 truncate">
+                              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                                 {cleanRName}
                               </span>
-                              <span className="text-[11px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                              <span className="text-[11px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.5 rounded">
                                 #{r.id.toUpperCase()}
                               </span>
                               {isOwnedByMe && (
-                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/70 px-1.5 py-0.5 rounded">
                                   Sizin Odanız
                                 </span>
                               )}
                             </div>
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 font-mono tabular-nums mt-1">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-1">
                               <ActiveRoomUsersBadge room={r} compact />
                               <span aria-hidden="true">·</span>
                               <span>Kapasite: {r.maxUsers}</span>
@@ -825,7 +825,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                               {r.isLocked && (
                                 <>
                                   <span aria-hidden="true">·</span>
-                                  <span className="text-amber-700 font-semibold">Kilitli</span>
+                                  <span className="text-amber-700 dark:text-amber-400 font-semibold">Kilitli</span>
                                 </>
                               )}
                             </div>
@@ -840,7 +840,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                             <button
                               type="button"
                               onClick={() => setPreviewingRoom(r)}
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/60 text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-blue-300 border border-slate-200 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-700 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
                               title="Bu odadaki tahtanın genel ekran görüntüsünü önizle"
                             >
                               <Eye className="w-3.5 h-3.5 shrink-0" />
@@ -852,7 +852,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                               type="button"
                               disabled={deletingRoomId === r.id}
                               onClick={() => handleDeleteOwnedRoom(r.id)}
-                              className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                              className="px-2.5 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-600 text-rose-600 dark:text-rose-400 hover:text-white border border-rose-200 dark:border-rose-800/70 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
                               title="Bu odayı kapat ve sil (3 oda hakkınızı boşaltır)"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -860,7 +860,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                             </button>
                           )}
                           {isCurrent ? (
-                            <span className="px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-xs font-semibold whitespace-nowrap">
+                            <span className="px-3 py-1.5 rounded-lg bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 text-xs font-semibold whitespace-nowrap">
                               Bu Odadasınız
                             </span>
                           ) : (
@@ -870,7 +870,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                                 onSelectRoom(r.id, cleanRName, r.maxUsers, false);
                                 onClose();
                               }}
-                              className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                              className="px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-500 text-white text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
                             >
                               <span>
                                 {r.isLocked && !isOwnedByMe
@@ -893,18 +893,18 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             {/* Create New Room Form */}
             <form
               onSubmit={handleCreateRoom}
-              className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3"
+              className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-3"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <Plus className="w-4 h-4 text-blue-600" />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                  <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                   <span>Yeni Çalışma Odası Oluştur (En Fazla {maxRoomsPerUser} Oda Hakkı)</span>
                 </span>
                 <span
-                  className={`text-[11px] font-mono tabular-nums font-bold px-2 py-0.5 rounded ${
+                  className={`text-[11px] font-mono tabular-nums font-bold px-2 py-0.5 rounded shrink-0 ${
                     hasReachedUserRoomLimit
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'bg-blue-50 text-blue-700'
+                      ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
+                      : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'
                   }`}
                 >
                   Oda Hakkınız: {myOwnedRooms.length}/{maxRoomsPerUser}
@@ -912,14 +912,14 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
 
               {hasReachedUserRoomLimit && (
-                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-medium">
+                <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-[11px] text-amber-900 dark:text-amber-200 font-medium">
                   Maksimum {maxRoomsPerUser} aktif oda sınırına ulaştınız. Yeni bir oda açmak için yukarıdaki listeden mevcut odalarınızdan birini <strong>Odayı Sil</strong> butonuyla kapatın.
                 </div>
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
                     Oda Adı (Kod Eklenmez)
                   </label>
                   <input
@@ -928,12 +928,12 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     value={newRoomName}
                     onChange={(e) => setNewRoomName(e.target.value)}
                     placeholder="Örn: Sprint Tasarım"
-                    className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 text-xs text-slate-800 focus:outline-hidden focus:border-blue-600"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-950 rounded-lg border border-slate-300 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 dark:focus:border-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
                     Oda Kodu (5 Haneli Seed)
                   </label>
                   <div className="flex items-center gap-1.5">
@@ -947,12 +947,12 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                         )
                       }
                       placeholder="Örn: K7X9A"
-                      className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 text-xs font-mono font-bold tracking-widest uppercase text-slate-800 focus:outline-hidden focus:border-blue-600"
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-950 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-mono font-bold tracking-widest uppercase text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 dark:focus:border-blue-500"
                     />
                     <button
                       type="button"
                       onClick={() => setNewRoomCode(generateRoomCodeSeed(5))}
-                      className="p-2 bg-white border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-100"
+                      className="p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                       title="Yeni 5 Haneli Seed Üret"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
@@ -961,7 +961,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
                     Maksimum Kişi (2–{serverLimits.maxUsersPerRoom})
                   </label>
                   <input
@@ -977,7 +977,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                         )
                       )
                     }
-                    className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 text-xs font-mono tabular-nums text-slate-800 focus:outline-hidden focus:border-blue-600"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-950 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-mono tabular-nums text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-blue-600 dark:focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -990,7 +990,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     serverLimits.currentRoomsCount >= serverLimits.maxRooms ||
                     newRoomCode.trim().length !== 5
                   }
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 dark:disabled:text-slate-400 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Odayı Oluştur ve Geç</span>
@@ -1004,7 +1004,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
         {activeTab === 'permissions' && (
           <div className="p-4 md:p-6 space-y-5 max-h-[68vh] overflow-y-auto">
             {!canManage && (
-              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-800 dark:text-amber-200">
                 Bu odada rolünüz <strong>{getRoleLabel(currentUserRole)}</strong>. Oda ayarlarını ve
                 kullanıcı rollerini yalnızca <strong>Kurucu</strong> veya <strong>Yönetici</strong>{' '}
                 değiştirebilir.
@@ -1014,17 +1014,17 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             {/* Room Controls Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Lock / Unlock Room */}
-              <div className="p-4 rounded-xl border border-slate-200 flex items-center justify-between">
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40 flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
                     {roomSettings.isLocked ? (
-                      <Lock className="w-4 h-4 text-amber-600" />
+                      <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                     ) : (
-                      <Unlock className="w-4 h-4 text-emerald-600" />
+                      <Unlock className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                     )}
                     <span>{roomSettings.isLocked ? 'Oda Kilitli' : 'Oda Girişlere Açık'}</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                     Kilitlendiğinde yeni kullanıcılar odaya katılamaz.
                   </p>
                 </div>
@@ -1032,10 +1032,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 <button
                   disabled={!canManage}
                   onClick={() => onUpdateRoomSettings({ isLocked: !roomSettings.isLocked })}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 cursor-pointer ${
                     roomSettings.isLocked
                       ? 'bg-amber-600 text-white hover:bg-amber-700'
-                      : 'bg-slate-900 text-white hover:bg-slate-800'
+                      : 'bg-slate-900 dark:bg-slate-700 text-white hover:bg-slate-800 dark:hover:bg-slate-600'
                   }`}
                 >
                   {roomSettings.isLocked ? 'Kilidi Aç' : 'Odayı Kilitle'}
@@ -1043,12 +1043,12 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
 
               {/* Save chat history (owner decides) */}
-              <div className="p-4 rounded-xl border border-slate-200 flex items-center justify-between gap-3">
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40 flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs font-bold text-slate-800">
+                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
                     {roomSettings.saveChat === false ? 'Sohbet Kaydı Kapalı' : 'Sohbet Kaydı Açık'}
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                     Açıkken sohbet mesajları odada saklanır; kapatınca mevcut geçmiş silinir.
                   </p>
                 </div>
@@ -1063,10 +1063,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     }
                     onUpdateRoomSettings({ saveChat: roomSettings.saveChat === false });
                   }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 cursor-pointer ${
                     roomSettings.saveChat === false
                       ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : 'bg-slate-900 text-white hover:bg-slate-800'
+                      : 'bg-slate-900 dark:bg-slate-700 text-white hover:bg-slate-800 dark:hover:bg-slate-600'
                   }`}
                 >
                   {roomSettings.saveChat === false ? 'Kaydı Aç' : 'Kaydı Kapat'}
@@ -1074,10 +1074,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
 
               {/* Default Role for New Joiners */}
-              <div className="p-4 rounded-xl border border-slate-200 flex items-center justify-between">
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40 flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs font-bold text-slate-800">Varsayılan Katılım Yetkisi</div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
+                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100">Varsayılan Katılım Yetkisi</div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                     Yeni katılanların başlangıç rolü
                   </p>
                 </div>
@@ -1090,7 +1090,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                       defaultRole: e.target.value as 'editor' | 'viewer',
                     })
                   }
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-800 bg-white disabled:opacity-50"
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-950 disabled:opacity-50"
                 >
                   <option value="editor">Düzenleyici (Çizim & Kod)</option>
                   <option value="viewer">İzleyici (Salt Okunur)</option>
@@ -1099,11 +1099,11 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             </div>
 
             {/* Max Users Slider & Room Name */}
-            <div className="p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/40 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <div className="flex items-center justify-between text-xs font-bold text-slate-800 mb-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-100 mb-1.5">
                   <span>Maksimum Kullanıcı Sınırı</span>
-                  <span className="font-mono tabular-nums text-blue-600">
+                  <span className="font-mono tabular-nums text-blue-600 dark:text-blue-400">
                     {roomSettings.maxUsers} Kişi
                   </span>
                 </div>
@@ -1116,9 +1116,9 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                   onChange={(e) =>
                     onUpdateRoomSettings({ maxUsers: Number(e.target.value) })
                   }
-                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-50"
+                  className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-50"
                 />
-                <div className="flex justify-between text-[10px] font-mono text-slate-400 mt-1">
+                <div className="flex justify-between text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-1">
                   <span>Min: 2</span>
                   <span>Mevcut: {users.length}</span>
                   <span>Maks: {serverLimits.maxUsersPerRoom}</span>
@@ -1126,7 +1126,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-100 mb-1.5">
                   Oda Başlığı
                 </label>
                 <div className="flex items-center gap-2">
@@ -1135,7 +1135,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     disabled={!canManage}
                     value={editingRoomName}
                     onChange={(e) => setEditingRoomName(e.target.value)}
-                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-800 disabled:opacity-50"
+                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs text-slate-800 dark:text-slate-100 disabled:opacity-50 focus:outline-hidden focus:border-blue-500"
                   />
                   <button
                     type="button"
@@ -1143,7 +1143,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     onClick={() =>
                       onUpdateRoomSettings({ roomName: editingRoomName.trim() })
                     }
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-semibold"
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-500 text-white text-xs font-semibold cursor-pointer"
                   >
                     Kaydet
                   </button>
@@ -1153,10 +1153,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
             {/* Active Users & Role Assignment Table */}
             <div>
-              <div className="text-xs font-bold text-slate-800 mb-2">
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-100 mb-2">
                 Odadaki Kullanıcılar ve Yetkileri ({users.length}/{roomSettings.maxUsers})
               </div>
-              <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
+              <div className="border border-slate-200 dark:border-slate-700/80 rounded-xl divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
                 {users.map((u) => {
                   const isSelf = u.id === currentUserId;
                   const isTargetOwner = u.role === 'owner';
@@ -1164,7 +1164,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                   return (
                     <div
                       key={u.id}
-                      className="p-3 flex items-center justify-between text-xs bg-white hover:bg-slate-50/80"
+                      className="p-3 flex items-center justify-between text-xs bg-white dark:bg-slate-900/70 hover:bg-slate-50/80 dark:hover:bg-slate-800/70"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
@@ -1174,10 +1174,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                           {u.avatar || u.name.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                          <div className="font-semibold text-slate-900 truncate">
+                          <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
                             {u.name} {isSelf && '(Siz)'}
                           </div>
-                          <div className="flex items-center gap-1 text-[11px] text-slate-500">
+                          <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
                             {getRoleIcon(u.role)}
                             <span>{getRoleLabel(u.role)}</span>
                           </div>
@@ -1192,7 +1192,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                               onChange={(e) =>
                                 onUpdateUserRole(u.id, e.target.value as UserRole)
                               }
-                              className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-slate-800 bg-white"
+                              className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-950"
                             >
                               <option value="admin">Yönetici</option>
                               <option value="editor">Düzenleyici</option>
@@ -1201,14 +1201,14 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
 
                             <button
                               onClick={() => onKickUser(u.id)}
-                              className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
+                              className="p-1.5 rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
                               title="Odadan Çıkar"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </>
                         ) : (
-                          <span className="text-xs font-medium text-slate-500 px-2 py-1">
+                          <span className="text-xs font-medium text-slate-500 dark:text-slate-400 px-2 py-1">
                             {getRoleLabel(u.role)}
                           </span>
                         )}
@@ -1227,7 +1227,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             {/* Section 1: Prominent QR Code & Quick Scan Card */}
             <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950 text-white border border-slate-800 shadow-lg">
               <div className="flex flex-col sm:flex-row items-center gap-5">
-                {/* Crisp QR Image Box */}
+                {/* Crisp QR Image Box (always white quiet zone for reliable camera scan) */}
                 <div className="relative bg-white p-3 rounded-2xl shadow-md shrink-0 flex flex-col items-center">
                   {qrDataUrl ? (
                     <img
@@ -1266,7 +1266,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setIsQrFullscreen(true)}
-                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                     >
                       <Maximize2 className="w-3.5 h-3.5" />
                       <span>Tam Ekran QR</span>
@@ -1275,7 +1275,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     <button
                       type="button"
                       onClick={handleDownloadQr}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>QR İndir (PNG)</span>
@@ -1288,7 +1288,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                           onAddQrToCanvas(qrDataUrl);
                           onClose();
                         }}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                         title="QR Kodu Beyaz Tahta Üzerine Görsel Olarak Yerleştir"
                       >
                         <ImagePlus className="w-3.5 h-3.5" />
@@ -1299,7 +1299,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     <button
                       type="button"
                       onClick={handleNativeShare}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Share2 className="w-3.5 h-3.5" />
                       <span>Cihazda Paylaş</span>
@@ -1310,29 +1310,29 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             </div>
 
             {/* Section 2: Direct Room Invite Link & Room Code Copy */}
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-3">
               {/* Option to embed live room snapshot directly into the invite link */}
-              <div className="flex items-center justify-between gap-3 pb-2 border-b border-slate-200/80">
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700">
+              <div className="flex items-center justify-between gap-3 pb-2 border-b border-slate-200/80 dark:border-slate-700/80">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
                   <input
                     type="checkbox"
                     checked={includeSnapshot}
                     onChange={(e) => setIncludeSnapshot(e.target.checked)}
-                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500"
                   />
                   <span className="font-semibold flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                     Tahta Çizimlerini & Kodu Bağlantıya Göm (Sunucusuz Cihaz Aktarımı)
                   </span>
                 </label>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 tabular-nums shrink-0">
                   {elements.length} nesne mevcut
                 </span>
               </div>
 
               {/* Copyable Invite Link Box */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
                   Oda Davet Bağlantısı (#{currentRoomId})
                 </label>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -1340,12 +1340,12 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                     type="text"
                     readOnly
                     value={shareUrl}
-                    className="flex-1 px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono text-slate-800 select-all"
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-100 select-all"
                   />
                   <button
                     type="button"
                     onClick={() => copyText(shareUrl, 'link')}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0 shadow-xs"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0 shadow-xs cursor-pointer"
                   >
                     {copiedShareLink ? (
                       <>
@@ -1363,10 +1363,10 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               </div>
 
               {/* Room Code Quick Copy */}
-              <div className="flex items-center justify-between pt-1 text-xs text-slate-600">
+              <div className="flex items-center justify-between pt-1 text-xs text-slate-600 dark:text-slate-300">
                 <span>
                   Oda Kodu İle Giriş: Diğer cihazda <strong>Odalar</strong> menüsünden{' '}
-                  <code className="px-1.5 py-0.5 rounded bg-slate-200 font-mono font-bold text-slate-900">
+                  <code className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 font-mono font-bold text-slate-900 dark:text-slate-100">
                     {currentRoomId}
                   </code>{' '}
                   kodunu girerek de katılabilirsiniz.
@@ -1374,7 +1374,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => copyText(currentRoomId, 'code')}
-                  className="text-blue-600 hover:underline font-semibold shrink-0 ml-2"
+                  className="text-blue-600 dark:text-blue-400 hover:underline font-semibold shrink-0 ml-2 cursor-pointer"
                 >
                   {copiedCode ? 'Kod Kopyalandı ✓' : 'Oda Kodunu Kopyala'}
                 </button>
@@ -1382,17 +1382,17 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             </div>
 
             {/* Section 3: Firebase Cloud Firestore Persistence & Auth Card */}
-            <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-2.5">
+            <div className="p-4 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-emerald-950">
-                  <Cloud className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="flex items-center gap-2 text-xs font-bold text-emerald-950 dark:text-emerald-200">
+                  <Cloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <span>Firebase Cloud Firestore Cihazlar Arası Oda Senkronizasyonu</span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold">
                   AKTİF
                 </span>
               </div>
-              <p className="text-xs text-slate-700 leading-relaxed">
+              <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                 Farklı ağlardaki veya GitHub Pages üzerindeki cihazların aynı odayı gerçek zamanlı
                 görmesi için <strong>Firebase Firestore</strong> veritabanı bağlıdır.
               </p>
@@ -1400,17 +1400,17 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                 {firebaseUserEmail ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-emerald-900">
+                    <span className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
                       Bağlı Hesap: <strong className="font-mono">{firebaseUserEmail}</strong>
                     </span>
                     {lastCloudSyncAt && (
-                      <span className="text-[11px] text-emerald-700">
+                      <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
                         · Son senkron: {new Date(lastCloudSyncAt).toLocaleTimeString('tr-TR')}
                       </span>
                     )}
                   </div>
                 ) : (
-                  <span className="text-xs text-slate-600">
+                  <span className="text-xs text-slate-600 dark:text-slate-400">
                     Odayı buluta kaydetmek için Google ile oturum açın:
                   </span>
                 )}
@@ -1423,7 +1423,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                           type="button"
                           onClick={onSyncToCloud}
                           disabled={isSyncingCloud}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5"
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                         >
                           <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
                           <span>{isSyncingCloud ? 'Kaydediliyor...' : 'Buluta Senkronize Et'}</span>
@@ -1433,7 +1433,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                         <button
                           type="button"
                           onClick={onSignOutFirebase}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium flex items-center gap-1"
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium flex items-center gap-1 cursor-pointer"
                         >
                           <LogOut className="w-3.5 h-3.5" />
                           <span>Çıkış</span>
@@ -1445,7 +1445,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                       <button
                         type="button"
                         onClick={onSignInGoogle}
-                        className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs"
+                        className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs cursor-pointer"
                       >
                         <LogIn className="w-3.5 h-3.5" />
                         <span>Google İle Bağlan & Senkronize Et</span>
@@ -1466,23 +1466,24 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
           onClick={() => setIsQrFullscreen(false)}
         >
           <div
-            className="bg-white rounded-3xl p-8 max-w-md w-full flex flex-col items-center text-center shadow-2xl space-y-4"
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 max-w-md w-full flex flex-col items-center text-center shadow-2xl space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between w-full">
-              <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-bold">
+              <span className="px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-bold">
                 Kamera İle Okutun
               </span>
               <button
                 type="button"
                 onClick={() => setIsQrFullscreen(false)}
-                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-3 bg-white border-2 border-slate-200 rounded-2xl shadow-inner">
+            {/* White quiet-zone wrapper preserved for reliable mobile QR scanning */}
+            <div className="p-3 bg-white border-2 border-slate-200 dark:border-slate-700 rounded-2xl shadow-inner">
               {qrFullscreenDataUrl || qrDataUrl ? (
                 <img
                   src={qrFullscreenDataUrl || qrDataUrl}
@@ -1493,9 +1494,9 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
             </div>
 
             <div>
-              <h3 className="text-lg font-bold text-slate-900">{currentRoomName}</h3>
-              <p className="text-xs font-mono text-slate-500 mt-0.5">Oda Kodu: #{currentRoomId}</p>
-              <p className="text-[11px] font-mono text-blue-600 mt-2 break-all px-2">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{currentRoomName}</h3>
+              <p className="text-xs font-mono text-slate-500 dark:text-slate-400 mt-0.5">Oda Kodu: #{currentRoomId}</p>
+              <p className="text-[11px] font-mono text-blue-600 dark:text-blue-400 mt-2 break-all px-2">
                 {qrTargetUrl}
               </p>
             </div>
@@ -1504,7 +1505,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               <button
                 type="button"
                 onClick={handleDownloadQr}
-                className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5"
+                className="flex-1 py-2.5 rounded-xl bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>PNG İndir</span>
@@ -1512,7 +1513,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsQrFullscreen(false)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold"
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold cursor-pointer"
               >
                 Kapat
               </button>

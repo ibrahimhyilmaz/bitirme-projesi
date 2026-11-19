@@ -251,6 +251,21 @@
   border-color: rgba(51, 65, 85, 0.8) !important;
 }
 
+[data-theme="dark"] [data-floating-bar="true"] button.bg-slate-200,
+[data-theme="midnight"] [data-floating-bar="true"] button.bg-slate-200,
+[data-theme="dark"] [data-floating-bar="true"] input[type="range"].bg-slate-200,
+[data-theme="midnight"] [data-floating-bar="true"] input[type="range"].bg-slate-200 {
+  background-color: rgba(51, 65, 85, 0.9) !important;
+  color: #f8fafc !important;
+}
+
+[data-theme="dark"] [data-floating-bar="true"] div.w-px.bg-slate-200,
+[data-theme="midnight"] [data-floating-bar="true"] div.w-px.bg-slate-200,
+[data-theme="dark"] [data-floating-bar="true"] div.h-px.bg-slate-200,
+[data-theme="midnight"] [data-floating-bar="true"] div.h-px.bg-slate-200 {
+  background-color: rgba(51, 65, 85, 0.85) !important;
+}
+
 [data-theme="dark"] [data-floating-bar="true"] button:hover:not(.bg-blue-600):not(.bg-violet-600):not(.bg-rose-600):not(.bg-emerald-600):not(.bg-slate-900):not([data-selected-option="true"]),
 [data-theme="midnight"] [data-floating-bar="true"] button:hover:not(.bg-blue-600):not(.bg-violet-600):not(.bg-rose-600):not(.bg-emerald-600):not(.bg-slate-900):not([data-selected-option="true"]) {
   background-color: rgba(51, 65, 85, 0.75) !important;

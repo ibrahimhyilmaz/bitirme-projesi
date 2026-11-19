@@ -91,7 +91,7 @@ export const THINKING_STAGES: ThinkingStage[] = [
     title: 'Hızlı & Minimalist (5-8 Şekil Parçası)',
     description: 'En yalın ve hızlı taslak. Temel hatlar ve canlı renklerle pratik çizim.',
     activeColor: 'bg-emerald-600 text-white shadow-xs',
-    badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    badgeBg: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/70',
     progressColor: 'bg-emerald-500',
   },
   {
@@ -106,7 +106,7 @@ export const THINKING_STAGES: ThinkingStage[] = [
     title: 'Dengeli & Net (10-18 Şekil Parçası)',
     description: 'Doğal orantılar, ana parçalar, pencereler/tekerlekler/yapraklar ve parlama detayları.',
     activeColor: 'bg-blue-600 text-white shadow-xs',
-    badgeBg: 'bg-blue-50 text-blue-700 border-blue-200',
+    badgeBg: 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/70',
     progressColor: 'bg-blue-500',
   },
   {
@@ -121,7 +121,7 @@ export const THINKING_STAGES: ThinkingStage[] = [
     title: 'Gelişmiş & Ayrıntılı (20-32 Şekil Parçası)',
     description: 'Zengin renk tonları, alt temas gölgesi, ikincil ışık yansımaları ve ince geometrik detaylar.',
     activeColor: 'bg-purple-600 text-white shadow-xs',
-    badgeBg: 'bg-purple-50 text-purple-700 border-purple-200',
+    badgeBg: 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/70',
     progressColor: 'bg-purple-500',
   },
   {
@@ -136,7 +136,7 @@ export const THINKING_STAGES: ThinkingStage[] = [
     title: 'En Üst Düzey Başyapıt (35-50+ Şekil Parçası)',
     description: '3B derinlik ve hacim hissi veren çoklu katmanlar, zemin gölgesi, ışık parlamaları, gölgeler ve usta işi zengin kompozisyon.',
     activeColor: 'bg-gradient-to-r from-amber-500 to-rose-600 text-white shadow-xs',
-    badgeBg: 'bg-amber-50 text-amber-800 border-amber-300',
+    badgeBg: 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800/70',
     progressColor: 'bg-gradient-to-r from-amber-500 to-rose-500',
   },
 ];
@@ -687,12 +687,14 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
     100,
     Math.round((activeBucket.used / Math.max(1, activeBucket.limit)) * 100)
   );
-  const resetMinutesLeft = Math.max(1, Math.ceil((activeBucket.resetAt - Date.now()) / 60000));
+  const resetMinutesLeft = Number.isFinite(activeBucket.resetAt)
+    ? Math.max(1, Math.ceil((activeBucket.resetAt - Date.now()) / 60000))
+    : 60;
   const currentModePrompts = QUICK_PROMPTS.filter((p) => p.mode === mode);
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 select-none"
+      className="fixed inset-0 z-50 bg-slate-900/50 dark:bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 select-none"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) {
           handleClose();
@@ -700,24 +702,24 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
       }}
     >
       <div
-        className="bg-white border border-slate-200 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[94vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[94vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="h-14 px-6 border-b border-slate-200 flex items-center justify-between bg-slate-50 shrink-0">
+        <div className="h-14 px-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/95 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-xs">
               <Wand2 className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <span>Yapay Zeka ile Çiz & Görsel Ekle</span>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70">
                   Google AI Studio Entegreli
                 </span>
               </h2>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 API anahtarı kaynağınızı seçin, kullanım sınırınızı takip edin ve gerçek vektörel çizimler üretin.
               </p>
             </div>
@@ -733,7 +735,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               e.stopPropagation();
               handleClose();
             }}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             title="Kapat (Vazgeç / Esc)"
           >
             <X className="w-4 h-4" />
@@ -746,35 +748,35 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           <div
             className={`rounded-2xl border p-3.5 transition-all ${
               !hasConfirmedSource
-                ? 'bg-amber-50/70 border-amber-300 ring-2 ring-amber-400/30'
-                : 'bg-slate-50 border-slate-200/90'
+                ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60 ring-2 ring-amber-400/30'
+                : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200/90 dark:border-slate-700/80'
             }`}
           >
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
               <div className="flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="text-xs font-bold text-slate-800">
+                <KeyRound className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
                   1. API Anahtarı Kaynağı & Kullanım Sınırı (Kota) Seçimi
                 </span>
                 {!hasConfirmedSource && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200">
                     Lütfen Tercihinizi Seçin
                   </span>
                 )}
               </div>
 
               <div className="flex items-center gap-2 text-[11px]">
-                <span className="inline-flex items-center gap-1 font-semibold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
-                  <Gauge className="w-3.5 h-3.5 text-blue-600" />
+                <span className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-2xs tabular-nums">
+                  <Gauge className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                   <span>
-                    Kalan Hak: <strong className="text-blue-700">{activeBucket.remaining}</strong> / {activeBucket.limit} İstek
+                    Kalan Hak: <strong className="text-blue-700 dark:text-blue-400">{activeBucket.remaining}</strong> / {activeBucket.limit} İstek
                   </span>
                 </span>
                 <button
                   type="button"
                   onClick={handleResetQuota}
                   title="Saatlik kullanım sayacını sıfırla"
-                  className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors cursor-pointer"
+                  className="p-1.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
@@ -789,8 +791,8 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                 onClick={() => handleSelectQuotaSource('app_default')}
                 className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
                   quotaSource === 'app_default'
-                    ? 'bg-blue-600 text-white border-blue-700 shadow-sm'
-                    : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50/40'
+                    ? 'bg-blue-600 text-white border-blue-700 dark:border-blue-500 shadow-sm'
+                    : 'bg-white dark:bg-slate-900/80 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-500/70 hover:bg-blue-50/40 dark:hover:bg-slate-800'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -799,10 +801,10 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                     <span>Uygulamanın API Anahtarı</span>
                   </span>
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md tabular-nums ${
                       quotaSource === 'app_default'
                         ? 'bg-white/20 text-white'
-                        : 'bg-slate-100 text-slate-600'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                     }`}
                   >
                     {quotaStatus?.appDefault.remaining ?? 15} / {quotaStatus?.appDefault.limit ?? 15} Saatlik
@@ -810,7 +812,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                 </div>
                 <p
                   className={`text-[11px] leading-snug ${
-                    quotaSource === 'app_default' ? 'text-blue-100' : 'text-slate-500'
+                    quotaSource === 'app_default' ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'
                   }`}
                 >
                   CollabBoard varsayılan paylaşımlı anahtarını kullanır. Hızlı testler için saatlik 15 çizim hakkı sunar.
@@ -824,8 +826,8 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                 onClick={() => handleSelectQuotaSource('user_aistudio')}
                 className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
                   quotaSource === 'user_aistudio'
-                    ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
-                    : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40'
+                    ? 'bg-indigo-600 text-white border-indigo-700 dark:border-indigo-500 shadow-sm'
+                    : 'bg-white dark:bg-slate-900/80 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-500/70 hover:bg-indigo-50/40 dark:hover:bg-slate-800'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -834,10 +836,10 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                     <span>Kendi Google AI Studio Anahtarım</span>
                   </span>
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md tabular-nums ${
                       quotaSource === 'user_aistudio'
                         ? 'bg-white/20 text-white'
-                        : 'bg-indigo-50 text-indigo-700'
+                        : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
                     }`}
                   >
                     {quotaStatus?.userAiStudio.remaining ?? 100} / {quotaStatus?.userAiStudio.limit ?? 100} Saatlik
@@ -845,7 +847,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                 </div>
                 <p
                   className={`text-[11px] leading-snug ${
-                    quotaSource === 'user_aistudio' ? 'text-indigo-100' : 'text-slate-500'
+                    quotaSource === 'user_aistudio' ? 'text-indigo-100' : 'text-slate-500 dark:text-slate-400'
                   }`}
                 >
                   Google AI Studio (Settings &gt; Secrets: <code className="font-mono">GEMINI_API_KEY</code>) bağlantınızı kullanır. Saatlik 100 yüksek öncelikli istek sağlar.
@@ -854,17 +856,17 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
             </div>
 
             {/* Browser-side Gemini key (static hosting / no server key) */}
-            <div className="mt-2.5 pt-2 border-t border-slate-200/80">
-              <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-violet-600" />
+            <div className="mt-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+              <div className="text-[11px] font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
                 <span>Tarayıcıda canlı yapay zeka (kendi Gemini API anahtarım)</span>
                 {geminiKey && (
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-bold">
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
                     Etkin
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
                 Sunucusuz sitelerde (GitHub Pages) çizim için gereklidir. Anahtar yalnızca bu tarayıcıda saklanır ve doğrudan Google’a gönderilir. Ücretsiz anahtar: aistudio.google.com/apikey
               </p>
               <div className="flex items-center gap-2 mt-1.5">
@@ -874,7 +876,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   value={geminiKeyDraft}
                   onChange={(e) => setGeminiKeyDraft(e.target.value)}
                   placeholder={geminiKey ? 'Kayıtlı anahtar var (değiştirmek için yenisini yapıştırın)' : 'AIza... anahtarınızı yapıştırın'}
-                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-mono text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-violet-500"
+                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-violet-500"
                 />
                 <button
                   type="button"
@@ -885,7 +887,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                     setGeminiKeyDraft('');
                     setErrorState(null);
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-xs font-semibold shrink-0"
+                  className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-xs font-semibold shrink-0 cursor-pointer"
                 >
                   Kaydet
                 </button>
@@ -896,7 +898,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                       setStoredGeminiKey('');
                       setGeminiKey('');
                     }}
-                    className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 text-xs font-semibold shrink-0"
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold shrink-0 cursor-pointer"
                   >
                     Sil
                   </button>
@@ -905,24 +907,24 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
             </div>
 
             {/* Live Quota Progress Bar */}
-            <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex flex-col gap-1">
-              <div className="flex items-center justify-between text-[11px] text-slate-600">
+            <div className="mt-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-700/80 flex flex-col gap-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-400">
                 <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   <span>
                     Aktif Kaynak:{' '}
-                    <strong className="text-slate-900">
+                    <strong className="text-slate-900 dark:text-slate-100">
                       {quotaSource === 'user_aistudio'
                         ? 'Kendi Google AI Studio API Anahtarım'
                         : 'Uygulamanın Varsayılan API Anahtarı'}
                     </strong>
                   </span>
                 </span>
-                <span>
-                  Kullanılan: <strong>{activeBucket.used}</strong> / {activeBucket.limit} ({usagePercent}%) · Yenilenme: ~{resetMinutesLeft} dk
+                <span className="tabular-nums">
+                  Kullanılan: <strong className="text-slate-800 dark:text-slate-200">{activeBucket.used}</strong> / {activeBucket.limit} ({usagePercent}%) · Yenilenme: ~{resetMinutesLeft} dk
                 </span>
               </div>
-              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full transition-all duration-300 rounded-full ${
                     usagePercent >= 90
@@ -930,8 +932,8 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                       : usagePercent >= 70
                       ? 'bg-amber-500'
                       : quotaSource === 'user_aistudio'
-                      ? 'bg-indigo-600'
-                      : 'bg-blue-600'
+                      ? 'bg-indigo-600 dark:bg-indigo-500'
+                      : 'bg-blue-600 dark:bg-blue-500'
                   }`}
                   style={{ width: `${Math.max(3, usagePercent)}%` }}
                 />
@@ -947,11 +949,11 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               disabled={isLoading}
               className={`py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
                 mode === 'vector'
-                  ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700/70 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60'
               }`}
             >
-              <Shapes className="w-4 h-4 text-blue-600" />
+              <Shapes className="w-4 h-4 text-blue-600 dark:text-blue-400" />
               <span>🎨 Şekillerle Çiz (27 Vektörel Şekil)</span>
             </button>
 
@@ -961,11 +963,11 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               disabled={isLoading}
               className={`py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
                 mode === 'image'
-                  ? 'bg-purple-50 text-purple-700 border border-purple-200 shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-50 border border-slate-200/80'
+                  ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700/70 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60'
               }`}
             >
-              <ImageIcon className="w-4 h-4 text-purple-600" />
+              <ImageIcon className="w-4 h-4 text-purple-600 dark:text-purple-400" />
               <span>🖼️ Görsel / Resim Ekle (AI SVG Çıkartma)</span>
             </button>
           </div>
@@ -973,10 +975,10 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           {/* Prompt input */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-700">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                 {mode === 'vector' ? '2. Ne çizilmesini istiyorsunuz?' : '2. Hangi görseli getirmek istiyorsunuz?'}
               </label>
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] text-slate-400 dark:text-slate-500">
                 {mode === 'vector'
                   ? 'Sahte yıldız üretmez · Gerçek parçalar veya hata/tekrar çözüm'
                   : 'Şeffaf arka planlı kaliteli SVG çıkartma'}
@@ -999,13 +1001,13 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   ? 'Örn: spor araba çiz, kedi çiz, mikroservis mimari şeması çiz, bahçeli ev çiz...'
                   : 'Örn: spor araba resmi, parlak kırmızı elma çıkartması, uzay roketi illüstrasyonu...'
               }
-              className="w-full p-3 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-600 focus:ring-1 focus:ring-blue-600 resize-none select-text"
+              className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 dark:focus:border-blue-500 focus:ring-1 focus:ring-blue-600 dark:focus:ring-blue-500 resize-none select-text"
             />
           </div>
 
           {/* Structured Error & Self-Healing Retry Box (Replaces old fake starry fallback!) */}
           {errorState && (
-            <div className="p-4 rounded-2xl bg-rose-50/95 border-2 border-rose-300 text-rose-900 space-y-3 animate-in fade-in duration-150 shadow-sm">
+            <div className="p-4 rounded-2xl bg-rose-50/95 dark:bg-rose-950/40 border-2 border-rose-300 dark:border-rose-800/80 text-rose-900 dark:text-rose-100 space-y-3 animate-in fade-in duration-150 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-2.5">
                   <div className="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
@@ -1013,27 +1015,27 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   </div>
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-bold text-rose-950">
+                      <span className="text-xs font-bold text-rose-950 dark:text-rose-100">
                         Çizim Talebi Yerine Getirilemedi
                       </span>
-                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-rose-200/80 text-rose-900">
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-rose-200/80 dark:bg-rose-900/70 text-rose-900 dark:text-rose-200">
                         {errorState.code}
                       </span>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-white border border-rose-200 text-rose-700">
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-800/70 text-rose-700 dark:text-rose-300">
                         {errorState.attemptsMade} Deneme Yapıldı
                       </span>
                     </div>
-                    <p className="text-xs text-rose-800 leading-relaxed font-medium">
+                    <p className="text-xs text-rose-800 dark:text-rose-200 leading-relaxed font-medium">
                       {errorState.message}
                     </p>
-                    <p className="text-[11px] text-rose-700/90 bg-white/80 px-2.5 py-1.5 rounded-lg border border-rose-200/80">
+                    <p className="text-[11px] text-rose-700/90 dark:text-rose-200/90 bg-white/80 dark:bg-slate-900/70 px-2.5 py-1.5 rounded-lg border border-rose-200/80 dark:border-rose-800/60">
                       💡 <strong>Çözüm Önerisi:</strong> {errorState.suggestion}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-2 pt-1 border-t border-rose-200/80">
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-1 border-t border-rose-200/80 dark:border-rose-800/60">
                 {selectedStageId !== 'quick' && (
                   <button
                     type="button"
@@ -1043,7 +1045,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                       setManualRetryCount((c) => c + 1);
                       handleGenerate(prompt, mode, true, 'quick');
                     }}
-                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 transition-colors cursor-pointer flex items-center gap-1.5"
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 hover:bg-rose-100 dark:hover:bg-rose-950/60 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-800 transition-colors cursor-pointer flex items-center gap-1.5"
                   >
                     <span>⚡ Hızlı Modda (10 sn) Tekrar Çöz</span>
                   </button>
@@ -1066,10 +1068,10 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           )}
 
           {/* 4-Stage Horizontal Thinking & Detail Depth Bar */}
-          <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-800">
-                <Sliders className="w-3.5 h-3.5 text-blue-600" />
+          <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200/90 dark:border-slate-700/80 rounded-2xl p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-100">
+                <Sliders className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                 <span>Düşünme Süresi & Detay Derinliği Barı</span>
               </div>
               <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${currentStage.badgeBg}`}>
@@ -1077,7 +1079,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-4 gap-1.5 p-1 bg-slate-200/60 rounded-xl relative">
+            <div className="grid grid-cols-4 gap-1.5 p-1 bg-slate-200/60 dark:bg-slate-900/80 rounded-xl relative">
               {THINKING_STAGES.map((stage) => {
                 const isSelected = selectedStageId === stage.id;
                 return (
@@ -1089,7 +1091,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                     className={`py-1.5 px-1 text-center rounded-lg transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 relative z-10 disabled:opacity-60 ${
                       isSelected
                         ? `${stage.activeColor} font-bold scale-[1.02]`
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/80 font-medium'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/80 dark:hover:bg-slate-800 font-medium'
                     }`}
                   >
                     <span className="text-[11px] leading-tight flex items-center gap-1">
@@ -1105,10 +1107,10 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               })}
             </div>
 
-            <div className="text-[11px] text-slate-600 flex items-start gap-1.5 bg-white p-2 rounded-xl border border-slate-200/70">
-              <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-slate-600 dark:text-slate-300 flex items-start gap-1.5 bg-white dark:bg-slate-900/90 p-2 rounded-xl border border-slate-200/70 dark:border-slate-700/70">
+              <Info className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
               <div>
-                <span className="text-slate-900 font-semibold">{currentStage.title}: </span>
+                <span className="text-slate-900 dark:text-slate-100 font-semibold">{currentStage.title}: </span>
                 <span>{currentStage.description}</span>
               </div>
             </div>
@@ -1116,20 +1118,20 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
 
           {/* Real-Time Thinking Progress & Timer State */}
           {isLoading && (
-            <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-2xl space-y-2 animate-in fade-in duration-200">
-              <div className="flex items-center justify-between text-xs font-semibold text-blue-900">
+            <div className="p-3.5 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 rounded-2xl space-y-2 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between text-xs font-semibold text-blue-900 dark:text-blue-200">
                 <span className="flex items-center gap-2">
-                  <Brain className="w-4 h-4 animate-pulse text-blue-600" />
+                  <Brain className="w-4 h-4 animate-pulse text-blue-600 dark:text-blue-400" />
                   <span>
                     {retryStatusMessage || 'Yapay zeka düşünüyor ve gerçek koordinatları hesaplıyor...'}
                   </span>
                 </span>
-                <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded-md border border-blue-200 text-blue-800 shadow-2xs shrink-0">
+                <span className="font-mono tabular-nums text-[11px] bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 shadow-2xs shrink-0">
                   ⏱️ {elapsedSeconds} sn / {currentStage.shortLabel}
                 </span>
               </div>
 
-              <div className="w-full h-2.5 bg-blue-100 rounded-full overflow-hidden p-0.5">
+              <div className="w-full h-2.5 bg-blue-100 dark:bg-slate-800 rounded-full overflow-hidden p-0.5">
                 <div
                   className={`h-full transition-all duration-300 rounded-full ${currentStage.progressColor}`}
                   style={{
@@ -1142,7 +1144,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
 
           {/* Quick Prompt Suggestions */}
           <div>
-            <div className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
+            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
               <span>Hızlı Örnekler (Tıkla & Çizilsin)</span>
             </div>
@@ -1156,7 +1158,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                     setPrompt(item.prompt);
                     handleGenerate(item.prompt, item.mode, false);
                   }}
-                  className="p-2 text-left rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all text-xs font-medium text-slate-700 hover:text-blue-700 disabled:opacity-50 cursor-pointer"
+                  className="p-2 text-left rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800/50 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50/40 dark:hover:bg-blue-950/40 transition-all text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-50 cursor-pointer"
                 >
                   {item.label}
                 </button>
@@ -1166,17 +1168,17 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[11px] text-slate-500">
+        <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-900/95 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
             {isLoading ? (
-              <span className="text-blue-600 font-medium flex items-center gap-1.5">
+              <span className="text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1.5">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 <span>{elapsedSeconds} saniyedir düşünülüyor...</span>
               </span>
             ) : (
               <>
                 Kaynak:{' '}
-                <strong className="text-slate-800">
+                <strong className="text-slate-800 dark:text-slate-200">
                   {quotaSource === 'user_aistudio' ? 'Kendi AI Studio Kotam' : 'Uygulama API Key'}
                 </strong>{' '}
                 ({activeBucket.remaining} hak kaldı) · <strong className="font-mono">Ctrl + Enter</strong>
@@ -1195,7 +1197,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                 e.stopPropagation();
                 handleClose();
               }}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
+              className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
             >
               {isLoading ? 'İptal Et' : 'Vazgeç'}
             </button>
@@ -1220,8 +1222,8 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               disabled={!prompt.trim() || isLoading}
               className={`px-4 py-2 text-xs font-semibold text-white rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed ${
                 mode === 'image'
-                  ? 'bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300'
-                  : 'bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300'
+                  ? 'bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 dark:disabled:text-slate-400'
+                  : 'bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 dark:disabled:text-slate-400'
               }`}
             >
               {isLoading ? (

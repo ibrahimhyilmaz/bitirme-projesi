@@ -39,6 +39,7 @@ import {
   Clock,
   Menu as MenuIcon,
   X as XIcon,
+  LogOut,
 } from 'lucide-react';
 import { RoomSettings, ThemeMode, UserPresence, UserRole } from '../types';
 import { getShareableRoomUrl } from './RoomsModal';
@@ -89,6 +90,7 @@ interface TopNavProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   onSwitchRoomByCode?: (roomCode: string) => void;
+  onLeaveRoom?: () => void;
 }
 
 const ROLE_TEXT: Record<UserRole, string> = {
@@ -144,6 +146,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   isFullscreen = false,
   onToggleFullscreen,
   onSwitchRoomByCode,
+  onLeaveRoom,
 }) => {
   const [copied, setCopied] = useState(false);
   const [copiedRoomCode, setCopiedRoomCode] = useState(false);
@@ -416,6 +419,26 @@ export const TopNav: React.FC<TopNavProps> = ({
                   </span>
                   <ArrowRight className="w-3 h-3 opacity-60" />
                 </button>
+                {onLeaveRoom && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRoomQuickMenu(false);
+                      onLeaveRoom();
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-lg text-xs font-semibold flex items-center justify-between transition-colors border-t mt-1 pt-2 ${
+                      isDark
+                        ? 'border-slate-800 text-rose-400 hover:bg-rose-950/50'
+                        : 'border-slate-100 text-rose-600 hover:bg-rose-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Odadan Çık (Ana Ekrana Dön)</span>
+                    </span>
+                    <ArrowRight className="w-3 h-3 opacity-60" />
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -610,8 +633,8 @@ export const TopNav: React.FC<TopNavProps> = ({
           >
             <Layout className="w-4 h-4" />
             {hiddenCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 text-[9px] font-bold bg-amber-500 text-white rounded-full flex items-center justify-center">
-                {4 - hiddenCount}
+              <span className="absolute -top-1 -right-1 w-4 h-4 text-[9px] font-bold tabular-nums bg-amber-500 text-white rounded-full flex items-center justify-center">
+                {Math.max(0, 5 - hiddenCount)}
               </span>
             )}
           </button>
@@ -956,6 +979,23 @@ export const TopNav: React.FC<TopNavProps> = ({
           <Download className="w-3.5 h-3.5 shrink-0" />
           <span>Dışa Aktar</span>
         </button>
+
+        {/* Leave Room Button -> Returns to Initial Entry Screen */}
+        {onLeaveRoom && (
+          <button
+            type="button"
+            onClick={onLeaveRoom}
+            title="Odadan Çık ve Ana Ekrana Dön"
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 ${
+              isDark
+                ? 'bg-rose-950/40 text-rose-300 border-rose-800/60 hover:bg-rose-900/60 hover:text-rose-200'
+                : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
+            }`}
+          >
+            <LogOut className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden xl:inline">Çıkış</span>
+          </button>
+        )}
       </div>
 
       {/* Zone M: phone controls (mic + menu) */}
@@ -1084,6 +1124,7 @@ export const TopNav: React.FC<TopNavProps> = ({
                     {cell(<UserCog className="w-5 h-5" />, 'Profil', onOpenUserSetup)}
                     {cell(<Download className="w-5 h-5" />, 'Dışa Aktar', onOpenExport)}
                     {onStartOnboardingTour && cell(<Compass className="w-5 h-5 text-indigo-500" />, 'Tur', onStartOnboardingTour)}
+                    {onLeaveRoom && cell(<LogOut className="w-5 h-5 text-rose-500" />, 'Odadan Çık', onLeaveRoom)}
                   </div>
 
                   <div className="mt-4">

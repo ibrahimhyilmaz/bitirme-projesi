@@ -77,22 +77,22 @@ export const CloudBoardsPanel: React.FC<CloudBoardsPanelProps> = ({
   };
 
   return (
-    <div className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-2.5">
+    <div className="p-3 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/60 space-y-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[12px] font-bold text-indigo-900 flex items-center gap-1.5">
-            <Cloud className="w-3.5 h-3.5 text-indigo-600" />
+          <div className="text-[12px] font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+            <Cloud className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
             <span>Bulut Tahtalarım</span>
-            <span className="text-[10px] font-semibold text-indigo-500">({boards.length})</span>
+            <span className="text-[10px] font-semibold text-indigo-500 dark:text-indigo-400">({boards.length})</span>
           </div>
           {!compact && (
-            <div className="text-[11px] text-indigo-700/80 leading-snug mt-0.5">
+            <div className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 leading-snug mt-0.5">
               Google hesabınla açtığın odalar ve tahtalar buluta kaydedilir; istediğin zaman son kayıttan devam edebilirsin.
             </div>
           )}
         </div>
         {onToggleAutoSave && (
-          <label className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-900 cursor-pointer shrink-0">
+          <label className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-900 dark:text-indigo-200 cursor-pointer shrink-0">
             <input
               type="checkbox"
               checked={autoSave}
@@ -105,29 +105,29 @@ export const CloudBoardsPanel: React.FC<CloudBoardsPanelProps> = ({
       </div>
 
       {onSaveNow && (
-        <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-white border border-indigo-100">
+        <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900/90 border border-indigo-100 dark:border-indigo-900/60">
           <div className="text-[11px] min-w-0">
             {status === 'saving' ? (
-              <span className="flex items-center gap-1.5 text-slate-600">
+              <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 <span>Kaydediliyor...</span>
               </span>
             ) : status === 'error' ? (
-              <span className="flex items-center gap-1.5 text-rose-600">
+              <span className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400">
                 <CloudOff className="w-3.5 h-3.5" />
                 <span>Kaydedilemedi</span>
               </span>
             ) : lastSavedAt ? (
-              <span className="flex items-center gap-1.5 text-emerald-700">
+              <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
                 <Cloud className="w-3.5 h-3.5" />
                 <span>Son kayıt</span>
                 <span className="font-semibold">{relativeTime(lastSavedAt)}</span>
               </span>
             ) : (
-              <span className="text-slate-500">Bu tahta henüz buluta kaydedilmedi</span>
+              <span className="text-slate-500 dark:text-slate-400">Bu tahta henüz buluta kaydedilmedi</span>
             )}
             {skippedMedia > 0 && status === 'saved' && (
-              <div className="text-[10px] text-amber-600 mt-0.5">
+              <div className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
                 <span>Boyut sınırı nedeniyle atlanan büyük öğe:</span> <span>{skippedMedia}</span>
               </div>
             )}
@@ -145,7 +145,7 @@ export const CloudBoardsPanel: React.FC<CloudBoardsPanelProps> = ({
       )}
 
       {boards.length === 0 ? (
-        <div className="text-[11px] text-indigo-700/70 px-1">
+        <div className="text-[11px] text-indigo-700/70 dark:text-indigo-300/70 px-1">
           Henüz kayıtlı tahtan yok. Bir odaya girdiğinde burada görünür.
         </div>
       ) : (
@@ -156,18 +156,18 @@ export const CloudBoardsPanel: React.FC<CloudBoardsPanelProps> = ({
             return (
               <div
                 key={b.id}
-                className="flex items-center justify-between gap-2 p-1.5 pl-2 rounded-lg bg-white border border-indigo-100"
+                className="flex items-center justify-between gap-2 p-1.5 pl-2 rounded-lg bg-white dark:bg-slate-900/90 border border-indigo-100 dark:border-indigo-900/60"
               >
                 <div className="min-w-0 flex items-center gap-2">
-                  <span className="text-[11px] font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
+                  <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded shrink-0">
                     #{b.id.toUpperCase()}
                   </span>
                   <div className="min-w-0">
-                    <div className="text-[11px] font-semibold text-slate-800 truncate">{b.name}</div>
-                    <div className="text-[10px] text-slate-400 flex flex-wrap items-center gap-x-1.5">
+                    <div className="text-[11px] font-semibold text-slate-800 dark:text-slate-100 truncate">{b.name}</div>
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500 flex flex-wrap items-center gap-x-1.5">
                       {b.hasSnapshot ? (
                         <>
-                          <span className="text-emerald-600 font-semibold">Kayıtlı</span>
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Kayıtlı</span>
                           <span>·</span>
                           <span>{b.elementsCount}</span>
                           <span>öğe</span>
@@ -183,7 +183,7 @@ export const CloudBoardsPanel: React.FC<CloudBoardsPanelProps> = ({
                 <div className="flex items-center gap-1 shrink-0">
                   {isCurrent ? (
                     <>
-                      <span className="px-2 py-1 rounded-md bg-indigo-100 text-indigo-700 text-[10px] font-semibold">
+                      <span className="px-2 py-1 rounded-md bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 text-[10px] font-semibold">
                         Canlı
                       </span>
                       {onRestoreIntoCurrent && b.hasSnapshot && (
@@ -191,7 +191,7 @@ export const CloudBoardsPanel: React.FC<CloudBoardsPanelProps> = ({
                           type="button"
                           disabled={busyId === b.id}
                           onClick={() => void run(b.id, () => onRestoreIntoCurrent(b))}
-                          className="px-2 py-1 rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                          className="px-2 py-1 rounded-md border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 disabled:opacity-50 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
                           title="Bu odanın içeriğini son kayıtla değiştir (geri alınabilir)"
                         >
                           <RotateCcw className="w-3 h-3" />
@@ -233,7 +233,7 @@ export const CloudBoardsPanel: React.FC<CloudBoardsPanelProps> = ({
                         setConfirmId(b.id);
                         window.setTimeout(() => setConfirmId((c) => (c === b.id ? null : c)), 3000);
                       }}
-                      className="p-1 rounded text-slate-300 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                      className="p-1 rounded text-slate-300 dark:text-slate-600 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer"
                       title="Bulut kaydını sil"
                     >
                       <Trash2 className="w-3 h-3" />

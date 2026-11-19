@@ -1380,21 +1380,30 @@ export function drawElement(
       ctx.roundRect(element.x, element.y, w, h, 6);
       ctx.stroke();
 
-      // Top-left badge indicating PDF & Page
+      // Top-left badge placed OUTSIDE immediately above the PDF sheet so page content is never covered
       const curPage = element.currentPage || 1;
       const totalPgs = element.totalPages || 1;
-      const label = `${element.fileName ? `${element.fileName} · ` : ''}Sayfa ${curPage} / ${totalPgs}`;
+      const pageSuffix = `Sayfa ${curPage} / ${totalPgs}`;
       ctx.save();
       ctx.font = '600 11px "Plus Jakarta Sans", sans-serif';
+      const maxBadgeW = Math.max(140, w);
+      let label = element.fileName ? `${element.fileName} · ${pageSuffix}` : pageSuffix;
+      if (ctx.measureText(label).width + 16 > maxBadgeW && element.fileName) {
+        let trimmed = element.fileName;
+        while (trimmed.length > 4 && ctx.measureText(`${trimmed}… · ${pageSuffix}`).width + 16 > maxBadgeW) {
+          trimmed = trimmed.slice(0, -1);
+        }
+        label = `${trimmed}… · ${pageSuffix}`;
+      }
       const textMetrics = ctx.measureText(label);
-      const badgeW = textMetrics.width + 16;
+      const badgeW = Math.min(maxBadgeW, textMetrics.width + 16);
       const badgeH = 22;
-      const badgeX = element.x + 8;
-      const badgeY = element.y + 8;
+      const badgeX = element.x;
+      const badgeY = element.y - badgeH - 6;
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.86)';
       ctx.beginPath();
-      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 6);
       ctx.fill();
 
       ctx.fillStyle = '#ffffff';
@@ -1892,19 +1901,40 @@ export function drawReactions(
   }
 }
 
-// Export canvas to high-res PNG or data URL
-export function exportCanvasAsDataUrl(
-  elements: CanvasElement[],
-  format: 'image/png' | 'image/jpeg' = 'image/png',
-  includeBackground: boolean = true
-): string {
-  if (elements.length === 0) {
-    const c = document.createElement('canvas');
-    c.width = 800;
-    c.height = 600;
-    return c.toDataURL(format);
-  }
+const MAX_EXPORT_SIDE_PX = 8192;
+const MAX_EXPORT_AREA_PX = 33_554_432; // ~32MP: universally safe across Chrome/Firefox/Safari
 
+function resolveExportBackgroundFill(
+  background: boolean | 'white' | 'dark' | 'transparent' | string
+): string | null {
+  if (background === false || background === 'transparent') return null;
+  if (background === true || background === 'white') return '#ffffff';
+  if (background === 'dark') return '#0f172a';
+  if (typeof background === 'string' && background.trim().length > 0) return background;
+  return '#ffffff';
+}
+
+function computeSafeExportDimensions(worldW: number, worldH: number, targetScale = 2) {
+  const safeW = Math.max(1, worldW);
+  const safeH = Math.max(1, worldH);
+  const scaleByWidth = MAX_EXPORT_SIDE_PX / safeW;
+  const scaleByHeight = MAX_EXPORT_SIDE_PX / safeH;
+  const scaleByArea = Math.sqrt(MAX_EXPORT_AREA_PX / (safeW * safeH));
+  const scale = Math.max(0.05, Math.min(targetScale, scaleByWidth, scaleByHeight, scaleByArea));
+  const pixelWidth = Math.max(1, Math.round(safeW * scale));
+  const pixelHeight = Math.max(1, Math.round(safeH * scale));
+  return {
+    scale,
+    pixelWidth,
+    pixelHeight,
+    wasScaledDown: scale < targetScale - 0.01,
+  };
+}
+
+function computeBoardExportBounds(elements: CanvasElement[]) {
+  if (elements.length === 0) {
+    return { minX: 0, minY: 0, width: 800, height: 600, padding: 0 };
+  }
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -1912,25 +1942,262 @@ export function exportCanvasAsDataUrl(
 
   for (const el of elements) {
     const b = getElementBounds(el);
+    // Include extra top headroom for PDF external title badge
+    const topExtra = el.type === 'pdf' ? 32 : 0;
     minX = Math.min(minX, b.minX);
-    minY = Math.min(minY, b.minY);
+    minY = Math.min(minY, b.minY - topExtra);
     maxX = Math.max(maxX, b.maxX);
     maxY = Math.max(maxY, b.maxY);
   }
 
   const padding = 60;
-  const w = Math.max(400, maxX - minX + padding * 2);
-  const h = Math.max(300, maxY - minY + padding * 2);
+  const width = Math.max(400, maxX - minX + padding * 2);
+  const height = Math.max(300, maxY - minY + padding * 2);
+  return { minX, minY, width, height, padding };
+}
+
+export interface ExportViewport {
+  pan: Point;
+  zoom: number;
+  width: number;
+  height: number;
+}
+
+export interface CanvasExportEstimate {
+  pixelWidth: number;
+  pixelHeight: number;
+  scale: number;
+  wasScaledDown: boolean;
+}
+
+export function estimateCanvasExportInfo(
+  elements: CanvasElement[],
+  scope: 'all' | 'viewport' = 'all',
+  viewport?: ExportViewport
+): CanvasExportEstimate {
+  if (scope === 'viewport' && viewport && viewport.width > 0 && viewport.height > 0) {
+    return computeSafeExportDimensions(viewport.width, viewport.height, 2);
+  }
+  const { width, height } = computeBoardExportBounds(elements);
+  return computeSafeExportDimensions(width, height, 2);
+}
+
+// Preload all image/GIF/PDF imageUrls into imageCache so offscreen export renders GIFs & images synchronously
+async function preloadImagesForExport(elements: CanvasElement[]): Promise<void> {
+  const tasks: Promise<void>[] = [];
+
+  for (const el of elements) {
+    if ((el.type !== 'image' && el.type !== 'pdf') || !el.imageUrl) continue;
+    const rawUrl = el.imageUrl;
+    const fileName = el.type === 'image' ? el.fileName : undefined;
+    const cacheKey = fileName ? `${rawUrl}::${fileName}` : rawUrl;
+
+    const existing = imageCache.get(cacheKey);
+    if (existing && existing.complete && (existing.naturalWidth > 0 || existing.width > 0)) {
+      continue;
+    }
+
+    tasks.push(
+      new Promise<void>((resolve) => {
+        let settled = false;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        const timeout = window.setTimeout(done, 5000);
+        const finish = () => {
+          window.clearTimeout(timeout);
+          done();
+        };
+
+        // Trigger cache population with the exact same cache key used by drawElement
+        const ready = getCachedImage(rawUrl, finish, fileName);
+        if (ready) {
+          finish();
+          return;
+        }
+
+        const cached = imageCache.get(cacheKey);
+        if (cached) {
+          if (cached.complete && (cached.naturalWidth > 0 || cached.width > 0)) {
+            finish();
+            return;
+          }
+          const prevOnLoad = cached.onload;
+          const prevOnError = cached.onerror;
+          cached.onload = (ev) => {
+            if (typeof prevOnLoad === 'function') prevOnLoad.call(cached, ev);
+            finish();
+          };
+          cached.onerror = (ev) => {
+            if (typeof prevOnError === 'function') prevOnError.call(cached, ev);
+            finish();
+          };
+        } else {
+          finish();
+        }
+      })
+    );
+  }
+
+  if (tasks.length > 0) {
+    await Promise.all(tasks);
+  }
+}
+
+export interface ExportBlobResult {
+  blob: Blob;
+  pixelWidth: number;
+  pixelHeight: number;
+  scale: number;
+  wasScaledDown: boolean;
+}
+
+// Async high-reliability PNG/JPEG export: preloads GIFs & images, auto-scales huge boards safely, outputs Blob
+export async function exportCanvasAsBlobAsync(
+  elements: CanvasElement[],
+  options: {
+    format?: 'image/png' | 'image/jpeg';
+    background?: boolean | 'white' | 'dark' | 'transparent' | string;
+    scope?: 'all' | 'viewport';
+    viewport?: ExportViewport;
+  } = {}
+): Promise<ExportBlobResult> {
+  const format = options.format ?? 'image/png';
+  const bgFill = resolveExportBackgroundFill(options.background ?? 'white');
+  const scope = options.scope ?? 'all';
+  const viewport = options.viewport;
+
+  await preloadImagesForExport(elements);
 
   const canvas = document.createElement('canvas');
-  canvas.width = w * 2; // retina 2x
-  canvas.height = h * 2;
+  let pixelWidth = 1600;
+  let pixelHeight = 1200;
+  let scale = 2;
+  let wasScaledDown = false;
+
+  if (scope === 'viewport' && viewport && viewport.width > 0 && viewport.height > 0) {
+    const dims = computeSafeExportDimensions(viewport.width, viewport.height, 2);
+    pixelWidth = dims.pixelWidth;
+    pixelHeight = dims.pixelHeight;
+    scale = dims.scale;
+    wasScaledDown = dims.wasScaledDown;
+
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(scale, scale);
+
+    if (bgFill) {
+      ctx.fillStyle = bgFill;
+      ctx.fillRect(0, 0, viewport.width, viewport.height);
+    }
+
+    ctx.translate(viewport.pan.x, viewport.pan.y);
+    ctx.scale(viewport.zoom, viewport.zoom);
+    for (const el of elements) {
+      drawElement(ctx, el);
+    }
+  } else if (elements.length === 0) {
+    canvas.width = 800;
+    canvas.height = 600;
+    pixelWidth = 800;
+    pixelHeight = 600;
+    scale = 1;
+    const ctx = canvas.getContext('2d')!;
+    if (bgFill) {
+      ctx.fillStyle = bgFill;
+      ctx.fillRect(0, 0, 800, 600);
+    }
+  } else {
+    const { minX, minY, width, height, padding } = computeBoardExportBounds(elements);
+    const dims = computeSafeExportDimensions(width, height, 2);
+    pixelWidth = dims.pixelWidth;
+    pixelHeight = dims.pixelHeight;
+    scale = dims.scale;
+    wasScaledDown = dims.wasScaledDown;
+
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(scale, scale);
+
+    if (bgFill) {
+      ctx.fillStyle = bgFill;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    ctx.translate(-minX + padding, -minY + padding);
+    for (const el of elements) {
+      drawElement(ctx, el);
+    }
+  }
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => {
+        if (b && b.size > 0) {
+          resolve(b);
+          return;
+        }
+        try {
+          const dataUrl = canvas.toDataURL(format, 0.95);
+          if (!dataUrl || dataUrl === 'data:,') {
+            reject(new Error('Tuval dışa aktarılamadı'));
+            return;
+          }
+          const parts = dataUrl.split(',');
+          const binStr = atob(parts[1] || '');
+          const bytes = new Uint8Array(binStr.length);
+          for (let i = 0; i < binStr.length; i++) {
+            bytes[i] = binStr.charCodeAt(i);
+          }
+          resolve(new Blob([bytes], { type: format }));
+        } catch (err) {
+          reject(err);
+        }
+      },
+      format,
+      0.95
+    );
+  });
+
+  return { blob, pixelWidth, pixelHeight, scale, wasScaledDown };
+}
+
+// Synchronous export helper (retained for previews & compatibility, safely clamped to browser limits)
+export function exportCanvasAsDataUrl(
+  elements: CanvasElement[],
+  format: 'image/png' | 'image/jpeg' = 'image/png',
+  background: boolean | 'white' | 'dark' | 'transparent' | string = 'white'
+): string {
+  const bgFill = resolveExportBackgroundFill(background);
+
+  if (elements.length === 0) {
+    const c = document.createElement('canvas');
+    c.width = 800;
+    c.height = 600;
+    const emptyCtx = c.getContext('2d');
+    if (emptyCtx && bgFill) {
+      emptyCtx.fillStyle = bgFill;
+      emptyCtx.fillRect(0, 0, c.width, c.height);
+    }
+    return c.toDataURL(format);
+  }
+
+  const { minX, minY, width: w, height: h, padding } = computeBoardExportBounds(elements);
+  const { scale, pixelWidth, pixelHeight } = computeSafeExportDimensions(w, h, 2);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = pixelWidth;
+  canvas.height = pixelHeight;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.scale(2, 2);
+  ctx.scale(scale, scale);
 
-  if (includeBackground) {
-    ctx.fillStyle = '#ffffff';
+  if (bgFill) {
+    ctx.fillStyle = bgFill;
     ctx.fillRect(0, 0, w, h);
   }
 

@@ -105,6 +105,32 @@ class SoundEffects {
       // Audio fallback
     }
   }
+
+  playTimerAlarmSound() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    try {
+      // Pleasant 2-burst 3-note rising chime (C5 -> E5 -> G5)
+      const notes = [523.25, 659.25, 783.99, 523.25, 659.25, 1046.5];
+      const offsets = [0, 0.14, 0.28, 0.62, 0.76, 0.9];
+      notes.forEach((freq, idx) => {
+        const startAt = ctx.currentTime + offsets[idx];
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, startAt);
+        gain.gain.setValueAtTime(0.001, startAt);
+        gain.gain.linearRampToValueAtTime(0.11, startAt + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.32);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startAt);
+        osc.stop(startAt + 0.34);
+      });
+    } catch {
+      // Audio fallback
+    }
+  }
 }
 
 export const soundEffects = new SoundEffects();
@@ -150,7 +176,11 @@ export class VoiceManager {
   private lastSpeakingReported: boolean = false;
   private unlockGestureHandler: (() => void) | null = null;
   private iceServers: RTCIceServer[] = DEFAULT_ICE_SERVERS;
+  private rtcConfigReady: Promise<void>;
   private peerCreatedAt: Map<string, number> = new Map();
+  private peerNudgedAt: Map<string, number> = new Map();
+  private signalQueues: Map<string, Promise<void>> = new Map();
+  private connectingPeers: Set<string> = new Set();
   private candidateStats: Map<string, { local: Record<string, number>; remote: Record<string, number> }> = new Map();
 
   private countCandidate(peerId: string, side: 'local' | 'remote', candidate?: string) {
@@ -169,8 +199,9 @@ export class VoiceManager {
     this.onSignalNeeded = onSignalNeeded;
     this.onDataChannelMessage = onDataChannelMessage;
 
-    // Prefer the server's ICE list (it may carry a private TURN server from env vars)
-    fetch('/api/rtc-config')
+    // Prefer the server's ICE list (it may carry a private TURN server from env vars);
+    // cap wait at 1200ms so peer setup never stalls if the endpoint is slow.
+    const configFetch = fetch('/api/rtc-config')
       .then((r) => (r.ok ? r.json() : null))
       .then((cfg) => {
         if (cfg && Array.isArray(cfg.iceServers) && cfg.iceServers.length > 0) {
@@ -178,6 +209,10 @@ export class VoiceManager {
         }
       })
       .catch(() => {});
+    this.rtcConfigReady = Promise.race([
+      configFetch,
+      new Promise<void>((resolve) => window.setTimeout(resolve, 1200)),
+    ]);
 
     // Ensure browser autoplay policies unlock remote audio streams on any user interaction
     this.unlockGestureHandler = () => {
@@ -492,15 +527,21 @@ export class VoiceManager {
 
   // WebRTC Peer Connection for Mesh Audio + Fast DataChannel
   async connectToPeer(remoteUserId: string, isInitiator: boolean) {
-    if (this.peerConnections.has(remoteUserId)) return;
+    if (this.peerConnections.has(remoteUserId) || this.connectingPeers.has(remoteUserId)) return;
+    this.connectingPeers.add(remoteUserId);
 
     try {
+      await this.rtcConfigReady;
+      if (this.peerConnections.has(remoteUserId)) return;
+
       const pc = new RTCPeerConnection({
         iceServers: this.iceServers,
+        iceCandidatePoolSize: 4,
       });
 
       this.peerConnections.set(remoteUserId, pc);
       this.peerCreatedAt.set(remoteUserId, Date.now());
+      this.peerNudgedAt.delete(remoteUserId);
       if (!this.pendingCandidates.has(remoteUserId)) {
         this.pendingCandidates.set(remoteUserId, []);
       }
@@ -550,11 +591,20 @@ export class VoiceManager {
 
       pc.oniceconnectionstatechange = () => {
         console.info('[voice] ICE', remoteUserId, pc.iceConnectionState);
+        if (pc.iceConnectionState === 'failed') {
+          if (this.currentUserId && this.currentUserId < remoteUserId) {
+            this.renegotiatePeer(remoteUserId, true);
+          } else {
+            this.onSignalNeeded(remoteUserId, { type: 'peer-ready' });
+          }
+        }
       };
 
       pc.onconnectionstatechange = () => {
         console.info('[voice] connection', remoteUserId, pc.connectionState);
-        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        if (pc.connectionState === 'connected') {
+          this.resumeAllRemoteAudio();
+        } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           this.removePeer(remoteUserId);
         }
       };
@@ -580,12 +630,15 @@ export class VoiceManager {
         if (audio.srcObject !== stream) {
           audio.srcObject = stream;
         }
+        event.track.onunmute = () => {
+          audio?.play().catch(() => {});
+        };
         audio.play().catch(() => {
           // Autoplay will be unlocked on next user pointerdown/keydown
         });
       };
 
-      // Initiator creates offer
+      // Initiator creates offer; non-initiator announces readiness so initiator sends offer immediately
       if (isInitiator) {
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
@@ -595,9 +648,38 @@ export class VoiceManager {
           type: 'offer',
           sdp: pc.localDescription,
         });
+      } else {
+        this.onSignalNeeded(remoteUserId, {
+          type: 'peer-ready',
+        });
       }
     } catch (err) {
       console.warn('Error connecting to peer:', remoteUserId, err);
+    } finally {
+      this.connectingPeers.delete(remoteUserId);
+    }
+  }
+
+  private async renegotiatePeer(remoteUserId: string, iceRestart = false) {
+    const pc = this.peerConnections.get(remoteUserId);
+    if (!pc || pc.signalingState === 'closed') return;
+    try {
+      if (iceRestart && typeof pc.restartIce === 'function') {
+        pc.restartIce();
+      }
+      if (pc.signalingState === 'stable') {
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          iceRestart,
+        });
+        await pc.setLocalDescription(offer);
+        this.onSignalNeeded(remoteUserId, {
+          type: 'offer',
+          sdp: pc.localDescription,
+        });
+      }
+    } catch {
+      // Ignore renegotiation collision
     }
   }
 
@@ -614,11 +696,53 @@ export class VoiceManager {
     }
   }
 
-  async handleSignal(
+  handleSignal(
+    fromUserId: string,
+    signal: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit }
+  ) {
+    // Serialize signals per peer so offer + early ICE candidates never race
+    const prev = this.signalQueues.get(fromUserId) ?? Promise.resolve();
+    const next = prev
+      .then(() => this.processSignal(fromUserId, signal))
+      .catch((err) => {
+        console.warn('WebRTC signaling error:', err);
+      });
+    this.signalQueues.set(fromUserId, next);
+    return next;
+  }
+
+  private async processSignal(
     fromUserId: string,
     signal: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit }
   ) {
     try {
+      // Peer announced readiness (or missed our first offer): if we are initiator, send/refresh offer now
+      if (signal.type === 'peer-ready') {
+        const shouldInitiate = !this.currentUserId || this.currentUserId < fromUserId;
+        if (!shouldInitiate) return;
+        const existing = this.peerConnections.get(fromUserId);
+        if (!existing) {
+          await this.connectToPeer(fromUserId, true);
+        } else if (existing.connectionState !== 'connected') {
+          if (existing.signalingState === 'have-local-offer') {
+            // Re-send existing offer if peer missed it, or restart ICE if older than 2s
+            const age = Date.now() - (this.peerCreatedAt.get(fromUserId) ?? 0);
+            if (age < 2500 && existing.localDescription) {
+              this.onSignalNeeded(fromUserId, {
+                type: 'offer',
+                sdp: existing.localDescription,
+              });
+            } else {
+              this.removePeer(fromUserId);
+              await this.connectToPeer(fromUserId, true);
+            }
+          } else {
+            await this.renegotiatePeer(fromUserId, true);
+          }
+        }
+        return;
+      }
+
       let pc = this.peerConnections.get(fromUserId);
       if (!pc) {
         await this.connectToPeer(fromUserId, false);
@@ -688,15 +812,32 @@ export class VoiceManager {
   }
 
   /**
-   * Offers/answers travel over best-effort channels (public MQTT, QoS 0). If the first offer is lost
-   * because the other side was not subscribed yet, the connection would hang forever. Drop peers that
-   * did not reach 'connected' in time so the next syncPeers() re-creates them with a fresh offer.
+   * Smart recovery for stuck voice peers:
+   * - At 3.5s in 'new' state, nudge the initiator via 'peer-ready' or resend offer.
+   * - After maxAgeMs (9s) still not connected, tear down so syncPeers() creates a clean connection.
    */
   pruneStalePeers(maxAgeMs = 9000) {
     const now = Date.now();
     for (const [id, pc] of Array.from(this.peerConnections.entries())) {
+      if (pc.connectionState === 'connected') continue;
       const age = now - (this.peerCreatedAt.get(id) ?? now);
-      if (pc.connectionState !== 'connected' && age > maxAgeMs) {
+      const lastNudge = this.peerNudgedAt.get(id) ?? 0;
+
+      if (age > 3500 && age <= maxAgeMs && now - lastNudge > 3200) {
+        this.peerNudgedAt.set(id, now);
+        if (this.currentUserId && this.currentUserId < id) {
+          if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
+            this.onSignalNeeded(id, { type: 'offer', sdp: pc.localDescription });
+          } else {
+            void this.renegotiatePeer(id, true);
+          }
+        } else {
+          this.onSignalNeeded(id, { type: 'peer-ready' });
+        }
+        continue;
+      }
+
+      if (age > maxAgeMs) {
         console.info(
           '[voice] retrying stale peer',
           id,
@@ -709,9 +850,32 @@ export class VoiceManager {
     }
   }
 
+  /** Force fresh WebRTC handshakes for all peers that are not currently connected */
+  refreshConnections(activeUserIds: string[], currentUserId: string) {
+    this.currentUserId = currentUserId;
+    for (const [id, pc] of Array.from(this.peerConnections.entries())) {
+      if (pc.connectionState !== 'connected') {
+        this.removePeer(id);
+      }
+    }
+    this.syncPeers(activeUserIds, currentUserId);
+    this.resumeAllRemoteAudio();
+  }
+
+  /** Disconnect all peer audio links when leaving a room (keeps manager alive for next room) */
+  disconnectAllPeers() {
+    for (const peerId of Array.from(this.peerConnections.keys())) {
+      this.removePeer(peerId);
+    }
+    this.signalQueues.clear();
+    this.connectingPeers.clear();
+  }
+
   removePeer(remoteUserId: string) {
     this.peerCreatedAt.delete(remoteUserId);
+    this.peerNudgedAt.delete(remoteUserId);
     this.candidateStats.delete(remoteUserId);
+    this.signalQueues.delete(remoteUserId);
     const dc = this.dataChannels.get(remoteUserId);
     if (dc) {
       try {

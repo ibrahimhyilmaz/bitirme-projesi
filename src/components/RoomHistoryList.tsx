@@ -136,22 +136,22 @@ export const RoomHistoryList: React.FC<RoomHistoryListProps> = ({
   );
 
   return (
-    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-2">
       <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="font-bold text-slate-700 flex items-center gap-1.5">
-          <Clock className="w-3.5 h-3.5 text-blue-600" />
+        <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
           <span>Odalarım ve Oda Geçmişi</span>
         </span>
-        <span className="text-slate-600 font-mono tabular-nums">
-          {t('history.created')}: <strong>{createdIds.size}</strong> · {t('history.active')}:{' '}
-          <strong>
+        <span className="text-slate-600 dark:text-slate-400 font-mono tabular-nums">
+          {t('history.created')}: <strong className="text-slate-800 dark:text-slate-200">{createdIds.size}</strong> · {t('history.active')}:{' '}
+          <strong className="text-slate-800 dark:text-slate-200">
             {activeOwnedCount}/{maxRoomsPerUser}
           </strong>
         </span>
       </div>
 
       {mergedEntries.length === 0 ? (
-        <div className="text-[11px] text-slate-500">{t('history.empty')}</div>
+        <div className="text-[11px] text-slate-500 dark:text-slate-400">{t('history.empty')}</div>
       ) : (
         <div className={`space-y-1.5 overflow-y-auto pr-0.5 ${maxHeightClass}`}>
           {mergedEntries.map((e) => {
@@ -171,19 +171,19 @@ export const RoomHistoryList: React.FC<RoomHistoryListProps> = ({
                 title={!isCurrent ? 'Odaya girmek için çift tıklayın' : undefined}
                 className={`flex items-center justify-between gap-2 p-2 rounded-lg border transition-colors ${
                   isCurrent
-                    ? 'bg-blue-50/50 border-blue-300'
-                    : 'bg-white border-slate-200 hover:border-blue-300 cursor-pointer'
+                    ? 'bg-blue-50/50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700/80'
+                    : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-700/80 hover:border-blue-300 dark:hover:border-blue-500/70 cursor-pointer'
                 }`}
               >
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    {liveRoom?.isLocked && <Lock className="w-3 h-3 text-amber-600 shrink-0" />}
-                    <span className="text-[11px] font-bold text-slate-800 truncate">{e.name}</span>
-                    <span className="text-[10px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded shrink-0">
+                    {liveRoom?.isLocked && <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />}
+                    <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 truncate">{e.name}</span>
+                    <span className="text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.5 rounded shrink-0">
                       #{e.id.toUpperCase()}
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-500 font-mono tabular-nums">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                     {liveRoom ? (
                       <ActiveRoomUsersBadge room={liveRoom} compact />
                     ) : (
@@ -211,7 +211,7 @@ export const RoomHistoryList: React.FC<RoomHistoryListProps> = ({
                         ev.stopPropagation();
                         onPreviewRoom(liveRoom);
                       }}
-                      className="px-2 py-1 rounded-md bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 text-[10px] font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                      className="px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/60 text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-blue-300 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap"
                       title="Tahtayı önizle"
                     >
                       <Eye className="w-3 h-3 shrink-0" />
@@ -220,7 +220,7 @@ export const RoomHistoryList: React.FC<RoomHistoryListProps> = ({
                   )}
 
                   {isCurrent ? (
-                    <span className="px-2 py-1 rounded-md bg-blue-100 text-blue-700 text-[10px] font-semibold whitespace-nowrap">
+                    <span className="px-2 py-1 rounded-md bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 text-[10px] font-semibold whitespace-nowrap">
                       Bu Odadasınız
                     </span>
                   ) : (
@@ -231,7 +231,7 @@ export const RoomHistoryList: React.FC<RoomHistoryListProps> = ({
                         ev.stopPropagation();
                         void handleEnter(e);
                       }}
-                      className="px-2.5 py-1 rounded-md bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[10px] font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                      className="px-2.5 py-1 rounded-md bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:opacity-50 text-white text-[10px] font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap"
                     >
                       <span>{actionLabel}</span>
                       <ArrowRight className="w-3 h-3" />
@@ -246,7 +246,7 @@ export const RoomHistoryList: React.FC<RoomHistoryListProps> = ({
                         removeRoomHistory(e.id);
                         setEntries(readRoomHistory());
                       }}
-                      className="p-1 rounded text-slate-300 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                      className="p-1 rounded text-slate-300 dark:text-slate-600 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer"
                       title={t('history.remove')}
                     >
                       <Trash2 className="w-3 h-3" />

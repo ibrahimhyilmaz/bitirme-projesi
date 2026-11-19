@@ -491,8 +491,36 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Server] Unhandled rejection (kept alive):', reason);
 });
 
-// WebSocket Server initialization
-const wss = new WebSocketServer({ server });
+// WebSocket Server initialization (noServer so we route upgrades cleanly without clashing with Vite dev client)
+const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+
+// Silent no-op WebSocket handler for Vite's /@vite/client dev socket when HMR is disabled.
+// Prevents "[vite] failed to connect to websocket (Error: WebSocket closed without opened.)" console errors
+// without triggering any HMR reloads or interfering with CollabBoard's real-time WebSocket traffic.
+const viteHmrNoopWss = new WebSocketServer({
+  noServer: true,
+  handleProtocols: (protocols) => (protocols.has('vite-hmr') ? 'vite-hmr' : false),
+});
+
+viteHmrNoopWss.on('connection', (hmrWs) => {
+  hmrWs.on('error', () => {});
+  hmrWs.on('message', () => {});
+});
+
+server.on('upgrade', (request, socket, head) => {
+  const rawProto = request.headers['sec-websocket-protocol'];
+  const protoHeader = Array.isArray(rawProto) ? rawProto.join(',') : rawProto || '';
+  if (protoHeader.includes('vite-hmr')) {
+    viteHmrNoopWss.handleUpgrade(request, socket, head, (ws) => {
+      viteHmrNoopWss.emit('connection', ws, request);
+    });
+    return;
+  }
+
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
 
 wss.on('error', (err) => {
   console.error('[WSS] WebSocketServer error:', err?.message || err);
@@ -516,7 +544,7 @@ const heartbeatInterval = setInterval(() => {
       // Ignore ping error on closing socket
     }
   });
-}, 25000);
+}, 20000);
 
 const idleSweepInterval = setInterval(() => {
   const now = Date.now();
@@ -1700,12 +1728,16 @@ wss.on('connection', (ws: WebSocket) => {
           const room = rooms.get(currentRoomId);
           if (!room) return;
 
+          const senderId = currentUserId || msg.fromUserId;
+          if (!senderId || !msg.targetUserId) return;
+
           const targetUser = room.users.get(msg.targetUserId);
           if (targetUser && targetUser.ws.readyState === WebSocket.OPEN) {
             targetUser.ws.send(
               JSON.stringify({
                 type: 'webrtc-signal',
-                fromUserId: currentUserId,
+                fromUserId: senderId,
+                targetUserId: msg.targetUserId,
                 signal: msg.signal,
               })
             );
@@ -2664,7 +2696,7 @@ async function startServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
+      server: { middlewareMode: true, hmr: false, ws: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
