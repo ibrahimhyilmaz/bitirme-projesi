@@ -779,14 +779,35 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 'cube',
                 'sticky',
               ]);
-              const hitShape = [...elements]
-                .reverse()
-                .find(
-                  (el) =>
-                    !el.isLocked &&
-                    fillableTypes.has(el.type) &&
-                    isPointInsideElement(canvasPt, el)
-                );
+              // A freehand loop whose ends (almost) meet is a closed shape too
+              const isClosedFreehand = (el: CanvasElement) => {
+                if (el.type !== 'pencil' && el.type !== 'fountain-pen') return false;
+                const pts = el.points;
+                if (!pts || pts.length < 6) return false;
+                const first = pts[0];
+                const last = pts[pts.length - 1];
+                const bb = getElementBounds(el);
+                const gap = Math.hypot(first.x - last.x, first.y - last.y);
+                return gap <= Math.max(24, Math.hypot(bb.width, bb.height) * 0.12);
+              };
+              const insideFreehand = (el: CanvasElement) => {
+                const pts = el.points || [];
+                let inside = false;
+                for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+                  const intersect =
+                    pts[i].y > canvasPt.y !== pts[j].y > canvasPt.y &&
+                    canvasPt.x <
+                      ((pts[j].x - pts[i].x) * (canvasPt.y - pts[i].y)) / (pts[j].y - pts[i].y + 1e-9) +
+                        pts[i].x;
+                  if (intersect) inside = !inside;
+                }
+                return inside;
+              };
+              const hitShape = [...elements].reverse().find((el) => {
+                if (el.isLocked) return false;
+                if (fillableTypes.has(el.type)) return isPointInsideElement(canvasPt, el);
+                return isClosedFreehand(el) && insideFreehand(el);
+              });
 
               if (hitShape) {
                 const b = getElementBounds(hitShape);
@@ -794,12 +815,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 const shapeScreenH = b.height * zoom;
                 const fillW = maxPxX - minPxX + 1;
                 const fillH = maxPxY - minPxY + 1;
-                // If flood fill spans most of the shape's bounding box, update fillColor directly
+                // The region the bucket found is (most of) the interior of this object -> colour the object itself
+                // instead of dropping a separate picture on top of it. Text/marks inside the object only
+                // carve holes in the flood region, so the threshold is deliberately generous.
                 if (
-                  fillW >= shapeScreenW * 0.72 &&
-                  fillH >= shapeScreenH * 0.72 &&
-                  fillW <= shapeScreenW * 1.15 &&
-                  fillH <= shapeScreenH * 1.15
+                  fillW >= shapeScreenW * 0.4 &&
+                  fillH >= shapeScreenH * 0.4 &&
+                  fillW <= shapeScreenW * 1.2 &&
+                  fillH <= shapeScreenH * 1.2
                 ) {
                   if (onSaveHistorySnapshot) onSaveHistorySnapshot();
                   onUpdateElement(hitShape.id, {

@@ -28,6 +28,7 @@ import {
   getStoredGeminiKey,
   setStoredGeminiKey,
 } from '../utils/clientGemini';
+import { freeGenerate } from '../utils/freeAI';
 
 interface AIPromptModalProps {
   centerX: number;
@@ -580,10 +581,58 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
         !getStoredGeminiKey() &&
         !!failure &&
         typeof failure === 'object' &&
-        (failure.code === 'SERVER_UNREACHABLE' || failure.code === 'API_KEY_UNAVAILABLE');
+        (failure.code === 'SERVER_UNREACHABLE' ||
+          failure.code === 'API_KEY_UNAVAILABLE' ||
+          failure.code === 'QUOTA_LIMIT_REACHED');
+
+      // Tier 2 - free, key-less, token-lean engine (compact DSL + local layout), usable by every visitor
+      const tryFree = async (): Promise<boolean> => {
+        try {
+          setRetryStatusMessage('🆓 Ücretsiz yapay zeka motoru çiziyor (anahtar gerekmez)...');
+          const free = await freeGenerate({
+            prompt: targetPrompt,
+            centerX,
+            centerY,
+            author: authorName,
+            signal: controller.signal,
+          });
+          if (activeMode === 'image' && free.svg) {
+            const now = Date.now();
+            onElementsGenerated([
+              {
+                id: `ai-img-${now}-${Math.random().toString(36).substring(2, 6)}`,
+                type: 'image',
+                x: Math.round(centerX - 150),
+                y: Math.round(centerY - 150),
+                width: 300,
+                height: 300,
+                strokeWidth: 0,
+                color: 'transparent',
+                fillColor: 'transparent',
+                imageUrl: `data:image/svg+xml;utf8,${encodeURIComponent(free.svg)}`,
+                rotation: 0,
+                flipX: false,
+                flipY: false,
+                createdBy: authorName,
+                updatedAt: now,
+              } as CanvasElement,
+            ]);
+            onClose();
+            return true;
+          }
+          if (free.elements.length > 0) {
+            onElementsGenerated(free.elements);
+            onClose();
+            return true;
+          }
+        } catch (freeErr) {
+          if (freeErr instanceof Error && freeErr.name === 'AbortError') throw freeErr;
+        }
+        return false;
+      };
 
       if (serverMissing) {
-        // No AI backend (static hosting / no API key): use the built-in vector library when it knows the subject
+        // Tier 1 - built-in vector library (zero network, zero tokens) when it knows the subject
         try {
           if (activeMode === 'image') {
             const svg = buildFallbackSvg(targetPrompt, stage.id, true);
@@ -627,8 +676,9 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
             }
           }
         } catch {
-          // fall through to the explanatory error below
+          // fall through to the free engine
         }
+        if (await tryFree()) return;
         setErrorState({
           message:
             'Canlı yapay zeka sunucusuna ulaşılamadı (uygulama sunucusuz/statik barındırmada çalışıyor olabilir). Bu istek için hazır çizim kütüphanesinde karşılık yok.',

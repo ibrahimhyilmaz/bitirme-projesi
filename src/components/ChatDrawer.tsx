@@ -52,6 +52,8 @@ interface ChatDrawerProps {
     recipientName?: string
   ) => void;
   onDeleteMessage?: (messageId: string) => void;
+  /** Tell the others I have seen these messages (read receipts) */
+  onMarkRead?: (messageIds: string[]) => void;
   /** Room-level chat history saving (decided by the room owner) */
   saveChatEnabled?: boolean;
   canManageChatSave?: boolean;
@@ -288,6 +290,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   reactions = [],
   onSendMessage,
   onDeleteMessage,
+  onMarkRead,
   saveChatEnabled = true,
   canManageChatSave = false,
   onToggleSaveChat,
@@ -325,6 +328,34 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   const [addedMessageIds, setAddedMessageIds] = useState<Set<string>>(new Set());
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const markedReadRef = useRef<Set<string>>(new Set());
+
+  // Read receipts: while the chat is open and the tab is visible, report incoming messages as seen
+  useEffect(() => {
+    if (!onMarkRead) return;
+    const report = () => {
+      if (document.visibilityState !== 'visible') return;
+      const fresh = messages
+        .filter(
+          (m) =>
+            m.userId !== currentUserId &&
+            m.userId !== 'system' &&
+            !markedReadRef.current.has(m.id) &&
+            !(m.readBy && m.readBy[currentUserId])
+        )
+        .map((m) => m.id);
+      if (fresh.length === 0) return;
+      fresh.forEach((id) => markedReadRef.current.add(id));
+      onMarkRead(fresh);
+    };
+    report();
+    document.addEventListener('visibilitychange', report);
+    window.addEventListener('focus', report);
+    return () => {
+      document.removeEventListener('visibilitychange', report);
+      window.removeEventListener('focus', report);
+    };
+  }, [messages, currentUserId, onMarkRead]);
 
   const handleDownloadFile = (att: { name: string; url?: string; dataUrl?: string }) => {
     const fileUrl = att.dataUrl || att.url;
@@ -855,6 +886,20 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                       minute: '2-digit',
                     })}
                   </span>
+                  {isSelf &&
+                    (() => {
+                      const readers = Object.keys(msg.readBy || {}).filter((id) => id !== currentUserId);
+                      const names = readers.map((id) => users.find((u) => u.id === id)?.name || 'Kullanıcı');
+                      const seen = readers.length > 0;
+                      return (
+                        <span
+                          className={`font-bold text-[11px] leading-none ${seen ? 'text-sky-500' : 'text-slate-400'}`}
+                          title={seen ? `Okundu: ${names.join(', ')}` : 'Gönderildi'}
+                        >
+                          {seen ? '✓✓' : '✓'}
+                        </span>
+                      );
+                    })()}
                 </div>
 
                 <div className="relative max-w-[85%]">

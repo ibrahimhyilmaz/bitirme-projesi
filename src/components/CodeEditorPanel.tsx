@@ -24,6 +24,13 @@ import {
 import { CodeCursorPresence, CodeFile, EditorSettings, DEFAULT_EDITOR_SETTINGS } from '../types';
 import { EditorSettingsForm } from './EditorSettingsForm';
 import { useI18n } from '../i18n';
+import {
+  getInstalledPyPackages,
+  parsePipCommand,
+  runPip,
+  runPython,
+  type PipCommand,
+} from '../utils/pyodideRunner';
 
 interface CodeEditorPanelProps {
   roomName: string;
@@ -47,6 +54,7 @@ interface CodeEditorPanelProps {
     column: number;
     selectionStart: number;
     selectionEnd: number;
+    fileId?: string;
   }) => void;
   onClose: () => void;
 }
@@ -351,9 +359,19 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
         column,
         selectionStart: start,
         selectionEnd: end,
+        fileId: activeFileId,
       });
     }
   };
+
+  // Tell peers which file tab I am in as soon as I switch tabs
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    savedSelectionRef.current = null;
+    broadcastCurrentSelection(el);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFileId]);
 
   // Preserve local cursor position when remote code updates arrive
   useEffect(() => {
@@ -596,6 +614,12 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
     setIsTerminalCollapsed(false);
     setIsRunning(true);
     try {
+      // Python with user-installed packages must run in the browser runtime (that is where pip installs them)
+      if (activeLanguage === 'python' && getInstalledPyPackages().length > 0) {
+        setExecResult(await runPythonInBrowser(activeContent, effectiveStdin));
+        return;
+      }
+
       const response = await fetch('/api/code/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -615,6 +639,14 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
       setExecResult(result);
     } catch {
       try {
+        if (activeLanguage === 'python') {
+          try {
+            setExecResult(await runPythonInBrowser(activeContent, effectiveStdin));
+            return;
+          } catch {
+            // runtime could not be loaded (offline CDN): use the cloud compiler below
+          }
+        }
         const fallbackResult = await executeClientFallback(
           activeContent,
           activeLanguage,
@@ -642,6 +674,56 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
     }
   };
 
+  const runPythonInBrowser = async (src: string, stdinVal: string): Promise<ExecutionResult> => {
+    const t0 = performance.now();
+    const r = await runPython(src, stdinVal);
+    return {
+      stdout: r.stdout,
+      stderr: r.stderr,
+      exitCode: r.exitCode,
+      executionTimeMs: Math.round(performance.now() - t0),
+      engine: 'Python 3.12 (Pyodide · tarayıcı)',
+      language: 'python',
+    };
+  };
+
+  // `pip install ...` typed in the terminal: installs into the in-browser Python runtime
+  const handlePip = async (cmd: PipCommand, original: string) => {
+    setIsTerminalCollapsed(false);
+    setIsRunning(true);
+    setExecResult({
+      stdout: `$ ${original}\nPaketler indiriliyor... (ilk kurulumda Python ortamı yüklenir, 10-30 sn sürebilir)`,
+      stderr: '',
+      exitCode: 0,
+      executionTimeMs: 0,
+      engine: 'Python 3.12 (Pyodide · tarayıcı)',
+      language: 'python',
+    });
+    const t0 = performance.now();
+    try {
+      const r = await runPip(cmd);
+      setExecResult({
+        stdout: `$ ${original}\n${r.stdout}`.trimEnd(),
+        stderr: r.stderr,
+        exitCode: r.exitCode,
+        executionTimeMs: Math.round(performance.now() - t0),
+        engine: 'Python 3.12 (Pyodide · tarayıcı)',
+        language: 'python',
+      });
+    } catch (err) {
+      setExecResult({
+        stdout: `$ ${original}`,
+        stderr: `ERROR: ${err instanceof Error ? err.message : String(err)}`,
+        exitCode: 1,
+        executionTimeMs: Math.round(performance.now() - t0),
+        engine: 'Python 3.12 (Pyodide · tarayıcı)',
+        language: 'python',
+      });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   const handleTerminalSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = terminalLine;
@@ -650,6 +732,13 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
       setTerminalInputLines([]);
       setStdinText('');
       setTerminalLine('');
+      return;
+    }
+
+    const pipCmd = parsePipCommand(trimmed);
+    if (pipCmd) {
+      setTerminalLine('');
+      void handlePip(pipCmd, trimmed);
       return;
     }
 
@@ -665,7 +754,13 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   const codeLines = activeContent.split('\n');
   const linesCount = codeLines.length;
   const lineNumbers = Array.from({ length: Math.max(linesCount, 1) }, (_, i) => i + 1);
-  const remoteCursors = codeCursors.filter((c) => c.userId !== currentUserId);
+  const allRemoteCursors = codeCursors.filter((c) => c.userId !== currentUserId);
+  // Only cursors that are in the file I am looking at are drawn in the editor
+  const remoteCursors = allRemoteCursors.filter((c) => (c.fileId || 'main') === activeFileId);
+  const fileNameOf = (id?: string) =>
+    !id || id === 'main'
+      ? `main.${LANGUAGES.find((l) => l.id === code.language)?.ext || 'txt'}`
+      : codeFiles.find((f) => f.id === id)?.name || 'dosya';
 
   return (
     <div
@@ -804,12 +899,19 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             Siz · Satır {localCursor.line}, Sütun {localCursor.column}
           </span>
-          {remoteCursors.length > 0 ? (
-            remoteCursors.map((rc) => (
+          {allRemoteCursors.length > 0 ? (
+            allRemoteCursors.map((rc) => {
+              const rcFile = rc.fileId || 'main';
+              const sameFile = rcFile === activeFileId;
+              return (
               <button
                 key={rc.userId}
                 type="button"
                 onClick={() => {
+                  if (!sameFile) {
+                    setActiveFileId(rcFile);
+                    return;
+                  }
                   const el = textareaRef.current;
                   if (!el) return;
                   el.focus();
@@ -822,18 +924,23 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
                   border: `1px solid ${rc.userColor}`,
                   color: '#f8fafc',
                 }}
-                title={`${rc.userName} kullanıcısının imlecine git (Satır ${rc.line}, Sütun ${rc.column})`}
+                title={
+                  sameFile
+                    ? `${rc.userName} kullanıcısının imlecine git (Satır ${rc.line}, Sütun ${rc.column})`
+                    : `${rc.userName} şu an ${fileNameOf(rcFile)} dosyasında: oraya geç`
+                }
               >
                 <span
                   className="w-2 h-2 rounded-full shrink-0"
-                  style={{ backgroundColor: rc.userColor }}
+                  style={{ backgroundColor: rc.userColor, opacity: sameFile ? 1 : 0.5 }}
                 />
                 <span>{rc.userName}</span>
                 <span className="opacity-80">
-                  · Satır {rc.line}:{rc.column}
+                  {sameFile ? `· Satır ${rc.line}:${rc.column}` : `· ${fileNameOf(rcFile)}`}
                 </span>
               </button>
-            ))
+              );
+            })
           ) : (
             <span className="text-slate-500 text-[10px]">
               Odadaki diğer kullanıcılar kod yazdığında canlı imleçleri burada görünür

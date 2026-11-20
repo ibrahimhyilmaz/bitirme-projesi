@@ -306,6 +306,8 @@ export interface CodeCursorPresence {
   selectionStart: number;
   selectionEnd: number;
   updatedAt: number;
+  /** Which file tab the cursor is in ('main' or a CodeFile id) */
+  fileId?: string;
 }
 
 export interface CodeFile {
@@ -336,6 +338,8 @@ export interface ChatMessage {
   recipientId?: string;
   recipientName?: string;
   isPrivate?: boolean;
+  /** userId -> time the user saw this message */
+  readBy?: Record<string, number>;
   fileAttachment?: {
     name: string;
     url: string;

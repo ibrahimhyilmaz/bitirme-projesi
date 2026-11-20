@@ -112,6 +112,8 @@ interface ChatMessage {
   recipientId?: string;
   recipientName?: string;
   isPrivate?: boolean;
+  /** userId -> time the user saw this message */
+  readBy?: Record<string, number>;
   fileAttachment?: {
     name: string;
     url: string;
@@ -144,6 +146,8 @@ interface CodeFile {
 interface RoomState {
   id: string;
   codeFiles: CodeFile[];
+  /** First owner of the room: gets the owner role back when rejoining */
+  founderId?: string;
   name: string;
   createdAt: number;
   ownerName: string;
@@ -415,6 +419,7 @@ calculateSprintMetrics(sampleTasks);
 
     rooms.set(roomId, {
       id: roomId,
+      founderId: creatorId || undefined,
       name: displayRoomName,
       createdAt: Date.now(),
       ownerName: creatorName || 'Sistem',
@@ -845,6 +850,29 @@ wss.on('connection', (ws: WebSocket) => {
           room.lastActivityAt = Date.now();
           if (typeof ownerKey === 'string' && ownerKey) room.memberKeys.add(ownerKey);
 
+          // The founder keeps their authority: if ownership moved while they were away, take it back
+          let founderReclaimed = false;
+          const isFounder =
+            room.founderId === user.id || (typeof ownerKey === 'string' && ownerKey && room.ownerKey === ownerKey);
+          if (isFounder && room.settings.ownerId !== user.id && room.settings.ownerId !== 'system') {
+            const interimId = room.settings.ownerId;
+            room.roleAssignments.set(interimId, 'admin');
+            const interim = room.users.get(interimId);
+            if (interim) {
+              interim.presence.role = 'admin';
+              broadcastToRoom(room.id, {
+                type: 'user-role-updated',
+                userId: interimId,
+                role: 'admin',
+                updatedBy: 'Sistem',
+              });
+            }
+            room.settings.ownerId = user.id;
+            room.ownerName = user.name || room.ownerName;
+            founderReclaimed = true;
+          }
+          if (!room.founderId && isFounder) room.founderId = user.id;
+
           // Determine user's role in the room
           let assignedRole: UserRole = savedRole || room.settings.defaultRole;
           if (
@@ -856,6 +884,7 @@ wss.on('connection', (ws: WebSocket) => {
             if (room.settings.ownerId === 'system' || room.users.size === 0) {
               room.settings.ownerId = user.id;
               room.ownerName = user.name || 'Kurucu';
+              if (!room.founderId) room.founderId = user.id;
               if (typeof ownerKey === 'string' && ownerKey) {
                 room.ownerKey = ownerKey;
               }
@@ -929,7 +958,44 @@ wss.on('connection', (ws: WebSocket) => {
             user.id
           );
 
+          if (founderReclaimed) {
+            broadcastToRoom(room.id, {
+              type: 'room-settings-updated',
+              roomName: room.name,
+              settings: room.settings,
+              updatedBy: 'Sistem',
+            });
+          }
+
           broadcastGlobalRoomsList();
+          break;
+        }
+
+        case 'chat-read': {
+          if (!currentRoomId || !currentUserId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room || !Array.isArray(msg.messageIds)) return;
+          const ids = new Set<string>(msg.messageIds.map(String));
+          const at = Date.now();
+          const changed: string[] = [];
+          for (const m of room.messages) {
+            if (ids.has(m.id) && m.userId !== currentUserId) {
+              if (m.isPrivate && m.recipientId !== currentUserId) continue;
+              m.readBy = m.readBy || {};
+              if (!m.readBy[currentUserId]) {
+                m.readBy[currentUserId] = at;
+                changed.push(m.id);
+              }
+            }
+          }
+          if (changed.length) {
+            broadcastToRoom(currentRoomId, {
+              type: 'chat-read-updated',
+              userId: currentUserId,
+              messageIds: changed,
+              at,
+            });
+          }
           break;
         }
 
@@ -1440,6 +1506,7 @@ wss.on('connection', (ws: WebSocket) => {
               column: msg.column,
               selectionStart: msg.selectionStart,
               selectionEnd: msg.selectionEnd,
+              fileId: typeof msg.fileId === 'string' ? msg.fileId : 'main',
             },
             currentUserId
           );

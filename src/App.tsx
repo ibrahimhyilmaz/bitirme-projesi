@@ -703,6 +703,7 @@ export default function App() {
     loadTemplate: rawLoadTemplate,
     updateCode,
     sendCodeCursor,
+    markChatRead,
     updateNotes,
     sendChatMessage,
     deleteChatMessage,
@@ -3208,6 +3209,7 @@ export default function App() {
             reactions={reactions}
             onSendMessage={sendChatMessage}
             onDeleteMessage={deleteChatMessage}
+            onMarkRead={markChatRead}
             saveChatEnabled={roomSettings.saveChat !== false}
             canManageChatSave={canManage}
             onToggleSaveChat={() => updateRoomSettings({ saveChat: roomSettings.saveChat === false })}

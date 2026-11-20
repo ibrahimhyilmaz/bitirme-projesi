@@ -181,6 +181,8 @@ export function useWebSocket({
   notesRef.current = notes;
   const filesRef = useRef(files);
   filesRef.current = files;
+  const codeFilesRef = useRef(codeFiles);
+  codeFilesRef.current = codeFiles;
   const chatMessagesRef = useRef(chatMessages);
   chatMessagesRef.current = chatMessages;
   const deletedMessageIdsRef = useRef<Set<string>>(new Set());
@@ -283,8 +285,21 @@ export function useWebSocket({
         }
       };
 
+      // Durable events (chat, files, handshakes) use QoS 1 so a busy public broker cannot silently drop them
+      const msgType = String(msg.type || '');
+      const durable =
+        msgType === 'chat-message' ||
+        msgType === 'chat-message-delete' ||
+        msgType === 'chat-read' ||
+        msgType === 'code-file-upsert' ||
+        msgType === 'code-file-delete' ||
+        msgType === 'file-upload' ||
+        msgType === 'mesh-join' ||
+        msgType === 'mesh-welcome' ||
+        msgType === 'mesh-state-part';
+
       if (envelope.length <= 40_000) {
-        sendRaw(envelope, 0);
+        sendRaw(envelope, durable ? 1 : 0);
       } else {
         const CHUNK = 32_000;
         const n = Math.ceil(envelope.length / CHUNK);
@@ -534,7 +549,10 @@ export function useWebSocket({
               joiningUser.id
             );
             // ... then the heavy state in small batches so no single packet is too big
-            const sendParts = (key: 'elements' | 'files' | 'messages', items: unknown[]) => {
+            const sendParts = (
+              key: 'elements' | 'files' | 'messages' | 'codeFiles',
+              items: unknown[]
+            ) => {
               let batch: unknown[] = [];
               let size = 0;
               const flush = () => {
@@ -554,6 +572,7 @@ export function useWebSocket({
             sendParts('elements', elementsRef.current);
             sendParts('messages', chatMessagesRef.current);
             sendParts('files', filesRef.current);
+            sendParts('codeFiles', codeFilesRef.current);
             break;
           }
 
@@ -661,6 +680,15 @@ export function useWebSocket({
               setFiles((prev) => {
                 const map = new Map(prev.map((f) => [f.id, f]));
                 for (const f of msg.files) {
+                  if (f && f.id) map.set(f.id, f);
+                }
+                return Array.from(map.values());
+              });
+            }
+            if (Array.isArray(msg.codeFiles) && msg.codeFiles.length > 0) {
+              setCodeFiles((prev) => {
+                const map = new Map(prev.map((f) => [f.id, f]));
+                for (const f of msg.codeFiles) {
                   if (f && f.id) map.set(f.id, f);
                 }
                 return Array.from(map.values());
@@ -1052,6 +1080,7 @@ export function useWebSocket({
             break;
           }
 
+          case 'code-file-upsert':
           case 'code-file-updated': {
             const f = msg.file as CodeFile | undefined;
             if (f && f.id) {
@@ -1068,6 +1097,7 @@ export function useWebSocket({
             break;
           }
 
+          case 'code-file-delete':
           case 'code-file-deleted': {
             if (msg.fileId) {
               setCodeFiles((prev) => prev.filter((x) => x.id !== msg.fileId));
@@ -1088,6 +1118,7 @@ export function useWebSocket({
               selectionStart: typeof msg.selectionStart === 'number' ? msg.selectionStart : 0,
               selectionEnd: typeof msg.selectionEnd === 'number' ? msg.selectionEnd : 0,
               updatedAt: Date.now(),
+              fileId: typeof msg.fileId === 'string' ? msg.fileId : 'main',
             };
             setCodeCursors((prev) => {
               const others = prev.filter((c) => c.userId !== uid);
@@ -1133,6 +1164,7 @@ export function useWebSocket({
               recipientId,
               recipientName,
               isPrivate,
+              readBy: raw.readBy && typeof raw.readBy === 'object' ? raw.readBy : undefined,
             };
             if (deletedMessageIdsRef.current.has(chatMsg.id)) {
               break;
@@ -1145,6 +1177,22 @@ export function useWebSocket({
             if (chatMsg.userId !== userRef.current.id) {
               soundEffects.playMessageSound();
             }
+            break;
+          }
+
+          case 'chat-read':
+          case 'chat-read-updated': {
+            const readerId: string | undefined = msg.userId || msg._senderId;
+            if (!readerId || readerId === userRef.current.id || !Array.isArray(msg.messageIds)) break;
+            const readAt = typeof msg.at === 'number' ? msg.at : Date.now();
+            const idSet = new Set<string>(msg.messageIds.map(String));
+            setChatMessages((prev) =>
+              prev.map((m) =>
+                idSet.has(m.id) && !(m.readBy && m.readBy[readerId])
+                  ? { ...m, readBy: { ...(m.readBy || {}), [readerId]: readAt } }
+                  : m
+              )
+            );
             break;
           }
 
@@ -1425,12 +1473,23 @@ export function useWebSocket({
         setIsConnected(true);
       }
 
+      // The founder of a room keeps their authority: remember it on this device and reclaim it on re-entry
+      const founderKey = `collab_founder_${roomId.trim().toLowerCase()}`;
+      let iAmFounder = isCreatingRoomRef.current;
+      try {
+        if (isCreatingRoomRef.current) {
+          localStorage.setItem(founderKey, userRef.current.id);
+        } else if (localStorage.getItem(founderKey) === userRef.current.id) {
+          iAmFounder = true;
+        }
+      } catch {}
+
       const initialSelfPresence: UserPresence = {
         id: userRef.current.id,
         name: userRef.current.name,
         avatar: userRef.current.avatar || userRef.current.name.charAt(0).toUpperCase(),
         color: userRef.current.color,
-        role: isCreatingRoomRef.current ? 'owner' : 'editor',
+        role: iAmFounder ? 'owner' : 'editor',
         cursor: { x: 0, y: 0 },
         isDrawing: false,
         activeTool: 'select',
@@ -1444,7 +1503,7 @@ export function useWebSocket({
         setRoomSettings((prev) => ({
           ...prev,
           maxUsers: targetMaxUsers,
-          ownerId: prev.ownerId || userRef.current.id,
+          ownerId: iAmFounder ? userRef.current.id : prev.ownerId || userRef.current.id,
         }));
 
         setUsers((prev) => {
@@ -2133,15 +2192,45 @@ export function useWebSocket({
     [sendMessage, canEdit]
   );
 
+  // Cursor frames are ephemeral: send at most ~12/s (leading + trailing) so they never starve chat/code packets
+  const lastCursorSentRef = useRef(0);
+  const pendingCursorRef = useRef<Record<string, unknown> | null>(null);
+  const cursorTimerRef = useRef<number | null>(null);
   const sendCodeCursor = useCallback(
-    (cursor: { line: number; column: number; selectionStart: number; selectionEnd: number }) => {
-      sendMessage({
+    (cursor: {
+      line: number;
+      column: number;
+      selectionStart: number;
+      selectionEnd: number;
+      fileId?: string;
+    }) => {
+      const frame = {
         type: 'code-cursor-move',
         userId: userRef.current.id,
         userName: userRef.current.name,
         userColor: userRef.current.color,
         ...cursor,
-      });
+      };
+      const flush = () => {
+        cursorTimerRef.current = null;
+        if (!pendingCursorRef.current) return;
+        lastCursorSentRef.current = Date.now();
+        const f = pendingCursorRef.current;
+        pendingCursorRef.current = null;
+        sendMessage(f);
+      };
+      pendingCursorRef.current = frame;
+      const wait = 80 - (Date.now() - lastCursorSentRef.current);
+      if (wait <= 0) flush();
+      else if (cursorTimerRef.current === null) cursorTimerRef.current = window.setTimeout(flush, wait);
+    },
+    [sendMessage]
+  );
+
+  const markChatRead = useCallback(
+    (messageIds: string[]) => {
+      if (!messageIds.length) return;
+      sendMessage({ type: 'chat-read', messageIds, userId: userRef.current.id });
     },
     [sendMessage]
   );
@@ -2436,6 +2525,7 @@ export function useWebSocket({
     loadTemplate,
     updateCode,
     sendCodeCursor,
+    markChatRead,
     updateNotes,
     sendChatMessage,
     deleteChatMessage,
