@@ -1,3 +1,4 @@
+import { getExtraShape, getExtraShapePath } from './extraShapes';
 import { CanvasElement, Point, UserPresence, UserPing, UserReaction } from '../types';
 import { createDocumentCardSvgDataUrl, normalizeImageDataUrl } from './fileValidation';
 
@@ -334,6 +335,74 @@ export function drawElement(
     ctx.translate(-cx, -cy);
   }
 
+  // Effects shared by every fillable element: drop shadow + gradient fill
+  if (element.shadowBlur && element.shadowBlur > 0) {
+    ctx.shadowColor = element.shadowColor || 'rgba(15, 23, 42, 0.38)';
+    ctx.shadowBlur = element.shadowBlur;
+    const so = element.shadowOffset ?? element.shadowBlur / 3;
+    ctx.shadowOffsetX = so;
+    ctx.shadowOffsetY = so;
+  }
+  if (element.gradientTo && fillColor !== 'transparent') {
+    const ang = ((element.gradientAngle ?? 90) * Math.PI) / 180;
+    const rad = Math.hypot(bounds.width, bounds.height) / 2;
+    const grad = ctx.createLinearGradient(
+      cx - Math.cos(ang) * rad,
+      cy - Math.sin(ang) * rad,
+      cx + Math.cos(ang) * rad,
+      cy + Math.sin(ang) * rad
+    );
+    grad.addColorStop(0, fillColor);
+    grad.addColorStop(1, element.gradientTo);
+    ctx.fillStyle = grad;
+  }
+
+  const extraDef = getExtraShape(element.type);
+  if (extraDef) {
+    const base = getExtraShapePath(element.type);
+    if (base) {
+      const ex = Math.min(element.x, element.x + (element.width || 0));
+      const ey = Math.min(element.y, element.y + (element.height || 0));
+      const ew = Math.max(1, Math.abs(element.width || 0));
+      const eh = Math.max(1, Math.abs(element.height || 0));
+      const scaled = new Path2D();
+      scaled.addPath(base, new DOMMatrix().translate(ex, ey).scale(ew / 100, eh / 100));
+      if (fillColor && fillColor !== 'transparent') {
+        ctx.fill(scaled, extraDef.evenodd ? 'evenodd' : 'nonzero');
+      }
+      ctx.stroke(scaled);
+    }
+    drawShapeLabel(ctx, element, bounds);
+    ctx.restore();
+    return;
+  }
+
+  if (element.type === 'polygon') {
+    const pts = element.points || [];
+    if (pts.length >= 2) {
+      ctx.beginPath();
+      if (element.smooth && pts.length >= 3) {
+        const n = pts.length;
+        const mid = (a: Point, b: Point) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+        const start = mid(pts[n - 1], pts[0]);
+        ctx.moveTo(start.x, start.y);
+        for (let i = 0; i < n; i++) {
+          const m = mid(pts[i], pts[(i + 1) % n]);
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, m.x, m.y);
+        }
+      } else {
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      }
+      ctx.closePath();
+      if (fillColor && fillColor !== 'transparent') ctx.fill();
+      ctx.stroke();
+    }
+    drawShapeLabel(ctx, element, bounds);
+    ctx.restore();
+    return;
+  }
+
   switch (element.type) {
     case 'fountain-pen': {
       if (!element.points || element.points.length === 0) break;
@@ -602,6 +671,19 @@ export function drawElement(
     case 'rectangle': {
       const w = element.width || 0;
       const h = element.height || 0;
+      if (element.cornerRadius && element.cornerRadius > 0) {
+        ctx.beginPath();
+        ctx.roundRect(
+          element.x,
+          element.y,
+          w,
+          h,
+          Math.min(element.cornerRadius, Math.abs(w) / 2, Math.abs(h) / 2)
+        );
+        if (fillColor && fillColor !== 'transparent') ctx.fill();
+        ctx.stroke();
+        break;
+      }
       if (fillColor && fillColor !== 'transparent') {
         ctx.fillRect(element.x, element.y, w, h);
       }
@@ -612,7 +694,7 @@ export function drawElement(
     case 'rounded-rect': {
       const w = element.width || 0;
       const h = element.height || 0;
-      const r = Math.min(16, Math.abs(w) / 4, Math.abs(h) / 4);
+      const r = Math.min(element.cornerRadius ?? 16, Math.abs(w) / 2, Math.abs(h) / 2);
       ctx.beginPath();
       ctx.roundRect(element.x, element.y, w, h, r);
       if (fillColor && fillColor !== 'transparent') {
@@ -676,9 +758,9 @@ export function drawElement(
       const h = element.height || 0;
       const elCx = element.x + w / 2;
       const elCy = element.y + h / 2;
-      const spikes = 5;
+      const spikes = Math.max(3, Math.min(14, Math.round(element.starPoints || 5)));
       const outerRadius = Math.min(Math.abs(w), Math.abs(h)) / 2;
-      const innerRadius = outerRadius * 0.45;
+      const innerRadius = outerRadius * Math.max(0.1, Math.min(0.9, element.starInner ?? 0.45));
       let rot = (Math.PI / 2) * 3;
       const step = Math.PI / spikes;
 
@@ -1516,6 +1598,60 @@ export function drawElement(
     }
   }
 
+  drawShapeLabel(ctx, element, bounds);
+  ctx.restore();
+}
+
+const LABELLED_NON_SHAPES = new Set([
+  'text', 'sticky', 'image', 'pdf', 'video', 'folder', 'line', 'arrow',
+  'pencil', 'fountain-pen', 'highlighter',
+]);
+
+// Text label centred inside a shape (shapes keep their label in element.text)
+function drawShapeLabel(
+  ctx: CanvasRenderingContext2D,
+  element: CanvasElement,
+  bounds: { minX: number; minY: number; width: number; height: number; cx: number; cy: number }
+) {
+  if (!element.text || LABELLED_NON_SHAPES.has(element.type)) return;
+  ctx.save();
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.setLineDash([]);
+  const fontSize = element.fontSize || 16;
+  const fontStyle = element.fontStyle === 'italic' ? 'italic ' : '';
+  const fontWeight = element.fontWeight === 'bold' ? '700' : '500';
+  const family = element.fontFamily || 'Plus Jakarta Sans';
+  ctx.fillStyle = element.textColor || element.color || '#0f172a';
+  ctx.font = `${fontStyle}${fontWeight} ${fontSize}px "${family}", sans-serif`;
+  ctx.textBaseline = 'middle';
+  const align = element.textAlign || 'center';
+  ctx.textAlign = align;
+  const maxW = Math.max(20, bounds.width * 0.8);
+  const lineH = fontSize * 1.3;
+  const lines: string[] = [];
+  for (const para of element.text.split('\n')) {
+    let line = '';
+    for (const word of para.split(' ')) {
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(test).width > maxW && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    }
+    lines.push(line);
+  }
+  const ax =
+    align === 'left'
+      ? bounds.minX + bounds.width * 0.1
+      : align === 'right'
+      ? bounds.minX + bounds.width * 0.9
+      : bounds.cx;
+  const startY = bounds.cy - ((lines.length - 1) * lineH) / 2;
+  lines.forEach((l, i) => ctx.fillText(l, ax, startY + i * lineH));
   ctx.restore();
 }
 
@@ -1705,6 +1841,23 @@ export function isPointInsideElement(p: Point, el: CanvasElement): boolean {
         if (intersect) inside = !inside;
       }
       if (inside) return true;
+    }
+    return false;
+  }
+
+  if (el.type === 'polygon' && el.points && el.points.length >= 3) {
+    let inside = false;
+    const pg = el.points;
+    for (let i = 0, j = pg.length - 1; i < pg.length; j = i++) {
+      const intersect =
+        pg[i].y > localP.y !== pg[j].y > localP.y &&
+        localP.x < ((pg[j].x - pg[i].x) * (localP.y - pg[i].y)) / (pg[j].y - pg[i].y + 1e-9) + pg[i].x;
+      if (intersect) inside = !inside;
+    }
+    const filled = Boolean(el.fillColor && el.fillColor !== 'transparent');
+    if (inside && filled) return true;
+    for (let i = 0; i < pg.length; i++) {
+      if (distToSegment(localP, pg[i], pg[(i + 1) % pg.length]) <= tolerance + 4) return true;
     }
     return false;
   }
@@ -2374,9 +2527,9 @@ export function sampleShapeToWorldPoints(el: CanvasElement): { points: Point[]; 
       isClosed = true;
       const elCx = el.x + w / 2;
       const elCy = el.y + h / 2;
-      const spikes = 5;
+      const spikes = Math.max(3, Math.min(14, Math.round(el.starPoints || 5)));
       const outerRadius = Math.min(Math.abs(w), Math.abs(h)) / 2;
-      const innerRadius = outerRadius * 0.45;
+      const innerRadius = outerRadius * Math.max(0.1, Math.min(0.9, el.starInner ?? 0.45));
       let rot = (Math.PI / 2) * 3;
       const step = Math.PI / spikes;
       const starVertices: Point[] = [];

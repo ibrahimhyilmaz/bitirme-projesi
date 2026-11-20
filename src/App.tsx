@@ -15,6 +15,9 @@ import {
 import { TopNav } from './components/TopNav';
 import { Toolbar } from './components/Toolbar';
 import { StyleBar } from './components/StyleBar';
+import { PropertiesPanel } from './components/PropertiesPanel';
+import { VertexEditor } from './components/VertexEditor';
+import { shapeToPolygonChanges } from './utils/polygonEdit';
 import { CanvasBoard } from './components/CanvasBoard';
 import { VoiceChatBar } from './components/VoiceChatBar';
 import { CodeEditorPanel } from './components/CodeEditorPanel';
@@ -486,7 +489,7 @@ export default function App() {
   });
 
   const uiHidden = Boolean(settings.uiHidden);
-  const showClock = settings.showClock !== false;
+  const showClock = settings.showClock === undefined ? !isMobile : settings.showClock !== false;
   const showFolder = settings.showFolder !== false;
 
   // Sync theme class to document element for Tailwind dark: variants
@@ -1996,6 +1999,39 @@ export default function App() {
     return selectedElements.length > 0 ? selectedElements[0] : null;
   }, [selectedElements]);
 
+  // Point-level (vertex) editing of a polygon
+  const [editingPointsId, setEditingPointsId] = useState<string | null>(null);
+  const editingPointsElement = useMemo(
+    () => (editingPointsId ? elements.find((e) => e.id === editingPointsId && e.type === 'polygon') || null : null),
+    [editingPointsId, elements]
+  );
+  useEffect(() => {
+    if (editingPointsId && !selectedElementIds.includes(editingPointsId)) setEditingPointsId(null);
+  }, [selectedElementIds, editingPointsId]);
+
+  const handleApplyToSelection = useCallback(
+    (changes: Partial<CanvasElement>) => {
+      const updates = elements
+        .filter((el) => selectedElementIds.includes(el.id) && !el.isLocked)
+        .map((el) => ({ id: el.id, changes }));
+      if (updates.length > 0) batchUpdateElements(updates);
+    },
+    [elements, selectedElementIds, batchUpdateElements]
+  );
+
+  const handleEditPoints = useCallback(() => {
+    const el = selectedElements.length === 1 ? selectedElements[0] : null;
+    if (!el || el.isLocked) return;
+    if (el.type === 'polygon') {
+      setEditingPointsId((cur) => (cur === el.id ? null : el.id));
+      return;
+    }
+    const changes = shapeToPolygonChanges(el);
+    if (!changes) return;
+    batchUpdateElements([{ id: el.id, changes }]);
+    setEditingPointsId(el.id);
+  }, [selectedElements, batchUpdateElements]);
+
   const selectedElementId = useMemo(() => {
     return selectedElement ? selectedElement.id : null;
   }, [selectedElement]);
@@ -2900,7 +2936,45 @@ export default function App() {
         )}
 
         {/* Contextual Style & Transform Bar (Draggable, Bottom Center by default) */}
-        {canEdit && !uiHidden && (
+        {/* Right-side vertical properties panel: appears as soon as something is selected */}
+        {canEdit && !uiHidden && selectedElements.length > 0 && activeTool === 'select' && (
+          <PropertiesPanel
+            elements={selectedElements}
+            theme={settings.theme}
+            onChange={handleApplyToSelection}
+            onDuplicate={handleDuplicateSelected}
+            onDelete={() => {
+              if (selectedElementIds.length > 0) {
+                handleDeleteElements(selectedElementIds);
+                setSelectedElementIds([]);
+              }
+            }}
+            onRotateBy={handleRotateBy}
+            onSetRotation={handleSetRotation}
+            onFlipHorizontal={handleFlipHorizontal}
+            onFlipVertical={handleFlipVertical}
+            onBringForward={handleBringForward}
+            onSendBackward={handleSendBackward}
+            onBringStepForward={handleBringStepForward}
+            onSendStepBackward={handleSendStepBackward}
+            onToggleLock={handleToggleLock}
+            onEditPoints={handleEditPoints}
+            isEditingPoints={Boolean(editingPointsElement)}
+            onClose={() => setSelectedElementIds([])}
+          />
+        )}
+
+        {editingPointsElement && canEdit && (
+          <VertexEditor
+            element={editingPointsElement}
+            pan={pan}
+            zoom={zoom}
+            onChangePoints={(points) => batchUpdateElements([{ id: editingPointsElement.id, changes: { points } }])}
+            onDone={() => setEditingPointsId(null)}
+          />
+        )}
+
+        {canEdit && !uiHidden && !(selectedElements.length > 0 && activeTool === 'select') && (
           <StyleBar
             selectedElement={selectedElement}
             selectedElements={selectedElements}

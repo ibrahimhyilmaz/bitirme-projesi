@@ -38,6 +38,7 @@ import {
   Folder,
 } from 'lucide-react';
 import { ALL_SHAPE_TYPES, ToolType } from '../types';
+import { EXTRA_SHAPES, getExtraShape, type ExtraShapeId } from '../utils/extraShapes';
 import { useIsMobile } from '../hooks/useIsMobile';
 
 export const FountainPenNibIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
@@ -113,6 +114,22 @@ const SHAPE_CATEGORIES: { title: string; items: ShapeCatalogItem[] }[] = [
     ],
   },
 ];
+
+// More shapes: generated from the SVG path library (utils/extraShapes.ts)
+const EXTRA_GROUP_TITLES: Record<string, string> = {
+  geometri: 'Daha Fazla Geometri',
+  sembol: 'Semboller & Yıldızlar',
+  akis: 'Etiket, Adım & Nesneler',
+  doga: 'Doğa & Organik',
+};
+for (const group of Object.keys(EXTRA_GROUP_TITLES)) {
+  SHAPE_CATEGORIES.push({
+    title: EXTRA_GROUP_TITLES[group],
+    items: (Object.keys(EXTRA_SHAPES) as ExtraShapeId[])
+      .filter((id) => EXTRA_SHAPES[id].group === group)
+      .map((id) => ({ id, label: EXTRA_SHAPES[id].label, title: EXTRA_SHAPES[id].label })),
+  });
+}
 
 export function renderShapeSvgIcon(tool: ToolType, className = 'w-4 h-4'): React.ReactNode {
   switch (tool) {
@@ -263,8 +280,17 @@ export function renderShapeSvgIcon(tool: ToolType, className = 'w-4 h-4'): React
           <line x1="4" y1="22" x2="4" y2="15" />
         </svg>
       );
-    default:
+    default: {
+      const extra = getExtraShape(tool);
+      if (extra) {
+        return (
+          <svg className={className} viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="7" strokeLinejoin="round" fillRule={extra.evenodd ? 'evenodd' : 'nonzero'}>
+            <path d={extra.path} />
+          </svg>
+        );
+      }
       return <Square className={className} />;
+    }
   }
 }
 
@@ -1104,7 +1130,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                 }`}
-                title="Şekiller, Akış Diyagramları, Blok Oklar & Konuşma Balonları (27 Şekil)"
+                title={`Şekiller, Akış Diyagramları, Blok Oklar & Konuşma Balonları (${ALL_SHAPE_TYPES.length} Şekil)`}
               >
                 {getShapeIcon()}
                 <ChevronDown className="w-3 h-3 opacity-70" />
@@ -1127,7 +1153,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       Şekil & Diyagram Kütüphanesi
                     </span>
                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">
-                      27 Vektörel Şekil
+                      {ALL_SHAPE_TYPES.length} Vektörel Şekil
                     </span>
                   </div>
 

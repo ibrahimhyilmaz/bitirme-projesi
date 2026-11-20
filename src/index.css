@@ -371,3 +371,36 @@ body {
     overflow-y: auto;
   }
 }
+
+
+/* ---------- Touch / phone ergonomics ---------- */
+@media (pointer: coarse) {
+  /* every control on the floating bars gets a finger-sized hit area */
+  [data-floating-bar='true'] button,
+  [data-tour='toolbar'] button,
+  [data-popover='true'] button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  [data-floating-bar='true'] input[type='range'] {
+    height: 32px;
+  }
+  /* no accidental text selection / callouts while drawing, but inputs keep working */
+  [data-canvas-root='true'] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: none;
+  }
+  input,
+  textarea,
+  select {
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+  }
+}
+
+@media (max-width: 767px) {
+  [data-popover='true'] {
+    max-width: calc(100vw - 16px);
+  }
+}

@@ -2049,11 +2049,11 @@ export function useWebSocket({
   );
 
   const sendLaserPoint = useCallback(
-    (point: Point) => {
+    (point: Point, color?: string) => {
       sendMessage({
         type: 'laser-move',
         userId: userRef.current.id,
-        color: userRef.current.color,
+        color: color && /^#[0-9a-f]{6}$/i.test(color) ? color : userRef.current.color,
         point,
       });
     },

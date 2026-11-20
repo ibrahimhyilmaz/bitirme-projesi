@@ -85,7 +85,9 @@ const ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.or
 
 const POINT_ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3'/><circle cx='6' cy='18' r='3'/><line x1='20' y1='4' x2='8.12' y2='15.88'/><line x1='14.47' y1='14.47' x2='20' y2='20'/><line x1='8.12' y1='8.12' x2='12' y2='12'/></g><g stroke='%23d97706' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3' fill='%23fef3c7'/><circle cx='6' cy='18' r='3' fill='%23fef3c7'/><line x1='20' y1='4' x2='8.12' y2='15.88'/><line x1='14.47' y1='14.47' x2='20' y2='20'/><line x1='8.12' y1='8.12' x2='12' y2='12'/></g></svg>") 6 6, crosshair`;
 
-const LASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='9' fill='%23ff0022' opacity='0.35'/><circle cx='12' cy='12' r='5.5' fill='%23ff0022'/><circle cx='12' cy='12' r='2.3' fill='%23ffffff'/></svg>") 12 12, crosshair`;
+const laserCursorFor = (hex: string) =>
+  `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='9' fill='%23${hex.replace('#', '')}' opacity='0.35'/><circle cx='12' cy='12' r='5.5' fill='%23${hex.replace('#', '')}'/><circle cx='12' cy='12' r='2.3' fill='%23ffffff'/></svg>") 12 12, crosshair`;
+const LASER_CURSOR_UNUSED = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><circle cx='12' cy='12' r='9' fill='%23ff0022' opacity='0.35'/><circle cx='12' cy='12' r='5.5' fill='%23ff0022'/><circle cx='12' cy='12' r='2.3' fill='%23ffffff'/></svg>") 12 12, crosshair`;
 
 const PING_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g><g stroke='%23059669' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.9 19.1C1 15.2 1 8.8 4.9 4.9'/><path d='M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5'/><circle cx='12' cy='12' r='2.5' fill='%2310b981'/><path d='M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5'/><path d='M19.1 4.9C23 8.8 23 15.1 19.1 19'/></g></svg>") 11 11, crosshair`;
 
@@ -173,7 +175,7 @@ interface CanvasBoardProps {
   liveStrokes?: CanvasElement[];
   onLiveStroke?: (element: CanvasElement | null) => void;
   onCursorMove: (cursor: Point, isDrawing: boolean, activeTool: string) => void;
-  onLaserMove?: (point: Point) => void;
+  onLaserMove?: (point: Point, color?: string) => void;
   onPing?: (point: Point) => void;
   onSaveHistorySnapshot?: () => void;
   onCreateElement: (el: CanvasElement) => void;
@@ -343,12 +345,23 @@ interface LaserTrailPoint {
 
 // Smooth Fountain-Pen-Style Calligraphic Laser Trail Renderer
 // Uses a single closed C1 quadratic B-spline ribbon polygon per sub-stroke so fading is 100% uniform with zero vertex dots
+const LASER_PALETTE = ['#ff0022', '#f97316', '#facc15', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899', '#ffffff'];
+
+function lighten(hex: string, amt = 0.55): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return '#ff8fa3';
+  const n = parseInt(m[1], 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amt);
+  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+}
+
 function drawSmoothLaserTrail(
   ctx: CanvasRenderingContext2D,
   points: LaserTrailPoint[],
   now: number,
   zoom: number,
-  baseStrokeWidth: number
+  baseStrokeWidth: number,
+  defaultColor = '#ff0022'
 ) {
   const maxAge = 1300;
   const holdMs = 550;
@@ -400,6 +413,8 @@ function drawSmoothLaserTrail(
     const newestPt = stroke[stroke.length - 1];
     const strokeAlpha = getPointAlpha(newestPt.time);
     if (strokeAlpha <= 0.01) continue;
+    const beam = /^#[0-9a-f]{6}$/i.test(stroke[0].color || '') ? (stroke[0].color as string) : defaultColor;
+    const beamCore = lighten(beam);
 
     ctx.save();
     ctx.lineCap = 'round';
@@ -408,14 +423,14 @@ function drawSmoothLaserTrail(
     if (stroke.length === 1) {
       const p0 = stroke[0];
       ctx.globalAlpha = strokeAlpha;
-      ctx.fillStyle = '#ff0022';
-      ctx.shadowColor = '#ff002b';
+      ctx.fillStyle = beam;
+      ctx.shadowColor = beam;
       ctx.shadowBlur = (14 * strokeAlpha) / zoom;
       ctx.beginPath();
       ctx.arc(p0.x, p0.y, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ff99ac';
+      ctx.fillStyle = beamCore;
       ctx.beginPath();
       ctx.arc(p0.x, p0.y, radius * 0.42, 0, Math.PI * 2);
       ctx.fill();
@@ -440,9 +455,9 @@ function drawSmoothLaserTrail(
 
     // Outer glowing red laser stroke using smooth C1 quadratic spline
     ctx.globalAlpha = strokeAlpha;
-    ctx.strokeStyle = '#ff0022';
+    ctx.strokeStyle = beam;
     ctx.lineWidth = lineWidth;
-    ctx.shadowColor = '#ff002b';
+    ctx.shadowColor = beam;
     ctx.shadowBlur = (14 * strokeAlpha) / zoom;
     traceSmoothLaserPath();
     ctx.stroke();
@@ -450,7 +465,7 @@ function drawSmoothLaserTrail(
     // Inner luminous core pass along the exact same smooth path
     ctx.shadowBlur = 0;
     ctx.globalAlpha = strokeAlpha * 0.92;
-    ctx.strokeStyle = '#ff8fa3';
+    ctx.strokeStyle = beamCore;
     ctx.lineWidth = lineWidth * 0.42;
     traceSmoothLaserPath();
     ctx.stroke();
@@ -577,6 +592,21 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   // Laser pointer path (with fountain-pen velocity width w and strokeId)
   const [laserPoints, setLaserPoints] = useState<LaserTrailPoint[]>([]);
   const laserStrokeIdRef = useRef<number>(0);
+  const [laserColor, setLaserColorState] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('collab_laser_color');
+      if (saved && /^#[0-9a-f]{6}$/i.test(saved)) return saved;
+    } catch {}
+    return '#ff0022';
+  });
+  const laserColorRef = useRef(laserColor);
+  laserColorRef.current = laserColor;
+  const setLaserColor = (c: string) => {
+    setLaserColorState(c);
+    try {
+      localStorage.setItem('collab_laser_color', c);
+    } catch {}
+  };
 
   // Editing text or sticky note
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
@@ -1229,7 +1259,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     // Render local and remote laser pointer trails with smooth Fountain-Pen calligraphic ribbon & vivid neon red
     const now = Date.now();
     if (laserPoints.length > 0) {
-      drawSmoothLaserTrail(ctx, laserPoints, now, zoom, strokeWidth);
+      drawSmoothLaserTrail(ctx, laserPoints, now, zoom, strokeWidth, laserColor);
     }
     if (remoteLaserPoints.length > 0) {
       drawSmoothLaserTrail(ctx, remoteLaserPoints, now, zoom, strokeWidth);
@@ -1665,13 +1695,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       lastDrawScreenPtRef.current = screenPt;
       smoothedDrawPtRef.current = canvasPt;
       const nowMs = Date.now();
-      const initPt: LaserTrailPoint = { x: canvasPt.x, y: canvasPt.y, time: nowMs, w: 1, strokeId };
+      const initPt: LaserTrailPoint = { x: canvasPt.x, y: canvasPt.y, time: nowMs, w: 1, strokeId, color: laserColorRef.current };
       setLaserPoints((prev) => [
         ...prev.filter((p) => nowMs - p.time < 1300),
         initPt,
         { ...initPt },
       ]);
-      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1 });
+      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1 }, laserColorRef.current);
       return;
     }
 
@@ -2481,6 +2511,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         time: nowMs,
         w: 1,
         strokeId,
+        color: laserColorRef.current,
       };
 
       setLaserPoints((prev) => {
@@ -2496,7 +2527,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
         return [...alive, nextLaserPt];
       });
-      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1 });
+      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1 }, laserColorRef.current);
       return;
     }
 
@@ -3411,7 +3442,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     if (activeTool === 'bucket') return BUCKET_CURSOR;
     if (activeTool === 'eraser') return ERASER_CURSOR;
     if (activeTool === 'point-eraser') return POINT_ERASER_CURSOR;
-    if (activeTool === 'laser') return LASER_CURSOR;
+    if (activeTool === 'laser') return laserCursorFor(laserColor);
     if (activeTool === 'ping') return PING_CURSOR;
     return 'crosshair';
   };
@@ -3515,6 +3546,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   return (
     <div
       ref={containerRef}
+      data-canvas-root="true"
       onPointerDown={handleContainerPointerDown}
       onPointerMove={handleContainerPointerMove}
       onPointerUp={handleContainerPointerUp}
@@ -3575,6 +3607,41 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       } ${getCursorClass()}`}
     >
       <canvas ref={canvasRef} className="block w-full h-full" />
+
+      {/* Laser pointer colour picker (only while the laser tool is active) */}
+      {activeTool === 'laser' && (
+        <div
+          data-floating-bar="true"
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute left-1/2 -translate-x-1/2 bottom-24 md:bottom-6 z-40 flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-slate-900/90 backdrop-blur-md shadow-2xl"
+        >
+          <span className="text-[11px] font-semibold text-slate-200 mr-1 hidden sm:inline">Lazer rengi</span>
+          {LASER_PALETTE.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setLaserColor(c)}
+              style={{ backgroundColor: c, boxShadow: laserColor === c ? `0 0 10px ${c}` : undefined }}
+              className={`w-7 h-7 md:w-6 md:h-6 rounded-full border-2 transition-transform ${
+                laserColor === c ? 'border-white scale-110' : 'border-slate-600'
+              }`}
+              aria-label={`Lazer rengi ${c}`}
+            />
+          ))}
+          <label
+            className="relative w-7 h-7 md:w-6 md:h-6 rounded-full border-2 border-slate-600 overflow-hidden cursor-pointer"
+            style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}
+            title="Özel renk"
+          >
+            <input
+              type="color"
+              value={laserColor}
+              onChange={(e) => setLaserColor(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+            />
+          </label>
+        </div>
+      )}
 
       {/* Inline Text / Sticky Editor with Floating Quick Font & Size Toolbar */}
       {editingInfo && (() => {

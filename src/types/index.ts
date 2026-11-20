@@ -1,4 +1,7 @@
+import { EXTRA_SHAPE_IDS, type ExtraShapeId } from '../utils/extraShapes';
+
 export type ShapeElementType =
+  | ExtraShapeId
   | 'rectangle'
   | 'rounded-rect'
   | 'circle'
@@ -28,6 +31,7 @@ export type ShapeElementType =
   | 'flag';
 
 export const ALL_SHAPE_TYPES: ShapeElementType[] = [
+  ...EXTRA_SHAPE_IDS,
   'rectangle',
   'rounded-rect',
   'circle',
@@ -189,6 +193,7 @@ export interface CanvasElement {
     | 'pencil'
     | 'fountain-pen'
     | 'highlighter'
+    | 'polygon'
     | ShapeElementType
     | 'arrow'
     | 'line'
@@ -231,6 +236,22 @@ export interface CanvasElement {
   flipX?: boolean;
   flipY?: boolean;
   isLocked?: boolean;
+  /** Corner radius for rectangles / rounded rectangles (px) */
+  cornerRadius?: number;
+  /** Drop shadow */
+  shadowBlur?: number;
+  shadowColor?: string;
+  shadowOffset?: number;
+  /** Linear gradient fill: second colour + angle in degrees */
+  gradientTo?: string;
+  gradientAngle?: number;
+  /** Star: number of points (3-12) and inner radius ratio (0.1-0.9) */
+  starPoints?: number;
+  starInner?: number;
+  /** Polygon: round the corners (curved path through the points) */
+  smooth?: boolean;
+  /** Colour of the text label placed inside a shape */
+  textColor?: string;
   createdBy: string;
   updatedAt: number;
 }
@@ -290,6 +311,246 @@ export const GOOGLE_FONT_FAMILIES: FontFamilyOption[] = [
     label: 'JetBrains Mono',
     category: 'Kod / Monospace',
     cssFamily: "'JetBrains Mono', monospace",
+  },
+  {
+    id: 'Inter',
+    label: 'Inter',
+    category: 'Modern Sans',
+    cssFamily: "'Inter', sans-serif",
+  },
+  {
+    id: 'Roboto',
+    label: 'Roboto',
+    category: 'Modern Sans',
+    cssFamily: "'Roboto', sans-serif",
+  },
+  {
+    id: 'Open Sans',
+    label: 'Open Sans',
+    category: 'Modern Sans',
+    cssFamily: "'Open Sans', sans-serif",
+  },
+  {
+    id: 'Lato',
+    label: 'Lato',
+    category: 'Modern Sans',
+    cssFamily: "'Lato', sans-serif",
+  },
+  {
+    id: 'Montserrat',
+    label: 'Montserrat',
+    category: 'Modern Sans',
+    cssFamily: "'Montserrat', sans-serif",
+  },
+  {
+    id: 'Poppins',
+    label: 'Poppins',
+    category: 'Modern Sans',
+    cssFamily: "'Poppins', sans-serif",
+  },
+  {
+    id: 'Nunito',
+    label: 'Nunito',
+    category: 'Yuvarlak Sans',
+    cssFamily: "'Nunito', sans-serif",
+  },
+  {
+    id: 'Quicksand',
+    label: 'Quicksand',
+    category: 'Yuvarlak Sans',
+    cssFamily: "'Quicksand', sans-serif",
+  },
+  {
+    id: 'Comfortaa',
+    label: 'Comfortaa',
+    category: 'Yuvarlak Sans',
+    cssFamily: "'Comfortaa', sans-serif",
+  },
+  {
+    id: 'Raleway',
+    label: 'Raleway',
+    category: 'Modern Sans',
+    cssFamily: "'Raleway', sans-serif",
+  },
+  {
+    id: 'Ubuntu',
+    label: 'Ubuntu',
+    category: 'Modern Sans',
+    cssFamily: "'Ubuntu', sans-serif",
+  },
+  {
+    id: 'Work Sans',
+    label: 'Work Sans',
+    category: 'Modern Sans',
+    cssFamily: "'Work Sans', sans-serif",
+  },
+  {
+    id: 'DM Sans',
+    label: 'DM Sans',
+    category: 'Modern Sans',
+    cssFamily: "'DM Sans', sans-serif",
+  },
+  {
+    id: 'Rubik',
+    label: 'Rubik',
+    category: 'Modern Sans',
+    cssFamily: "'Rubik', sans-serif",
+  },
+  {
+    id: 'Barlow',
+    label: 'Barlow',
+    category: 'Modern Sans',
+    cssFamily: "'Barlow', sans-serif",
+  },
+  {
+    id: 'Josefin Sans',
+    label: 'Josefin Sans',
+    category: 'Geometrik',
+    cssFamily: "'Josefin Sans', sans-serif",
+  },
+  {
+    id: 'Lora',
+    label: 'Lora',
+    category: 'Klasik Serif',
+    cssFamily: "'Lora', serif",
+  },
+  {
+    id: 'Roboto Slab',
+    label: 'Roboto Slab',
+    category: 'Klasik Serif',
+    cssFamily: "'Roboto Slab', serif",
+  },
+  {
+    id: 'Cormorant Garamond',
+    label: 'Cormorant Garamond',
+    category: 'Klasik Serif',
+    cssFamily: "'Cormorant Garamond', serif",
+  },
+  {
+    id: 'Cinzel',
+    label: 'Cinzel',
+    category: 'Klasik Serif',
+    cssFamily: "'Cinzel', serif",
+  },
+  {
+    id: 'Abril Fatface',
+    label: 'Abril Fatface',
+    category: 'Poster / Başlık',
+    cssFamily: "'Abril Fatface', serif",
+  },
+  {
+    id: 'Bebas Neue',
+    label: 'Bebas Neue',
+    category: 'Poster / Başlık',
+    cssFamily: "'Bebas Neue', sans-serif",
+  },
+  {
+    id: 'Anton',
+    label: 'Anton',
+    category: 'Poster / Başlık',
+    cssFamily: "'Anton', sans-serif",
+  },
+  {
+    id: 'Archivo Black',
+    label: 'Archivo Black',
+    category: 'Poster / Başlık',
+    cssFamily: "'Archivo Black', sans-serif",
+  },
+  {
+    id: 'Righteous',
+    label: 'Righteous',
+    category: 'Poster / Başlık',
+    cssFamily: "'Righteous', sans-serif",
+  },
+  {
+    id: 'Bangers',
+    label: 'Bangers',
+    category: 'Çizgi Roman',
+    cssFamily: "'Bangers', cursive",
+  },
+  {
+    id: 'Pacifico',
+    label: 'Pacifico',
+    category: 'El Yazısı',
+    cssFamily: "'Pacifico', cursive",
+  },
+  {
+    id: 'Lobster',
+    label: 'Lobster',
+    category: 'El Yazısı',
+    cssFamily: "'Lobster', cursive",
+  },
+  {
+    id: 'Permanent Marker',
+    label: 'Permanent Marker',
+    category: 'El Yazısı',
+    cssFamily: "'Permanent Marker', cursive",
+  },
+  {
+    id: 'Satisfy',
+    label: 'Satisfy',
+    category: 'El Yazısı',
+    cssFamily: "'Satisfy', cursive",
+  },
+  {
+    id: 'Indie Flower',
+    label: 'Indie Flower',
+    category: 'El Yazısı',
+    cssFamily: "'Indie Flower', cursive",
+  },
+  {
+    id: 'Shadows Into Light',
+    label: 'Shadows Into Light',
+    category: 'El Yazısı',
+    cssFamily: "'Shadows Into Light', cursive",
+  },
+  {
+    id: 'Amatic SC',
+    label: 'Amatic SC',
+    category: 'El Yazısı',
+    cssFamily: "'Amatic SC', cursive",
+  },
+  {
+    id: 'Kalam',
+    label: 'Kalam',
+    category: 'El Yazısı',
+    cssFamily: "'Kalam', cursive",
+  },
+  {
+    id: 'Patrick Hand',
+    label: 'Patrick Hand',
+    category: 'El Yazısı',
+    cssFamily: "'Patrick Hand', cursive",
+  },
+  {
+    id: 'Great Vibes',
+    label: 'Great Vibes',
+    category: 'Kaligrafik',
+    cssFamily: "'Great Vibes', cursive",
+  },
+  {
+    id: 'Fira Code',
+    label: 'Fira Code',
+    category: 'Kod / Monospace',
+    cssFamily: "'Fira Code', monospace",
+  },
+  {
+    id: 'Source Code Pro',
+    label: 'Source Code Pro',
+    category: 'Kod / Monospace',
+    cssFamily: "'Source Code Pro', monospace",
+  },
+  {
+    id: 'Roboto Mono',
+    label: 'Roboto Mono',
+    category: 'Kod / Monospace',
+    cssFamily: "'Roboto Mono', monospace",
+  },
+  {
+    id: 'Press Start 2P',
+    label: 'Press Start 2P',
+    category: 'Piksel / Retro',
+    cssFamily: "'Press Start 2P', monospace",
   },
 ];
 

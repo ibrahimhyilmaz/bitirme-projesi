@@ -1180,7 +1180,10 @@ wss.on('connection', (ws: WebSocket) => {
             {
               type: 'laser-moved',
               userId: currentUserId,
-              color: userObj?.presence.color || '#ef4444',
+              color:
+                typeof msg.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(msg.color)
+                  ? msg.color
+                  : userObj?.presence.color || '#ef4444',
               point: msg.point,
             },
             currentUserId
