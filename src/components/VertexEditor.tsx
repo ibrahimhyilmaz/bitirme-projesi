@@ -6,7 +6,8 @@ interface VertexEditorProps {
   element: CanvasElement;
   pan: Point;
   zoom: number;
-  onChangePoints: (points: Point[]) => void;
+  /** Polygon: { points }. Line / arrow: { x, y, width, height } */
+  onChange: (changes: Partial<CanvasElement>) => void;
   onDone: () => void;
   onSnapshot?: () => void;
 }
@@ -20,14 +21,34 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({
   element,
   pan,
   zoom,
-  onChangePoints,
+  onChange,
   onDone,
   onSnapshot,
 }) => {
   const [origin, setOrigin] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
-  const pointsRef = useRef<Point[]>(element.points || []);
-  pointsRef.current = element.points || [];
+  // Lines / arrows have exactly two editable points (start and tip); polygons any number
+  const isSegment = element.type !== 'polygon';
+  const currentPts: Point[] = isSegment
+    ? [
+        { x: element.x, y: element.y },
+        { x: element.x + (element.width || 0), y: element.y + (element.height || 0) },
+      ]
+    : element.points || [];
+  const pointsRef = useRef<Point[]>(currentPts);
+  pointsRef.current = currentPts;
+  const emit = (next: Point[]) => {
+    if (isSegment) {
+      onChange({
+        x: next[0].x,
+        y: next[0].y,
+        width: next[1].x - next[0].x,
+        height: next[1].y - next[0].y,
+      });
+    } else {
+      onChange({ points: next });
+    }
+  };
   const dragRef = useRef<{ idx: number } | null>(null);
 
   useEffect(() => {
@@ -53,7 +74,7 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIdx]);
 
-  const pts = element.points || [];
+  const pts = currentPts;
   const toScreen = (p: Point) => ({ x: origin.left + p.x * zoom + pan.x, y: origin.top + p.y * zoom + pan.y });
   const toWorld = (clientX: number, clientY: number): Point => ({
     x: (clientX - origin.left - pan.x) / zoom,
@@ -62,20 +83,21 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({
 
   const removeAt = (idx: number) => {
     const cur = pointsRef.current;
-    if (cur.length <= 3) return;
+    if (isSegment || cur.length <= 3) return;
     onSnapshot?.();
-    onChangePoints(cur.filter((_, i) => i !== idx));
+    emit(cur.filter((_, i) => i !== idx));
     setActiveIdx(null);
   };
 
   const insertAfter = (idx: number, at?: Point) => {
+    if (isSegment) return;
     const cur = pointsRef.current;
     const a = cur[idx];
     const b = cur[(idx + 1) % cur.length];
     const np = at || { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     onSnapshot?.();
     const next = [...cur.slice(0, idx + 1), np, ...cur.slice(idx + 1)];
-    onChangePoints(next);
+    emit(next);
     setActiveIdx(idx + 1);
   };
 
@@ -94,7 +116,7 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({
     e.stopPropagation();
     const w = toWorld(e.clientX, e.clientY);
     const next = pointsRef.current.map((p, i) => (i === d.idx ? { x: w.x, y: w.y } : p));
-    onChangePoints(next);
+    emit(next);
   };
 
   const endDrag = (e: React.PointerEvent) => {
@@ -103,7 +125,7 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({
     dragRef.current = null;
   };
 
-  if (pts.length < 3) return null;
+  if (!isSegment && pts.length < 3) return null;
   const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
   const handle = coarse ? 30 : 18; // big enough for fingers
 
@@ -113,17 +135,29 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({
     <div className="fixed inset-0 z-[55] pointer-events-none" data-floating-bar="true">
       {/* dashed outline */}
       <svg className="absolute inset-0 w-full h-full overflow-visible">
-        <polygon
-          points={pts.map((p) => `${toScreen(p).x},${toScreen(p).y}`).join(' ')}
-          fill="none"
-          stroke="#2563eb"
-          strokeWidth="1.5"
-          strokeDasharray="5 4"
-        />
+        {isSegment ? (
+          <line
+            x1={toScreen(pts[0]).x}
+            y1={toScreen(pts[0]).y}
+            x2={toScreen(pts[1]).x}
+            y2={toScreen(pts[1]).y}
+            stroke="#2563eb"
+            strokeWidth="1.5"
+            strokeDasharray="5 4"
+          />
+        ) : (
+          <polygon
+            points={pts.map((p) => `${toScreen(p).x},${toScreen(p).y}`).join(' ')}
+            fill="none"
+            stroke="#2563eb"
+            strokeWidth="1.5"
+            strokeDasharray="5 4"
+          />
+        )}
       </svg>
 
       {/* edge midpoints: add a vertex */}
-      {pts.map((p, i) => {
+      {!isSegment && pts.map((p, i) => {
         const q = pts[(i + 1) % pts.length];
         const m = toScreen({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
         return (
@@ -177,15 +211,19 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({
         onPointerDown={stop}
         className="pointer-events-auto absolute left-1/2 -translate-x-1/2 bottom-24 md:bottom-8 flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900/95 text-white shadow-2xl"
       >
-        <span className="text-xs font-semibold hidden sm:inline">Nokta düzenleme · {pts.length} nokta</span>
-        <button
-          type="button"
-          disabled={activeIdx === null || pts.length <= 3}
-          onClick={() => activeIdx !== null && removeAt(activeIdx)}
-          className="min-h-[40px] px-3 rounded-xl bg-slate-700 hover:bg-rose-600 disabled:opacity-40 text-xs font-semibold flex items-center gap-1.5"
-        >
-          <Trash2 className="w-4 h-4" /> Noktayı Sil
-        </button>
+        <span className="text-xs font-semibold hidden sm:inline">
+          {isSegment ? 'Uç noktaları sürükleyerek eğimi ve yönü değiştirin' : `Nokta düzenleme · ${pts.length} nokta`}
+        </span>
+        {!isSegment && (
+          <button
+            type="button"
+            disabled={activeIdx === null || pts.length <= 3}
+            onClick={() => activeIdx !== null && removeAt(activeIdx)}
+            className="min-h-[40px] px-3 rounded-xl bg-slate-700 hover:bg-rose-600 disabled:opacity-40 text-xs font-semibold flex items-center gap-1.5"
+          >
+            <Trash2 className="w-4 h-4" /> Noktayı Sil
+          </button>
+        )}
         <button
           type="button"
           onClick={onDone}

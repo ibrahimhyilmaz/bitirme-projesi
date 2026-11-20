@@ -29,6 +29,17 @@ import {
   setStoredGeminiKey,
 } from '../utils/clientGemini';
 import { freeGenerate } from '../utils/freeAI';
+import {
+  AiProviderError,
+  PROVIDERS,
+  generateElements,
+  generateSvg,
+  getProviderInfo,
+  isProviderReady,
+  type ProviderConfig,
+  type ProviderId,
+} from '../ai/core';
+import { loadProviderConfig, saveProviderConfig } from '../ai/providerStore';
 
 interface AIPromptModalProps {
   centerX: number;
@@ -262,6 +273,15 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
   const [quotaStatus, setQuotaStatus] = useState<ClientQuotaResponse | null>(null);
   const [geminiKey, setGeminiKey] = useState<string>(() => getStoredGeminiKey());
   const [geminiKeyDraft, setGeminiKeyDraft] = useState<string>('');
+  // Advanced multi-provider AI (OpenAI, Claude, OpenRouter, Groq, DeepSeek, Mistral, Ollama, custom ...)
+  const [provCfg, setProvCfg] = useState<ProviderConfig>(
+    () => loadProviderConfig() || { provider: 'openrouter', apiKey: '', model: '', baseUrl: '' }
+  );
+  const [provSaved, setProvSaved] = useState<boolean>(() => isProviderReady(loadProviderConfig()));
+  const updateProv = (patch: Partial<ProviderConfig>) => {
+    setProvCfg((prev) => ({ ...prev, ...patch }));
+    setProvSaved(false);
+  };
   const [mode, setMode] = useState<GenerationMode>('vector');
   const [prompt, setPrompt] = useState('');
   const [selectedStageId, setSelectedStageId] = useState<ThinkingStageId>('standard');
@@ -410,6 +430,56 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
     });
 
     const executeRequest = async (attemptFlag: boolean) => {
+      // Advanced provider (OpenAI-compatible / Claude): tried first when the user configured one
+      const savedProv = loadProviderConfig();
+      if (isProviderReady(savedProv)) {
+        try {
+          if (activeMode === 'image') {
+            const svg = await generateSvg(savedProv, { prompt: targetPrompt, signal: controller.signal });
+            const now = Date.now();
+            return {
+              element: {
+                id: `ai-img-${now}-${Math.random().toString(36).substring(2, 6)}`,
+                type: 'image',
+                x: Math.round(centerX - 150),
+                y: Math.round(centerY - 150),
+                width: 300,
+                height: 300,
+                strokeWidth: 0,
+                color: 'transparent',
+                fillColor: 'transparent',
+                imageUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
+                rotation: 0,
+                flipX: false,
+                flipY: false,
+                createdBy: authorName,
+                updatedAt: now,
+              } as CanvasElement,
+            } as Record<string, unknown>;
+          }
+          const elements = await generateElements(savedProv, {
+            prompt: targetPrompt,
+            centerX,
+            centerY,
+            author: authorName,
+            detail: stage.id,
+            signal: controller.signal,
+          });
+          return { elements } as Record<string, unknown>;
+        } catch (e) {
+          if (e instanceof AiProviderError) {
+            throw {
+              message: e.message,
+              code: e.code,
+              retryable: e.retryable,
+              suggestion: e.suggestion,
+              attemptsMade: 1,
+            } satisfies StructuredAIError;
+          }
+          throw e;
+        }
+      }
+
       // "Bring your own key": talk to Gemini straight from the browser (works on static hosting)
       const userKey = getStoredGeminiKey();
       if (userKey) {
@@ -903,6 +973,84 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   Google AI Studio (Settings &gt; Secrets: <code className="font-mono">GEMINI_API_KEY</code>) bağlantınızı kullanır. Saatlik 100 yüksek öncelikli istek sağlar.
                 </p>
               </button>
+            </div>
+
+            {/* Advanced multi-provider AI */}
+            <div className="mt-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+              <div className="text-[11px] font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-fuchsia-600 dark:text-fuchsia-400" />
+                <span>Gelişmiş yapay zeka sağlayıcısı (OpenAI · Claude · OpenRouter · Groq · DeepSeek · Ollama...)</span>
+                {provSaved && (
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                    Etkin
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                Seçtiğiniz sağlayıcı Google modellerinden önce kullanılır. Anahtar yalnızca bu tarayıcıda saklanır ve doğrudan sağlayıcıya gönderilir. Anahtarsız/ücretsiz seçenek: Ollama (yerel) veya OpenRouter&apos;ın ücretsiz modelleri.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-1.5">
+                <select
+                  value={provCfg.provider}
+                  onChange={(e) => updateProv({ provider: e.target.value as ProviderId, model: '', baseUrl: '' })}
+                  className="px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs text-slate-800 dark:text-slate-100"
+                >
+                  {PROVIDERS.map((pr) => (
+                    <option key={pr.id} value={pr.id}>
+                      {pr.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={provCfg.model || ''}
+                  onChange={(e) => updateProv({ model: e.target.value })}
+                  placeholder={`Model: ${getProviderInfo(provCfg.provider).defaultModel || 'model adı'}`}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
+                />
+                {(provCfg.provider === 'custom' || provCfg.provider === 'ollama') && (
+                  <input
+                    value={provCfg.baseUrl || ''}
+                    onChange={(e) => updateProv({ baseUrl: e.target.value })}
+                    placeholder={`Adres: ${getProviderInfo(provCfg.provider).baseUrl || 'https://.../v1'}`}
+                    className="sm:col-span-2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
+                  />
+                )}
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={provCfg.apiKey || ''}
+                  onChange={(e) => updateProv({ apiKey: e.target.value })}
+                  placeholder={`API anahtarı ${getProviderInfo(provCfg.provider).keyHint}`}
+                  className="sm:col-span-2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
+                />
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <button
+                  type="button"
+                  disabled={!isProviderReady(provCfg)}
+                  onClick={() => {
+                    saveProviderConfig(provCfg);
+                    setProvSaved(true);
+                    setErrorState(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-700 disabled:opacity-40 text-white text-xs font-semibold cursor-pointer"
+                >
+                  Kaydet ve Kullan
+                </button>
+                {provSaved && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      saveProviderConfig(null);
+                      setProvSaved(false);
+                      setProvCfg({ provider: 'openrouter', apiKey: '', model: '', baseUrl: '' });
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer"
+                  >
+                    Kaldır
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Browser-side Gemini key (static hosting / no server key) */}

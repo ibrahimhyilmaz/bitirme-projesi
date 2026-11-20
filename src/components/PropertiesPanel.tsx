@@ -216,12 +216,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const tabs = useMemo(() => {
     const list: { id: TabId; label: string; icon: React.ReactNode }[] = [];
     if (!allMedia) list.push({ id: 'style', label: 'Stil', icon: <Palette className="w-4 h-4" /> });
-    if (anyShape) list.push({ id: 'shape', label: 'Şekil', icon: <Shapes className="w-4 h-4" /> });
+    if (anyShape || types.some(isLineType)) list.push({ id: 'shape', label: anyShape ? 'Şekil' : 'Çizgi', icon: <Shapes className="w-4 h-4" /> });
     if (anyText) list.push({ id: 'text', label: 'Yazı', icon: <Type className="w-4 h-4" /> });
     if (!allMedia && !allLines) list.push({ id: 'effects', label: 'Efekt', icon: <Sparkles className="w-4 h-4" /> });
     list.push({ id: 'arrange', label: 'Düzen', icon: <LayoutGrid className="w-4 h-4" /> });
     return list;
-  }, [allMedia, anyShape, anyText, allLines]);
+  }, [allMedia, anyShape, anyText, allLines, types]);
 
   useEffect(() => {
     if (!tabs.some((t) => t.id === tab)) setTab(tabs[0].id);
@@ -330,9 +330,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               </button>
             )}
             <p className={`text-[11px] leading-snug ${muted}`}>
-              Noktaları düzenle: şekil serbest çokgene çevrilir. Köşeleri sürükleyin, kenara çift tıklayıp nokta ekleyin, bir noktaya çift tıklayıp silin.
+              {onlyOne && isLineType(onlyOne.type)
+                ? 'Çizgi/ok uçlarını sürükleyerek eğimi ve yönü değiştirin.'
+                : 'Noktaları düzenle: şekil serbest çokgene çevrilir. Köşeleri sürükleyin, kenardaki + ile nokta ekleyin, noktaya çift tıklayıp silin.'}
             </p>
-            {onlyOne && onlyOne.width !== undefined && (
+            {onlyOne && onlyOne.width !== undefined && !isLineType(onlyOne.type) && (
               <Section title="Boyut">
                 <div className="grid grid-cols-2 gap-1.5">
                   {(['width', 'height'] as const).map((k) => (

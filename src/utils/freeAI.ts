@@ -34,9 +34,9 @@ S circle 78 4 14 14 #facc15
 
 const EXAMPLE_GEOMETRY = new Set(['rect|0|78|100|22', 'rect|22|42|56|40', 'tri|14|14|72|32', 'rect|44|58|14|24', 'rect|28|50|12|12', 'circle|78|4|14|14']);
 
-type Shape = { kind: string; x: number; y: number; w: number; h: number; color: string; label?: string };
-type DNode = { id: string; label: string; shape: string };
-type DEdge = { from: string; to: string; label?: string };
+export type Shape = { kind: string; x: number; y: number; w: number; h: number; color: string; label?: string };
+export type DNode = { id: string; label: string; shape: string };
+export type DEdge = { from: string; to: string; label?: string };
 
 export interface FreeResult {
   elements: CanvasElement[];
@@ -185,7 +185,7 @@ function darken(hex: string): string {
   return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
 }
 
-function drawToElements(shapes: Shape[], cx: number, cy: number, author: string): CanvasElement[] {
+export function drawToElements(shapes: Shape[], cx: number, cy: number, author: string): CanvasElement[] {
   const SIZE = 380;
   const s = SIZE / 100;
   const ox = cx - SIZE / 2;
@@ -223,7 +223,7 @@ function drawToElements(shapes: Shape[], cx: number, cy: number, author: string)
   return els;
 }
 
-function diagramToElements(nodes: DNode[], edges: DEdge[], cx: number, cy: number, author: string): CanvasElement[] {
+export function diagramToElements(nodes: DNode[], edges: DEdge[], cx: number, cy: number, author: string): CanvasElement[] {
   const ids = new Set(nodes.map((n) => n.id));
   const useNodes = nodes.slice(0, 30);
   const useEdges = edges.filter((e) => ids.has(e.from) && ids.has(e.to) && e.from !== e.to).slice(0, 60);

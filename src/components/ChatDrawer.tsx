@@ -1160,7 +1160,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       {/* Media Picker Overlay (Rich Emojis & Animated GIFs) */}
       {showMediaPicker && (
         <div
-          className={`mx-3 mb-2 p-3 border rounded-2xl shadow-2xl flex flex-col max-h-[340px] z-40 transition-all ${
+          className={`absolute left-3 right-3 bottom-[70px] p-3 border rounded-2xl shadow-2xl flex flex-col max-h-[min(340px,60%)] z-[80] ${
             isDark
               ? 'bg-slate-900 border-slate-700 text-slate-100'
               : 'bg-white border-slate-200 text-slate-800'

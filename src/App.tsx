@@ -17,7 +17,7 @@ import { Toolbar } from './components/Toolbar';
 import { StyleBar } from './components/StyleBar';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { VertexEditor } from './components/VertexEditor';
-import { shapeToPolygonChanges } from './utils/polygonEdit';
+import { normaliseSegment, SEGMENT_TYPES, shapeToPolygonChanges } from './utils/polygonEdit';
 import { CanvasBoard } from './components/CanvasBoard';
 import { VoiceChatBar } from './components/VoiceChatBar';
 import { CodeEditorPanel } from './components/CodeEditorPanel';
@@ -2002,7 +2002,10 @@ export default function App() {
   // Point-level (vertex) editing of a polygon
   const [editingPointsId, setEditingPointsId] = useState<string | null>(null);
   const editingPointsElement = useMemo(
-    () => (editingPointsId ? elements.find((e) => e.id === editingPointsId && e.type === 'polygon') || null : null),
+    () =>
+      editingPointsId
+        ? elements.find((e) => e.id === editingPointsId && (e.type === 'polygon' || SEGMENT_TYPES.includes(e.type))) || null
+        : null,
     [editingPointsId, elements]
   );
   useEffect(() => {
@@ -2023,6 +2026,12 @@ export default function App() {
     const el = selectedElements.length === 1 ? selectedElements[0] : null;
     if (!el || el.isLocked) return;
     if (el.type === 'polygon') {
+      setEditingPointsId((cur) => (cur === el.id ? null : el.id));
+      return;
+    }
+    if (SEGMENT_TYPES.includes(el.type)) {
+      const baked = normaliseSegment(el);
+      if (baked && Object.keys(baked).length > 0) batchUpdateElements([{ id: el.id, changes: baked }]);
       setEditingPointsId((cur) => (cur === el.id ? null : el.id));
       return;
     }
@@ -2969,7 +2978,7 @@ export default function App() {
             element={editingPointsElement}
             pan={pan}
             zoom={zoom}
-            onChangePoints={(points) => batchUpdateElements([{ id: editingPointsElement.id, changes: { points } }])}
+            onChange={(changes) => batchUpdateElements([{ id: editingPointsElement.id, changes }])}
             onDone={() => setEditingPointsId(null)}
           />
         )}

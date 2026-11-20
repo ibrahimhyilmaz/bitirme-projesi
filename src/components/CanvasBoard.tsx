@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
+  ALL_SHAPE_TYPES,
   CanvasElement,
   FolderFileItem,
   GOOGLE_FONT_FAMILIES,
@@ -682,6 +683,60 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         const d = pCtx.getImageData(0, 0, 1, 1).data;
         return [d[0], d[1], d[2], Math.round((d[3] / 255) * alpha * 255)];
       };
+
+      // 1) The click landed inside a shape / polygon / closed outline: recolour THAT object.
+      //    (Flood-filling would be cut up by its text label, shadow or gradient and drop loose
+      //    pictures on top of the board, which looked like duplicated, scattered shapes.)
+      {
+        const hitCanvas = document.createElement('canvas');
+        hitCanvas.width = 3;
+        hitCanvas.height = 3;
+        const hctx = hitCanvas.getContext('2d', { willReadFrequently: true });
+        const fillableTypes1 = new Set<string>([...ALL_SHAPE_TYPES, 'polygon', 'sticky']);
+        const isClosedFreehand1 = (el: CanvasElement) => {
+          if (el.type !== 'pencil' && el.type !== 'fountain-pen') return false;
+          const pts = el.points;
+          if (!pts || pts.length < 6) return false;
+          const bb = getElementBounds(el);
+          const gap = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y);
+          return gap <= Math.max(24, Math.hypot(bb.width, bb.height) * 0.12);
+        };
+        const pixelHit = (el: CanvasElement) => {
+          if (!hctx) return isPointInsideElement(canvasPt, el);
+          hctx.clearRect(0, 0, 3, 3);
+          hctx.save();
+          hctx.translate(1 - canvasPt.x, 1 - canvasPt.y);
+          try {
+            drawElement(hctx, {
+              ...el,
+              fillColor: '#000000',
+              color: '#000000',
+              text: undefined,
+              opacity: 1,
+              shadowBlur: 0,
+              gradientTo: '',
+              strokeWidth: Math.max(el.strokeWidth || 3, 2),
+            });
+          } catch {}
+          hctx.restore();
+          return hctx.getImageData(1, 1, 1, 1).data[3] > 40;
+        };
+        const target = [...elements]
+          .reverse()
+          .find(
+            (el) =>
+              !el.isLocked &&
+              (fillableTypes1.has(el.type) || isClosedFreehand1(el)) &&
+              el.type !== 'double-arrow' &&
+              el.type !== 'curved-arrow' &&
+              pixelHit(el)
+          );
+        if (target) {
+          if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+          onUpdateElement(target.id, { fillColor: paintColor, gradientTo: '', updatedAt: Date.now() });
+          return;
+        }
+      }
 
       const container = containerRef.current;
       if (container) {

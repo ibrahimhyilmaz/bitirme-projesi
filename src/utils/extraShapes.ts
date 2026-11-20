@@ -25,6 +25,20 @@ function starPath(points: number, inner: number): string {
   return `M${pts.join(' L')} Z`;
 }
 
+// Flower / scalloped circle: n round petals joined into one outline
+function scallopPath(n: number): string {
+  const R = 33; // distance of the petal joints from the centre
+  const r = 2 * R * Math.sin(Math.PI / n) * 0.62; // petal radius
+  const pts: string[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    pts.push(`${f(50 + R * Math.cos(a))} ${f(50 + R * Math.sin(a))}`);
+  }
+  let d = `M${pts[0]}`;
+  for (let i = 1; i <= n; i++) d += ` A${f(r)} ${f(r)} 0 0 1 ${pts[i]}`;
+  return d + ' Z';
+}
+
 function gearPath(teeth: number): string {
   const pts: string[] = [];
   const step = (2 * Math.PI) / teeth;
@@ -76,11 +90,7 @@ export const EXTRA_SHAPES = {
   house: { label: 'Ev', path: 'M50 0 L100 46 L86 46 L86 100 L14 100 L14 46 L0 46 Z', group: 'akis' },
   drop: { label: 'Damla', path: 'M50 0 C50 0 90 46 90 66 A40 40 0 0 1 10 66 C10 46 50 0 50 0 Z', group: 'doga' },
   leaf: { label: 'Yaprak', path: 'M8 92 C8 42 40 8 92 8 C92 60 60 92 8 92 Z', group: 'doga' },
-  flower: {
-    label: 'Çiçek',
-    path: 'M50 36 A18 18 0 1 1 50.01 36 Z M50 0 A20 20 0 1 1 49.99 0 Z M50 60 A20 20 0 1 1 49.99 60 Z M0 30 A20 20 0 1 1 -0.01 30 Z M60 30 A20 20 0 1 1 59.99 30 Z',
-    group: 'doga',
-  },
+  flower: { label: 'Çiçek', path: scallopPath(8), group: 'doga' },
   cloud2: { label: 'Yumuşak Bulut', path: 'M25 80 A22 22 0 0 1 22 38 A28 28 0 0 1 74 30 A24 24 0 0 1 78 80 Z', group: 'doga' },
 } as const satisfies Record<string, ExtraShapeDef>;
 

@@ -130,3 +130,31 @@ export function shapeToPolygonChanges(el: CanvasElement): Partial<CanvasElement>
     smooth,
   };
 }
+
+
+export const SEGMENT_TYPES = ['line', 'arrow', 'double-arrow', 'curved-arrow'];
+
+/** Bake rotation / mirroring into a line's endpoints so its two handles sit where it is drawn */
+export function normaliseSegment(el: CanvasElement): Partial<CanvasElement> | null {
+  if (!SEGMENT_TYPES.includes(el.type)) return null;
+  if (!el.rotation && !el.flipX && !el.flipY) return {};
+  const w = el.width || 0;
+  const h = el.height || 0;
+  const bounds = getElementBounds(el);
+  const rot = ((el.rotation || 0) * Math.PI) / 180;
+  const tf = (x: number, y: number): Point => {
+    let px = x;
+    let py = y;
+    if (el.flipX) px = 2 * bounds.cx - px;
+    if (el.flipY) py = 2 * bounds.cy - py;
+    const dx = px - bounds.cx;
+    const dy = py - bounds.cy;
+    return {
+      x: bounds.cx + dx * Math.cos(rot) - dy * Math.sin(rot),
+      y: bounds.cy + dx * Math.sin(rot) + dy * Math.cos(rot),
+    };
+  };
+  const a = tf(el.x, el.y);
+  const b = tf(el.x + w, el.y + h);
+  return { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y, rotation: 0, flipX: false, flipY: false };
+}
