@@ -334,12 +334,14 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   useEffect(() => {
     if (!onMarkRead) return;
     const report = () => {
-      if (document.visibilityState !== 'visible') return;
+      // The drawer being open is enough: partly covered windows report "hidden" in some browsers
       const fresh = messages
         .filter(
           (m) =>
             m.userId !== currentUserId &&
             m.userId !== 'system' &&
+            m.userColor !== 'system' &&
+            (activeTab === 'general' ? !m.isPrivate : m.isPrivate && m.userId === activeTab) &&
             !markedReadRef.current.has(m.id) &&
             !(m.readBy && m.readBy[currentUserId])
         )
@@ -349,13 +351,15 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       onMarkRead(fresh);
     };
     report();
+    const timer = window.setInterval(report, 1500);
     document.addEventListener('visibilitychange', report);
     window.addEventListener('focus', report);
     return () => {
+      window.clearInterval(timer);
       document.removeEventListener('visibilitychange', report);
       window.removeEventListener('focus', report);
     };
-  }, [messages, currentUserId, onMarkRead]);
+  }, [messages, currentUserId, onMarkRead, activeTab]);
 
   const handleDownloadFile = (att: { name: string; url?: string; dataUrl?: string }) => {
     const fileUrl = att.dataUrl || att.url;

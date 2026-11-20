@@ -257,7 +257,14 @@ export default function App() {
   // or the URL explicitly points to a different room).
   const sessionBootstrap = useMemo(() => {
     const saved = readSavedSession();
-    const hasName = Boolean(localStorage.getItem('collab_username'));
+    let hasName = Boolean(localStorage.getItem('collab_username'));
+    if (!hasName && initialRoomInfo.hasUrlRoomParam) {
+      // First visit through an invite link: join as a guest (the name can be changed in the profile)
+      try {
+        localStorage.setItem('collab_username', `Misafir ${Math.floor(100 + Math.random() * 900)}`);
+        hasName = true;
+      } catch {}
+    }
     if (!saved) return { session: null as SavedSession | null, expired: false };
     const urlConflict = initialRoomInfo.hasUrlRoomParam && initialRoomInfo.roomId !== saved.roomId;
     if (urlConflict || !hasName) return { session: null, expired: false };
@@ -276,7 +283,10 @@ export default function App() {
   const [customMaxUsers, setCustomMaxUsers] = useState<number | undefined>(savedSession?.maxUsers);
   const [isCreatingRoom, setIsCreatingRoom] = useState<boolean>(false);
   const [restoreRoom, setRestoreRoom] = useState<boolean>(Boolean(savedSession?.wasOwner));
-  const [hasEnteredWorkspace, setHasEnteredWorkspace] = useState<boolean>(Boolean(savedSession));
+  // Opened from a QR code / invite link (?room=...): go straight into that room, no extra clicks
+  const [hasEnteredWorkspace, setHasEnteredWorkspace] = useState<boolean>(
+    Boolean(savedSession) || initialRoomInfo.hasUrlRoomParam
+  );
   const [joinGateError, setJoinGateError] = useState<string | null>(
     sessionBootstrap.expired ? translate(getLanguage(), 'session.timeout') : null
   );
@@ -333,8 +343,8 @@ export default function App() {
     };
   });
 
-  const [isUserSetupOpen, setIsUserSetupOpen] = useState<boolean>(!savedSession);
-  const [isInitialSetup, setIsInitialSetup] = useState<boolean>(!savedSession);
+  const [isUserSetupOpen, setIsUserSetupOpen] = useState<boolean>(!savedSession && !initialRoomInfo.hasUrlRoomParam);
+  const [isInitialSetup, setIsInitialSetup] = useState<boolean>(!savedSession && !initialRoomInfo.hasUrlRoomParam);
 
   // Sync user profile to localStorage
   useEffect(() => {
@@ -1423,10 +1433,12 @@ export default function App() {
   // Unread badge counts persist until the specific conversation tab is opened, while popup notifications fade out after 2s.
   const seenChatIdsRef = useRef<Set<string>>(new Set());
   const chatSeededRoomRef = useRef<string | null>(null);
+  const chatSeedTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (chatSeededRoomRef.current !== roomId) {
       chatSeededRoomRef.current = roomId;
+      chatSeedTimeRef.current = Date.now();
       seenChatIdsRef.current = new Set(chatMessages.map((m) => m.id));
       setUnreadIdsByChannel({});
       setChatToastTimeByChannel({});
@@ -1446,6 +1458,8 @@ export default function App() {
         seenChatIdsRef.current.add(m.id);
         const isFromMe = m.userId === currentUser.id;
         if (isFromMe) continue;
+        // History delivered when (re)entering the room, or already read by me: not a new notification
+        if (m.timestamp < chatSeedTimeRef.current - 2000 || (m.readBy && m.readBy[currentUser.id])) continue;
 
         // Ignore private messages not meant for this user
         if (m.isPrivate && m.recipientId && m.recipientId !== currentUser.id) {

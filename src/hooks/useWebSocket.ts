@@ -585,9 +585,20 @@ export function useWebSocket({
             const remoteJoinedEarlier =
               typeof msg.joinedAt === 'number' && msg.joinedAt < joinedAtRef.current;
 
+            // A founder / recorded owner who refreshed joins later than the others but must keep ownership
+            let storedFounder = false;
+            try {
+              storedFounder =
+                localStorage.getItem(`collab_founder_${roomId.trim().toLowerCase()}`) === userRef.current.id;
+            } catch {}
+            const iAmOwner = storedFounder || msg.settings?.ownerId === userRef.current.id;
+
             setUsers((prev) => {
               const filtered = prev.filter((u) => u.id !== remoteUser.id);
               const updatedList = [...filtered, remoteUser];
+              if (iAmOwner) {
+                return updatedList.map((u) => (u.id === userRef.current.id ? { ...u, role: 'owner' as UserRole } : u));
+              }
               if (remoteJoinedEarlier) {
                 return updatedList.map((u) =>
                   u.id === userRef.current.id && u.role === 'owner'
@@ -600,7 +611,9 @@ export function useWebSocket({
 
             if (remoteJoinedEarlier) {
               if (msg.roomName) setSyncedRoomName(msg.roomName);
-              if (msg.settings) setRoomSettings(msg.settings);
+              if (msg.settings) {
+                setRoomSettings(iAmOwner ? { ...msg.settings, ownerId: userRef.current.id } : msg.settings);
+              }
             }
 
             if (Array.isArray(msg.elements) && msg.elements.length > 0) {
