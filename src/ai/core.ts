@@ -18,6 +18,7 @@ export type ProviderId =
   | 'mistral'
   | 'together'
   | 'ollama'
+  | 'puter'
   | 'custom';
 
 export interface ProviderInfo {
@@ -28,17 +29,18 @@ export interface ProviderInfo {
   /** Needs an API key (local servers do not) */
   needsKey: boolean;
   keyHint: string;
-  kind: 'openai' | 'anthropic';
+  kind: 'openai' | 'anthropic' | 'puter';
 }
 
 export const PROVIDERS: ProviderInfo[] = [
   { id: 'openai', label: 'OpenAI (GPT)', baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini', needsKey: true, keyHint: 'sk-...', kind: 'openai' },
-  { id: 'anthropic', label: 'Anthropic (Claude)', baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5', needsKey: true, keyHint: 'sk-ant-...', kind: 'anthropic' },
-  { id: 'openrouter', label: 'OpenRouter (yüzlerce model)', baseUrl: 'https://openrouter.ai/api/v1', defaultModel: 'openai/gpt-4o-mini', needsKey: true, keyHint: 'sk-or-...', kind: 'openai' },
+  { id: 'anthropic', label: 'Anthropic (Claude)', baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-5-5', needsKey: true, keyHint: 'sk-ant-...', kind: 'anthropic' },
+  { id: 'openrouter', label: 'OpenRouter (ÜCRETSİZ model seçeneği)', baseUrl: 'https://openrouter.ai/api/v1', defaultModel: 'openrouter/free', needsKey: true, keyHint: 'sk-or-...', kind: 'openai' },
   { id: 'groq', label: 'Groq (çok hızlı, ücretsiz katman)', baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.3-70b-versatile', needsKey: true, keyHint: 'gsk_...', kind: 'openai' },
   { id: 'deepseek', label: 'DeepSeek (düşük maliyet)', baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat', needsKey: true, keyHint: 'sk-...', kind: 'openai' },
   { id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-small-latest', needsKey: true, keyHint: 'API anahtarı', kind: 'openai' },
   { id: 'together', label: 'Together AI', baseUrl: 'https://api.together.xyz/v1', defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', needsKey: true, keyHint: 'API anahtarı', kind: 'openai' },
+  { id: 'puter', label: 'Puter (anahtarsız, ilk kullanımda giriş penceresi açar)', baseUrl: '', defaultModel: 'gpt-4o-mini', needsKey: false, keyHint: '(gerekmez)', kind: 'puter' },
   { id: 'ollama', label: 'Ollama / LM Studio (yerel, ücretsiz)', baseUrl: 'http://localhost:11434/v1', defaultModel: 'llama3.1', needsKey: false, keyHint: '(gerekmez)', kind: 'openai' },
   { id: 'custom', label: 'Özel (OpenAI uyumlu adres)', baseUrl: '', defaultModel: '', needsKey: false, keyHint: 'API anahtarı (varsa)', kind: 'openai' },
 ];
@@ -89,6 +91,8 @@ export async function callLLM(
   const model = cfg.model?.trim() || info.defaultModel;
   const maxTokens = opts.maxTokens ?? 4000;
   const temperature = opts.temperature ?? 0.5;
+
+  if (info.kind === 'puter') return callPuter(system, user, model);
 
   let res: Response;
   try {
@@ -152,6 +156,16 @@ export async function callLLM(
     if (res.status === 401 || res.status === 403) {
       throw new AiProviderError('API_KEY_INVALID', `${info.label} API anahtarı reddedildi (HTTP ${res.status}). ${detail}`, 'Anahtarı kontrol edip yeniden kaydedin.', false);
     }
+    if (res.status === 404 && info.kind === 'openai' && !(opts as { _retried?: boolean })._retried) {
+      // The default model name may be retired: ask the provider what it has and retry once
+      try {
+        const models = await listModels(cfg);
+        const alt = pickChatModel(models, model);
+        if (alt && alt !== model) {
+          return callLLM({ ...cfg, model: alt }, system, user, { ...opts, _retried: true } as typeof opts);
+        }
+      } catch {}
+    }
     if (res.status === 404) {
       throw new AiProviderError('MODEL_NOT_FOUND', `Model bulunamadı: ${model}. ${detail}`, 'Model adını sağlayıcının güncel listesine göre düzeltin.', false);
     }
@@ -168,6 +182,85 @@ export async function callLLM(
       : data?.choices?.[0]?.message?.content || '';
   if (!text.trim()) throw new AiProviderError('MODEL_GENERATION_FAILED', 'Model boş yanıt döndürdü.', 'Tekrar deneyin.');
   return text;
+}
+
+const NON_CHAT = /embed|whisper|tts|speech|audio|image|dall|moderation|guard|rerank|vision-preview|lyria|transcribe/i;
+
+/** Ask an OpenAI-compatible provider which models the key can use */
+export async function listModels(cfg: ProviderConfig, signal?: AbortSignal): Promise<string[]> {
+  const info = getProviderInfo(cfg.provider);
+  if (info.kind !== 'openai') return [];
+  const base = (cfg.baseUrl?.trim() || info.baseUrl).replace(/\/+$/, '');
+  const headers: Record<string, string> = {};
+  if (cfg.apiKey?.trim()) headers.Authorization = `Bearer ${cfg.apiKey.trim()}`;
+  const res = await fetch(`${base}/models`, { headers, signal });
+  if (!res.ok) throw new AiProviderError('MODEL_LIST_FAILED', `Model listesi alınamadı (HTTP ${res.status}).`, 'Anahtarı ve adresi kontrol edin.');
+  const j = await res.json();
+  const arr: { id?: string; pricing?: { prompt?: string | number; completion?: string | number } }[] = j?.data || j?.models || [];
+  let ids = arr.map((m) => m.id || '').filter((id) => id && !NON_CHAT.test(id));
+  if (cfg.provider === 'openrouter') {
+    // free models first so the picker leads with something that costs nothing
+    const free = new Set(arr.filter((m) => m.pricing && Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0).map((m) => m.id));
+    ids = [...ids.filter((id) => free.has(id)), ...ids.filter((id) => !free.has(id))];
+  }
+  return ids;
+}
+
+function pickChatModel(models: string[], failed: string): string | null {
+  const preferred = [/gpt-4o-mini/, /gpt-4\.1-mini/, /llama-3\.3-70b/, /llama-3\.1-70b/, /llama-3\.1-8b/, /mistral-small/, /deepseek-chat/, /qwen/, /gemma/, /llama/];
+  for (const re of preferred) {
+    const hit = models.find((m) => re.test(m) && m !== failed);
+    if (hit) return hit;
+  }
+  return models.find((m) => m !== failed) || null;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var puter: { ai: { chat: (messages: unknown, opts?: unknown) => Promise<unknown> } } | undefined;
+}
+
+let puterLoading: Promise<void> | null = null;
+function loadPuter(): Promise<void> {
+  if (typeof document === 'undefined') {
+    return Promise.reject(new AiProviderError('PROVIDER_UNREACHABLE', 'Puter yalnızca tarayıcıda kullanılabilir.', 'OpenRouter veya Groq kullanın.', false));
+  }
+  if (globalThis.puter) return Promise.resolve();
+  if (!puterLoading) {
+    puterLoading = new Promise<void>((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = 'https://js.puter.com/v2/';
+      el.async = true;
+      el.onload = () => resolve();
+      el.onerror = () => {
+        puterLoading = null;
+        reject(new AiProviderError('PROVIDER_UNREACHABLE', 'Puter yüklenemedi (js.puter.com).', 'Bağlantıyı kontrol edin veya OpenRouter / Groq seçin.'));
+      };
+      document.head.appendChild(el);
+    });
+  }
+  return puterLoading;
+}
+
+async function callPuter(system: string, user: string, model: string): Promise<string> {
+  await loadPuter();
+  try {
+    const res = (await globalThis.puter!.ai.chat(
+      [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      { model }
+    )) as { message?: { content?: unknown } } | string;
+    if (typeof res === 'string') return res;
+    const c = res?.message?.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) return c.map((p: { text?: string }) => p?.text || '').join('');
+    throw new Error('empty');
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : typeof e === 'object' && e ? JSON.stringify(e).slice(0, 160) : String(e);
+    throw new AiProviderError('PROVIDER_UNREACHABLE', `Puter yanıt vermedi (${msg}).`, 'Açılan Puter giriş penceresini onaylayın veya OpenRouter / Groq seçin.');
+  }
 }
 
 /** Pull the first balanced JSON object out of a model answer (handles ```json fences and chatter) */

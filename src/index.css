@@ -454,3 +454,25 @@ body {
 .cursor-nwse-resize {
   touch-action: none;
 }
+
+/* ---------- Landing showcase animations (time based loops, no scroll coupling) ---------- */
+@keyframes cb-wave {
+  from { height: 6px; }
+  to { height: 34px; }
+}
+@keyframes cb-wiggle {
+  0%, 100% { transform: rotate(-6deg) scale(1); }
+  50% { transform: rotate(6deg) scale(1.15); }
+}
+@keyframes cb-progress {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+@keyframes cb-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cb-stage-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}

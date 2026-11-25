@@ -461,3 +461,25 @@ export async function freeGenerate(p: {
     svg: shapesToSvg(shapes),
   };
 }
+
+/**
+ * Offline fallback: "giriş, doğrulama, panel akış şeması" / "A -> B -> C" become a laid-out chain.
+ * Needs no network and no key, so it works on any static host.
+ */
+export function localDiagramFromPrompt(prompt: string, cx: number, cy: number, author: string): CanvasElement[] {
+  const cleaned = prompt
+    .replace(/(akış şeması|akis semasi|diyagram[ıi]?|zihin haritası|şema(sı)?|mimari(si)?|akış)/gi, ' ')
+    .replace(/\b(çiz(in|er misin)?|oluştur(un)?|yap(ın)?|hazırla|bir|bana|için|lütfen|tahtaya|olan|şunlar[ıi]|adımlar[ıi])\b/gi, ' ');
+  const parts = cleaned
+    .split(/\s*(?:->|→|=>|>|,|;|\n|\bsonra\b|\bard[ıi]ndan\b|\bve\b)\s*/i)
+    .map((t) => t.replace(/[:.]+$/g, '').replace(/\s+/g, ' ').trim())
+    .filter((t) => t.length > 1 && t.length <= 40);
+  if (parts.length < 2 || parts.length > 14) return [];
+  const nodes: DNode[] = parts.map((label, i) => ({
+    id: `n${i}`,
+    label: label.charAt(0).toUpperCase() + label.slice(1),
+    shape: label.endsWith('?') ? 'diamond' : i === 0 || i === parts.length - 1 ? 'round' : 'box',
+  }));
+  const edges: DEdge[] = nodes.slice(1).map((n, i) => ({ from: nodes[i].id, to: n.id }));
+  return diagramToElements(nodes, edges, cx, cy, author);
+}

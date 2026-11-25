@@ -1,4 +1,4 @@
-import { useIsMobile } from '../hooks/useIsMobile';
+import { useIsMobile, useDockLayout } from '../hooks/useIsMobile';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Copy,
@@ -162,6 +162,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   onFocus,
 }) => {
   const isMobile = useIsMobile();
+  const dockLayout = useDockLayout();
   const [rotationMenuOpen, setRotationMenuOpen] = useState(false);
   const [advancedStyleOpen, setAdvancedStyleOpen] = useState(false);
   const [fontMenuOpen, setFontMenuOpen] = useState(false);
@@ -434,6 +435,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
           !position
             ? isMobile
               ? 'bottom-[88px] right-2 w-fit'
+              : dockLayout
+              ? 'bottom-[88px] right-3 w-fit'
               : 'bottom-3 right-3 w-fit'
             : ''
         }`}
@@ -496,6 +499,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         !position
           ? isMobile
             ? 'bottom-[88px] inset-x-2 w-auto'
+            : dockLayout
+            ? 'bottom-[88px] right-3 w-fit max-w-[calc(100vw-24px)]'
             : 'bottom-3 right-3 w-fit max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-48px)]'
           : 'max-w-[95vw]'
       }`}

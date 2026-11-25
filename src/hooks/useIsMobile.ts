@@ -29,3 +29,30 @@ export function useIsMobile(): boolean {
 
   return mobile;
 }
+
+/** Touch tablets (coarse pointer, up to ~1100px wide) get the same compact dock as phones */
+export const TABLET_TOUCH_QUERY = '(pointer: coarse) and (max-width: 1100px)';
+
+export function useDockLayout(): boolean {
+  const phone = useIsMobile();
+  const [tablet, setTablet] = useState<boolean>(() => {
+    try {
+      return window.matchMedia(TABLET_TOUCH_QUERY).matches;
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try {
+      mq = window.matchMedia(TABLET_TOUCH_QUERY);
+    } catch {
+      return;
+    }
+    const on = () => setTablet(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return phone || tablet;
+}

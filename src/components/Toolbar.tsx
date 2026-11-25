@@ -41,7 +41,7 @@ import {
 } from 'lucide-react';
 import { ALL_SHAPE_TYPES, ToolType } from '../types';
 import { EXTRA_SHAPES, getExtraShape, type ExtraShapeId } from '../utils/extraShapes';
-import { useIsMobile } from '../hooks/useIsMobile';
+import { useIsMobile, useDockLayout } from '../hooks/useIsMobile';
 
 export const FountainPenNibIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
   <svg
@@ -398,7 +398,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   }, [activeTool]);
 
   // Draggable state (null = default top docked Flex position)
-  const isMobile = useIsMobile();
+  const isMobile = useDockLayout(); // phones + touch tablets use the compact dock
   const [mobileMore, setMobileMore] = useState(false);
   const [mobileSheet, setMobileSheet] = useState<null | 'pen' | 'eraser' | 'shape' | 'more'>(null);
   const [storedPosition, setPosition] = useState<{ x: number; y: number } | null>(() => {
@@ -978,7 +978,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           className={`absolute pointer-events-auto bg-white select-none ${
             position
               ? 'w-[min(380px,calc(100vw-16px))] rounded-3xl border border-slate-200 shadow-2xl'
-              : 'bottom-0 inset-x-0 rounded-t-3xl border-t border-slate-200 shadow-[0_-8px_28px_rgba(15,23,42,0.14)]'
+              : 'bottom-0 inset-x-0 rounded-t-3xl border-t border-slate-200 shadow-[0_-8px_28px_rgba(15,23,42,0.14)] md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:bottom-3 md:w-[min(560px,calc(100vw-32px))] md:rounded-3xl md:border'
           } ${isDraggingBar ? 'ring-2 ring-blue-500/30' : ''}`}
         >
           {/* Grabber: drag to float the dock, double-tap (or the chip) to dock it again */}

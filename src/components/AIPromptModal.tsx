@@ -28,13 +28,14 @@ import {
   getStoredGeminiKey,
   setStoredGeminiKey,
 } from '../utils/clientGemini';
-import { freeGenerate } from '../utils/freeAI';
+import { localDiagramFromPrompt } from '../utils/freeAI';
 import {
   AiProviderError,
   PROVIDERS,
   generateElements,
   generateSvg,
   getProviderInfo,
+  listModels,
   isProviderReady,
   type ProviderConfig,
   type ProviderId,
@@ -278,6 +279,33 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
     () => loadProviderConfig() || { provider: 'openrouter', apiKey: '', model: '', baseUrl: '' }
   );
   const [provSaved, setProvSaved] = useState<boolean>(() => isProviderReady(loadProviderConfig()));
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState<boolean>(() => {
+    try {
+      return /\.github\.io$|\.web\.app$|\.pages\.dev$|\.netlify\.app$|\.vercel\.app$/.test(window.location.hostname);
+    } catch {
+      return false;
+    }
+  });
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelListMsg, setModelListMsg] = useState<string>('');
+  const quickSetup = (provider: ProviderId) => {
+    if (provider === 'puter') {
+      const cfg: ProviderConfig = { provider: 'puter', apiKey: '', model: '', baseUrl: '' };
+      setProvCfg(cfg);
+      saveProviderConfig(cfg);
+      setProvSaved(true);
+      setErrorState(null);
+      return;
+    }
+    setProvCfg({ provider, apiKey: '', model: '', baseUrl: '' });
+    setProvSaved(false);
+    setSettingsOpen(true);
+    window.setTimeout(() => {
+      document.getElementById('ai-provider-key')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (document.getElementById('ai-provider-key') as HTMLInputElement | null)?.focus();
+    }, 150);
+  };
   const updateProv = (patch: Partial<ProviderConfig>) => {
     setProvCfg((prev) => ({ ...prev, ...patch }));
     setProvSaved(false);
@@ -655,53 +683,20 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
           failure.code === 'API_KEY_UNAVAILABLE' ||
           failure.code === 'QUOTA_LIMIT_REACHED');
 
-      // Tier 2 - free, key-less, token-lean engine (compact DSL + local layout), usable by every visitor
+      // Tier 2 - offline: turn "A -> B -> C" style lists into a laid-out diagram (no network, no key)
       const tryFree = async (): Promise<boolean> => {
-        try {
-          setRetryStatusMessage('🆓 Ücretsiz yapay zeka motoru çiziyor (anahtar gerekmez)...');
-          const free = await freeGenerate({
-            prompt: targetPrompt,
-            centerX,
-            centerY,
-            author: authorName,
-            signal: controller.signal,
-          });
-          if (activeMode === 'image' && free.svg) {
-            const now = Date.now();
-            onElementsGenerated([
-              {
-                id: `ai-img-${now}-${Math.random().toString(36).substring(2, 6)}`,
-                type: 'image',
-                x: Math.round(centerX - 150),
-                y: Math.round(centerY - 150),
-                width: 300,
-                height: 300,
-                strokeWidth: 0,
-                color: 'transparent',
-                fillColor: 'transparent',
-                imageUrl: `data:image/svg+xml;utf8,${encodeURIComponent(free.svg)}`,
-                rotation: 0,
-                flipX: false,
-                flipY: false,
-                createdBy: authorName,
-                updatedAt: now,
-              } as CanvasElement,
-            ]);
-            onClose();
-            return true;
-          }
-          if (free.elements.length > 0) {
-            onElementsGenerated(free.elements);
-            onClose();
-            return true;
-          }
-        } catch (freeErr) {
-          if (freeErr instanceof Error && freeErr.name === 'AbortError') throw freeErr;
+        if (activeMode !== 'vector') return false;
+        const els = localDiagramFromPrompt(targetPrompt, centerX, centerY, authorName);
+        if (els.length > 0) {
+          onElementsGenerated(els);
+          onClose();
+          return true;
         }
         return false;
       };
 
       if (serverMissing) {
+        setNeedsSetup(true);
         // Tier 1 - built-in vector library (zero network, zero tokens) when it knows the subject
         try {
           if (activeMode === 'image') {
@@ -751,11 +746,11 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
         if (await tryFree()) return;
         setErrorState({
           message:
-            'Canlı yapay zeka sunucusuna ulaşılamadı (uygulama sunucusuz/statik barındırmada çalışıyor olabilir). Bu istek için hazır çizim kütüphanesinde karşılık yok.',
+            'Bu istek için canlı bir yapay zeka bağlantısı gerekiyor: bu sitede AI sunucusu yok ve hazır çizim kütüphanesinde karşılığı bulunamadı.',
           code: 'SERVER_UNREACHABLE',
           retryable: true,
           suggestion:
-            'Canlı yapay zeka için yukarıdaki "Tarayıcıda canlı yapay zeka" alanına kendi Gemini API anahtarınızı ekleyin (ücretsiz: aistudio.google.com/apikey). Anahtarsız hazır çizimler: elma, araba, kedi, köpek, ağaç, roket, ev veya "mimari şeması".',
+            'Aşağıdaki "Ücretsiz AI Kur" düğmelerinden birini kullanın (OpenRouter veya Groq: ücretsiz anahtar, kredi kartı gerekmez; Puter: anahtarsız). Anahtarsız hazır çizimler: elma, araba, kedi, köpek, ağaç, roket, ev; ya da "giriş, doğrulama, panel akış şeması" gibi liste halinde yazılan diyagramlar.',
           attemptsMade: 1,
         });
         return;
@@ -866,7 +861,8 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
         <div className="p-5 space-y-4 overflow-y-auto flex-1">
           {/* Sources & keys live in a collapsible section so the prompt box is the first thing people see */}
           <details
-            
+            open={settingsOpen}
+            onToggle={(e) => setSettingsOpen((e.currentTarget as HTMLDetailsElement).open)}
             className="group rounded-2xl border border-slate-200/90 dark:border-slate-700/80 bg-slate-50/60 dark:bg-slate-800/30"
           >
             <summary className="cursor-pointer select-none list-none flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 text-xs font-bold text-slate-800 dark:text-slate-100">
@@ -1022,6 +1018,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   ))}
                 </select>
                 <input
+                  list="ai-model-options"
                   value={provCfg.model || ''}
                   onChange={(e) => updateProv({ model: e.target.value })}
                   placeholder={`Model: ${getProviderInfo(provCfg.provider).defaultModel || 'model adı'}`}
@@ -1036,6 +1033,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   />
                 )}
                 <input
+                  id="ai-provider-key"
                   type="password"
                   autoComplete="off"
                   value={provCfg.apiKey || ''}
@@ -1043,6 +1041,31 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                   placeholder={`API anahtarı ${getProviderInfo(provCfg.provider).keyHint}`}
                   className="sm:col-span-2 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
                 />
+              </div>
+              <datalist id="ai-model-options">
+                {modelOptions.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                <button
+                  type="button"
+                  disabled={!isProviderReady(provCfg) || getProviderInfo(provCfg.provider).kind !== 'openai'}
+                  onClick={async () => {
+                    setModelListMsg('Modeller alınıyor...');
+                    try {
+                      const ids = await listModels(provCfg);
+                      setModelOptions(ids);
+                      setModelListMsg(`${ids.length} model bulundu (model kutusuna tıklayıp seçin).`);
+                    } catch (e) {
+                      setModelListMsg(e instanceof Error ? e.message : 'Model listesi alınamadı.');
+                    }
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 text-xs font-semibold cursor-pointer"
+                >
+                  Modelleri Listele
+                </button>
+                {modelListMsg && <span className="text-[11px] text-slate-500 dark:text-slate-400">{modelListMsg}</span>}
               </div>
               <div className="flex items-center gap-2 mt-1.5">
                 <button
@@ -1224,6 +1247,31 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 dark:focus:border-blue-500 focus:ring-1 focus:ring-blue-600 dark:focus:ring-blue-500 resize-none select-text"
             />
           </div>
+
+          {/* One-click free setup: shown on static hosting / when no live AI is reachable */}
+          {needsSetup && !provSaved && !geminiKey && (
+            <div className="rounded-2xl border border-violet-300 dark:border-violet-700/60 bg-violet-50/70 dark:bg-violet-950/30 p-3.5 space-y-2.5">
+              <div className="text-xs font-bold text-violet-900 dark:text-violet-200 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" /> Canlı yapay zekayı ücretsiz açın (1 dakika)
+              </div>
+              <p className="text-[11px] leading-snug text-violet-900/80 dark:text-violet-200/80">
+                Bu sitede hazır bir AI sunucusu yok. Aşağıdakilerden biriyle her şeyi çizdirebilirsiniz: <strong>OpenRouter</strong>
+                {' '}(openrouter.ai/keys, ücretsiz anahtar, model otomatik: ücretsiz) · <strong>Groq</strong> (console.groq.com/keys, çok hızlı, ücretsiz katman)
+                {' '}· <strong>Puter</strong> (anahtar yok, ilk kullanımda giriş penceresi açılır).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => quickSetup('openrouter')} className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold cursor-pointer">
+                  OpenRouter ile kur
+                </button>
+                <button type="button" onClick={() => quickSetup('groq')} className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold cursor-pointer">
+                  Groq ile kur
+                </button>
+                <button type="button" onClick={() => quickSetup('puter')} className="px-3 py-1.5 rounded-lg border border-violet-400 text-violet-700 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-900/40 text-xs font-semibold cursor-pointer">
+                  Puter (anahtarsız)
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Structured Error & Self-Healing Retry Box (Replaces old fake starry fallback!) */}
           {errorState && (
