@@ -247,12 +247,248 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "PublicProfile": {
+      "title": "PublicProfile",
+      "description": "PII-free public profile for Google accounts storing display name, friend code, custom avatar (PNG/JPEG/WebP/GIF), cursor color, badges, and activity counters.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the account owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Customizable public display name.",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "displayNameLower": {
+          "type": "string",
+          "description": "Lowercase display name used for prefix search.",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "friendCode": {
+          "type": "string",
+          "description": "Unique shareable friend tag (e.g. CB-4821).",
+          "minLength": 5,
+          "maxLength": 16,
+          "pattern": "^CB-[A-Z0-9]{4,8}$"
+        },
+        "avatarUrl": {
+          "type": "string",
+          "description": "Google avatar URL or optimized PNG/JPEG/WebP/GIF data URL.",
+          "maxLength": 350000
+        },
+        "color": {
+          "type": "string",
+          "description": "Selected hex profile and cursor color.",
+          "minLength": 4,
+          "maxLength": 32
+        },
+        "badges": {
+          "type": "array",
+          "description": "Unlocked achievement badge IDs (max 20)."
+        },
+        "stats": {
+          "type": "object",
+          "description": "Activity counters powering badge unlocks."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "displayNameLower",
+        "friendCode",
+        "avatarUrl",
+        "color",
+        "badges",
+        "stats",
+        "updatedAt"
+      ]
+    },
+    "MutedInviter": {
+      "title": "MutedInviter",
+      "description": "Temporary mute record blocking a specific friend from sending room invitations until mutedUntil.",
+      "type": "object",
+      "properties": {
+        "senderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "mutedUntil": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["senderUid", "senderName", "mutedUntil", "createdAt"]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "Bidirectional friend request and accepted friendship record keyed by deterministic pairId.",
+      "type": "object",
+      "properties": {
+        "pairId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 260,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "participants": {
+          "type": "array",
+          "description": "Exactly two UIDs participating in this friendship."
+        },
+        "requesterId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "recipientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "accepted"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "pairId",
+        "participants",
+        "requesterId",
+        "recipientId",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RoomInvite": {
+      "title": "RoomInvite",
+      "description": "Direct real-time room invitation sent from one accepted friend to another.",
+      "type": "object",
+      "properties": {
+        "inviteId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fromUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fromName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "fromAvatar": {
+          "type": "string",
+          "maxLength": 350000
+        },
+        "fromColor": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32
+        },
+        "toUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "accepted", "declined", "muted"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "inviteId",
+        "fromUid",
+        "fromName",
+        "fromAvatar",
+        "fromColor",
+        "toUid",
+        "roomId",
+        "roomName",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
     "/admins/{adminId}": {
       "schema": "AdminRecord",
       "description": "Trusted admin lookup records."
+    },
+    "/publicProfiles/{userId}": {
+      "schema": "PublicProfile",
+      "description": "PII-free social profile directory searchable by friendCode or displayName."
+    },
+    "/users/{userId}/mutedInviters/{senderId}": {
+      "schema": "MutedInviter",
+      "description": "Temporary mute records preventing a friend from sending room invitations until expiration."
+    },
+    "/friendships/{pairId}": {
+      "schema": "Friendship",
+      "description": "Two-way friend requests and accepted friendships."
+    },
+    "/roomInvites/{inviteId}": {
+      "schema": "RoomInvite",
+      "description": "Direct real-time room invitations between accepted friends."
     },
     "/rooms/{roomId}": {
       "schema": "Room",

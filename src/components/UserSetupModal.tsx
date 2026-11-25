@@ -17,6 +17,10 @@ import {
   History,
   Eye,
   Lock,
+  Sun,
+  Moon,
+  ChevronDown,
+  User as UserIcon,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { LoadingScreen } from './LoadingScreen';
@@ -26,6 +30,8 @@ import { RoomHistoryList } from './RoomHistoryList';
 import { CloudBoardsPanel } from './CloudBoardsPanel';
 import { ActiveRoomUsersBadge } from './ActiveRoomUsersBadge';
 import { RoomPreviewModal } from './RoomPreviewModal';
+import { LandingAmbientCanvas, LandingTheme } from './LandingAmbientCanvas';
+import { LandingShowcase } from './LandingShowcase';
 import type { CloudBoardSummary } from '../hooks/useCloudBoards';
 
 const SEED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -81,6 +87,12 @@ interface UserSetupModalProps {
     profile: { name: string; color: string }
   ) => Promise<string | void>;
   onDeleteCloudBoard?: (board: CloudBoardSummary) => Promise<void>;
+  accountType?: 'google' | 'guest';
+  profileAvatarUrl?: string;
+  profileFriendCode?: string;
+  unreadSocialCount?: number;
+  onOpenProfile?: (tab?: 'profile' | 'badges' | 'friends') => void;
+  onSaveGuestProfile?: (patch: { displayName: string; color: string }) => void;
   onJoin: (payload: RoomJoinPayload) => void;
   onClose?: () => void;
 }
@@ -118,6 +130,12 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   onToggleCloudAutoSave,
   onResumeCloudBoard,
   onDeleteCloudBoard,
+  accountType = 'guest',
+  profileAvatarUrl = '',
+  profileFriendCode,
+  unreadSocialCount = 0,
+  onOpenProfile,
+  onSaveGuestProfile,
   onJoin,
   onClose,
 }) => {
@@ -136,8 +154,11 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     return '';
   });
 
-  // Create Room Modal states
+  // Dedicated Modals: Create Room & Join by Room Code
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isJoinCodeModalOpen, setIsJoinCodeModalOpen] = useState(() =>
+    Boolean(hasUrlRoomParam && normalizeToFiveCharCode(initialRoomId).length === 5)
+  );
   const [createUserName, setCreateUserName] = useState(() => {
     if (firebaseUser?.displayName) return firebaseUser.displayName;
     return initialName || '';
@@ -156,6 +177,59 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   const [fetchedRooms, setFetchedRooms] = useState<RoomSummary[]>(propRoomsList || []);
   const [previewingRoom, setPreviewingRoom] = useState<RoomSummary | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const landingScrollRef = useRef<HTMLDivElement>(null);
+  const [landingTheme, setLandingTheme] = useState<LandingTheme>(() => {
+    try {
+      const saved = localStorage.getItem('collab_landing_theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch {
+      // ignore storage errors
+    }
+    return 'dark';
+  });
+  const [hasScrolledDown, setHasScrolledDown] = useState(false);
+  const [isHeroInView, setIsHeroInView] = useState(true);
+
+  const handleToggleLandingTheme = useCallback(() => {
+    setLandingTheme((prev) => {
+      const next: LandingTheme = prev === 'dark' ? 'light' : 'dark';
+      try {
+        localStorage.setItem('collab_landing_theme', next);
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }, []);
+
+  const handleScrollToIntro = useCallback(() => {
+    const el = landingScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.clientHeight, behavior: 'smooth' });
+  }, []);
+
+  const handleScrollToTop = useCallback(() => {
+    const el = landingScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    if (!isInitialSetup) return;
+    const el = landingScrollRef.current;
+    if (!el) return;
+
+    const onScroll = () => {
+      const top = el.scrollTop;
+      const vh = el.clientHeight || window.innerHeight || 800;
+      setHasScrolledDown(top > 24);
+      setIsHeroInView(top < vh * 1.15);
+    };
+
+    onScroll();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [isInitialSetup]);
 
   const ownerKey = getOrCreateOwnerKey();
 
@@ -191,19 +265,35 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     return (b.lastActivityAt || b.createdAt || 0) - (a.lastActivityAt || a.createdAt || 0);
   });
 
-  // Sync Google displayName when user signs in with Google
+  // Sync profile name & color updates (from Google login or ProfileSocialModal)
   useEffect(() => {
-    if (firebaseUser?.displayName) {
+    if (initialName && !initialName.startsWith('Mimar ')) {
+      setName(initialName);
+      setCreateUserName(initialName);
+    }
+  }, [initialName]);
+
+  useEffect(() => {
+    if (initialColor) {
+      setColor(initialColor);
+    }
+  }, [initialColor]);
+
+  useEffect(() => {
+    if (firebaseUser?.displayName && !initialName) {
       setName(firebaseUser.displayName);
       setCreateUserName(firebaseUser.displayName);
     }
-  }, [firebaseUser?.displayName]);
+  }, [firebaseUser?.displayName, initialName]);
 
   useEffect(() => {
     if (hasUrlRoomParam && initialRoomId) {
       const normalized = normalizeToFiveCharCode(initialRoomId);
       if (normalized) {
         setJoinRoomCode(normalized);
+        if (normalized.length === 5) {
+          setIsJoinCodeModalOpen(true);
+        }
       }
     }
   }, [hasUrlRoomParam, initialRoomId]);
@@ -217,6 +307,15 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     setCreateRoomSeed(generateRoomCodeSeed(5));
     await refreshServerRooms();
     setIsCreateModalOpen(true);
+  };
+
+  const handleOpenJoinCodeModal = () => {
+    setLocalValidationError(null);
+    if (onClearJoinError) onClearJoinError();
+    setIsJoinCodeModalOpen(true);
+    setTimeout(() => {
+      nameInputRef.current?.focus();
+    }, 60);
   };
 
   const handleRegenerateSeed = () => {
@@ -305,6 +404,9 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     }
 
     const clampedMax = Math.min(30, Math.max(2, Number(createMaxUsers) || 8));
+    if (accountType === 'guest' && onSaveGuestProfile) {
+      onSaveGuestProfile({ displayName: finalUserName, color });
+    }
     setIsCreateModalOpen(false);
     onJoin({
       name: finalUserName,
@@ -319,8 +421,13 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
   const enterHistoryRoom = (entry: { id: string; name: string }, recreate: boolean) => {
     const finalName = name.trim();
     if (!finalName) {
+      setJoinRoomCode(entry.id.toUpperCase().slice(0, 5));
       setLocalValidationError('Lütfen odaya girmeden önce adınızı girin.');
+      setIsJoinCodeModalOpen(true);
       return;
+    }
+    if (accountType === 'guest' && onSaveGuestProfile) {
+      onSaveGuestProfile({ displayName: finalName, color });
     }
     setLocalValidationError(null);
     onJoin({
@@ -374,11 +481,15 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     if (!finalName) {
       setJoinRoomCode(targetRoom.id.toUpperCase().slice(0, 5));
       setLocalValidationError('Lütfen odaya katılmadan önce adınızı girin.');
+      setIsJoinCodeModalOpen(true);
       setTimeout(() => {
-        nameInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         nameInputRef.current?.focus();
-      }, 50);
+      }, 60);
       return;
+    }
+
+    if (accountType === 'guest' && onSaveGuestProfile) {
+      onSaveGuestProfile({ displayName: finalName, color });
     }
 
     setLocalValidationError(null);
@@ -443,6 +554,10 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
       setIsCheckingRoom(false);
     }
 
+    if (accountType === 'guest' && onSaveGuestProfile) {
+      onSaveGuestProfile({ displayName: finalName, color });
+    }
+    setIsJoinCodeModalOpen(false);
     onJoin({
       name: finalName,
       color,
@@ -452,31 +567,10 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
     });
   };
 
-  return (
-    <div
-      className={
-        isInitialSetup
-          ? 'h-screen w-full bg-slate-950 text-slate-100 flex items-center justify-center p-3 sm:p-5 relative overflow-hidden select-none cb-anim-fade-in'
-          : 'fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-hidden select-none cb-anim-fade-in'
-      }
-    >
-      {/* Background grid & ambient glow when acting as full-screen Pre-Welcome Gate */}
-      {isInitialSetup && (
-        <>
-          <div
-            className="pointer-events-none fixed inset-0 opacity-20"
-            style={{
-              backgroundImage:
-                'radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.35) 1px, transparent 0)',
-              backgroundSize: '28px 28px',
-            }}
-          />
-          <div className="pointer-events-none fixed top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[540px] h-[320px] bg-blue-600/15 blur-[120px] rounded-full" />
-        </>
-      )}
-
+  const entryCardNode = (
+    <>
       {/* Main Welcome / Login Card — Fixed consistent dimensions across all devices with internal scroll */}
-      <div className="relative z-10 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700/80 rounded-2xl shadow-2xl w-[440px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-32px)] flex flex-col overflow-hidden cb-anim-scale-in">
+      <div className="relative z-20 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200/90 dark:border-slate-700/80 rounded-2xl shadow-2xl w-[440px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-32px)] flex flex-col overflow-hidden cb-anim-scale-in">
         {/* Top Brand Header (Fixed non-scrolling) */}
         <div className="shrink-0 relative px-6 pt-5 pb-4 bg-slate-900 text-white flex flex-col items-center text-center border-b border-slate-800">
           {onClose && !isInitialSetup && (
@@ -522,8 +616,74 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             </div>
           )}
 
-          {/* Option 1: Create Room Button (Opens Dedicated Create Room Modal) */}
-          <div>
+          {/* Account Identity Strip (Google Cloud Account or Local Guest Account) */}
+          <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {profileAvatarUrl || firebaseUser?.photoURL ? (
+                <img
+                  src={profileAvatarUrl || firebaseUser?.photoURL || ''}
+                  alt={name || 'Profil'}
+                  referrerPolicy="no-referrer"
+                  className="w-8 h-8 rounded-full object-cover border border-slate-300 dark:border-slate-600 shrink-0"
+                />
+              ) : (
+                <div
+                  className="w-8 h-8 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: color || '#2563eb' }}
+                >
+                  {(name.trim() || firebaseUser?.displayName || 'M').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                    {name.trim() || firebaseUser?.displayName || 'Misafir Hesabı'}
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+                    · {accountType === 'google' ? 'Google' : 'Misafir'}
+                  </span>
+                </div>
+                <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
+                  {accountType === 'google'
+                    ? profileFriendCode
+                      ? `#${profileFriendCode}`
+                      : firebaseUser?.email || 'Bulut hesabı aktif'
+                    : 'Tarayıcı önbelleğinde saklanır'}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              {onOpenProfile && (
+                <button
+                  type="button"
+                  onClick={() => onOpenProfile(unreadSocialCount > 0 ? 'friends' : 'profile')}
+                  className="relative px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <UserIcon className="w-3.5 h-3.5" />
+                  <span>Profilim</span>
+                  {unreadSocialCount > 0 && (
+                    <span className="min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-mono tabular-nums font-bold flex items-center justify-center">
+                      {unreadSocialCount}
+                    </span>
+                  )}
+                </button>
+              )}
+              {firebaseUser && onSignOutGoogle && (
+                <button
+                  type="button"
+                  onClick={onSignOutGoogle}
+                  className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                  title="Google Hesabından Çıkış Yap"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Primary Actions: 1. Create Room  2. Join by Room Code */}
+          <div className="space-y-2.5">
             <button
               type="button"
               onClick={handleOpenCreateModal}
@@ -542,6 +702,33 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
                 </div>
               </div>
               <ArrowRight className="w-4 h-4 text-blue-100 group-hover:translate-x-0.5 transition-transform shrink-0" />
+            </button>
+
+            {/* Option 2: Join Room by 5-Char Code (Directly below Create Room) */}
+            <button
+              type="button"
+              onClick={handleOpenJoinCodeModal}
+              className="w-full py-3 px-4 rounded-xl bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white border border-slate-800 dark:border-slate-700 font-bold text-sm transition-all flex items-center justify-between group cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
+                  <KeyRound className="w-4 h-4 text-slate-200" />
+                </div>
+                <div className="text-left">
+                  <div className="text-sm font-bold leading-tight flex items-center gap-2">
+                    <span>Oda Kodu ile Giriş Yap</span>
+                    {hasUrlRoomParam && joinRoomCode.length === 5 && (
+                      <span className="font-mono text-[10px] font-bold text-emerald-300">
+                        #{joinRoomCode}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] font-normal text-slate-300 mt-0.5">
+                    5 haneli davet koduyla mevcut bir çalışma odasına katılın
+                  </div>
+                </div>
+              </div>
+              <ArrowRight className="w-4 h-4 text-slate-300 group-hover:translate-x-0.5 transition-transform shrink-0" />
             </button>
           </div>
 
@@ -690,235 +877,97 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
             )}
           </div>
 
-          {/* Google Sign-In Section */}
+          {/* Google Account Upgrade / Cloud Boards Section */}
           {onSignInGoogle && (
             <div>
-              {firebaseUser ? (
-                <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {firebaseUser.photoURL ? (
-                      <img
-                        src={firebaseUser.photoURL}
-                        alt={firebaseUser.displayName || 'Google'}
-                        className="w-7 h-7 rounded-full border border-slate-300 dark:border-slate-600 shrink-0"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                        {(firebaseUser.displayName || firebaseUser.email || 'G')
-                          .charAt(0)
-                          .toUpperCase()}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
-                        {firebaseUser.displayName || 'Google Kullanıcısı'}
-                      </div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {firebaseUser.email}
-                      </div>
-                    </div>
-                  </div>
-                  {onSignOutGoogle && (
-                    <button
-                      type="button"
-                      onClick={onSignOutGoogle}
-                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
-                      title="Google Hesabından Çıkış Yap"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Çıkış</span>
-                    </button>
-                  )}
-                </div>
-              ) : (
+              {!firebaseUser ? (
                 <>
-                <button
-                  type="button"
-                  onClick={handleGoogleLoginClick}
-                  disabled={isGoogleLoading}
-                  className="w-full py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs transition-all flex items-center justify-center gap-2.5 shadow-2xs disabled:opacity-60 cursor-pointer"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                    />
-                  </svg>
-                  <span>
-                    {isGoogleLoading ? 'Google ile Bağlanılıyor...' : 'Google ile Giriş Yap'}
-                  </span>
-                </button>
-                <ul className="mt-2 space-y-1 text-[11px] text-slate-500 leading-snug">
-                  <li className="flex items-start gap-1.5">
-                    <Cloud className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-px" />
-                    <span>Tahtaların otomatik olarak buluta kaydedilir</span>
-                  </li>
-                  <li className="flex items-start gap-1.5">
-                    <History className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-px" />
-                    <span>Son odalarından kaldığın yerden devam edersin</span>
-                  </li>
-                </ul>
+                  <button
+                    type="button"
+                    onClick={handleGoogleLoginClick}
+                    disabled={isGoogleLoading}
+                    className="w-full py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs transition-all flex items-center justify-center gap-2.5 shadow-2xs disabled:opacity-60 cursor-pointer"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      />
+                    </svg>
+                    <span>
+                      {isGoogleLoading
+                        ? 'Google ile Bağlanılıyor...'
+                        : 'Google ile Hesap Oluştur / Giriş Yap'}
+                    </span>
+                  </button>
+                  <ul className="mt-2 space-y-1 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                    <li className="flex items-start gap-1.5">
+                      <Cloud className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-px" />
+                      <span>Özel profil görseli/GIF, rozetler ve bulut tahta kaydı</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <History className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-px" />
+                      <span>Arkadaş ekleme, doğrudan oda daveti ve kaldığın yerden devam</span>
+                    </li>
+                  </ul>
                 </>
-              )}
-
-              {firebaseUser && onResumeCloudBoard && (
-                <div className="mt-2.5 space-y-2.5">
-                  {lastResumable && (
-                    <button
-                      type="button"
-                      onClick={() => void handleResumeBoard(lastResumable)}
-                      className="w-full text-left px-3.5 py-3 rounded-xl bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-md transition-all flex items-center justify-between gap-3 cursor-pointer"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-semibold text-indigo-100 flex items-center gap-1.5">
-                          <History className="w-3.5 h-3.5" />
-                          <span>Kaldığın yerden devam et</span>
+              ) : (
+                onResumeCloudBoard && (
+                  <div className="space-y-2.5">
+                    {lastResumable && (
+                      <button
+                        type="button"
+                        onClick={() => void handleResumeBoard(lastResumable)}
+                        className="w-full text-left px-3.5 py-3 rounded-xl bg-linear-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-md transition-all flex items-center justify-between gap-3 cursor-pointer"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-semibold text-indigo-100 flex items-center gap-1.5">
+                            <History className="w-3.5 h-3.5" />
+                            <span>Kaldığın yerden devam et</span>
+                          </div>
+                          <div className="text-sm font-bold truncate">{lastResumable.name}</div>
+                          <div className="text-[11px] font-mono text-indigo-100">
+                            #{lastResumable.id.toUpperCase()}
+                          </div>
                         </div>
-                        <div className="text-sm font-bold truncate">{lastResumable.name}</div>
-                        <div className="text-[11px] font-mono text-indigo-100">
-                          #{lastResumable.id.toUpperCase()}
-                        </div>
-                      </div>
-                      <ArrowRight className="w-5 h-5 shrink-0" />
-                    </button>
-                  )}
-                  <CloudBoardsPanel
-                    compact
-                    boards={cloudBoards}
-                    autoSave={cloudAutoSave}
-                    onToggleAutoSave={onToggleCloudAutoSave}
-                    onResume={handleResumeBoard}
-                    onDelete={async (b) => {
-                      if (onDeleteCloudBoard) await onDeleteCloudBoard(b);
-                    }}
-                    maxHeightClass="max-h-40"
-                  />
-                </div>
+                        <ArrowRight className="w-5 h-5 shrink-0" />
+                      </button>
+                    )}
+                    <CloudBoardsPanel
+                      compact
+                      boards={cloudBoards}
+                      autoSave={cloudAutoSave}
+                      onToggleAutoSave={onToggleCloudAutoSave}
+                      onResume={handleResumeBoard}
+                      onDelete={async (b) => {
+                        if (onDeleteCloudBoard) await onDeleteCloudBoard(b);
+                      }}
+                      maxHeightClass="max-h-40"
+                    />
+                  </div>
+                )
               )}
             </div>
           )}
-
-          {/* Divider */}
-          <div className="relative flex items-center py-0.5">
-            <div className="grow border-t border-slate-200 dark:border-slate-700" />
-            <span className="shrink-0 mx-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              veya Oda Kodu ile Giriş
-            </span>
-            <div className="grow border-t border-slate-200 dark:border-slate-700" />
-          </div>
-
-          {/* Option 2: Join Room by Strict 5-Character Code Form */}
-          <form onSubmit={handleJoinWithCodeSubmit} className="space-y-3.5">
-            {/* User Name */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
-                Adınız / Görünür İsminiz
-              </label>
-              <input
-                ref={nameInputRef}
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Örn. Ahmet Yılmaz"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
-              />
-            </div>
-
-            {/* Avatar Color Picker */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
-                İmleç ve Avatar Renginiz
-              </label>
-              <div className="flex items-center gap-2">
-                {AVATAR_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setColor(c)}
-                    className={`w-6 h-6 rounded-full transition-transform cursor-pointer ${
-                      color === c
-                        ? 'scale-120 ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
-                        : 'hover:scale-110 opacity-85 hover:opacity-100'
-                    }`}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Strict 5-Digit Room Code */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
-                  5 Haneli Oda Kodu
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-mono font-semibold text-slate-400">
-                    {joinRoomCode.length}/5
-                  </span>
-                  {hasUrlRoomParam && joinRoomCode.length === 5 && (
-                    <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800/70">
-                      Davet Kodu Yüklendi
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="relative">
-                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  required
-                  maxLength={5}
-                  value={joinRoomCode}
-                  onChange={(e) => {
-                    setJoinRoomCode(
-                      e.target.value
-                        .toUpperCase()
-                        .replace(/[^A-Z0-9]/g, '')
-                        .slice(0, 5)
-                    );
-                    if (localValidationError) setLocalValidationError(null);
-                  }}
-                  placeholder="Örn: K7X9A"
-                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-mono font-bold tracking-[0.22em] uppercase text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 placeholder:tracking-normal focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Katılmak istediğiniz mevcut çalışma odasının 5 karakterlik kodunu girin.
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isCheckingRoom}
-              className="w-full py-3 bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:opacity-60 text-white font-bold rounded-xl text-sm shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <DoorOpen className="w-4 h-4" />
-              <span>
-                {isCheckingRoom
-                  ? 'Oda Kontrol Ediliyor...'
-                  : isInitialSetup
-                  ? 'Oda Kodu ile Giriş Yap'
-                  : 'Odaya Geç / Bilgileri Kaydet'}
-              </span>
-            </button>
-          </form>
         </div>
       </div>
+    </>
+  );
+
+  const overlaysNode = (
+    <>
 
       {/* Dedicated Create Room Modal (Opened when clicking "Yeni Çalışma Odası Oluştur") */}
       {isCreateModalOpen && (
@@ -1138,6 +1187,155 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
         </div>
       )}
 
+      {/* Dedicated Join-by-Room-Code Modal (Opened when clicking "Oda Kodu ile Giriş Yap") */}
+      {isJoinCodeModalOpen && (
+        <div
+          className="fixed inset-0 z-60 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-hidden cb-anim-fade-in"
+          onClick={() => setIsJoinCodeModalOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl w-[440px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-32px)] flex flex-col overflow-hidden cb-anim-scale-in"
+          >
+            {/* Header */}
+            <div className="shrink-0 px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
+                  <KeyRound className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold">Oda Kodu ile Giriş Yap</h2>
+                  <p className="text-[11px] text-slate-300">
+                    5 haneli davet kodunu ve görünen adınızı girerek odaya katılın
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsJoinCodeModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                title="İptal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleJoinWithCodeSubmit}
+              className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4"
+            >
+              {(joinError || localValidationError) && (
+                <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/70 text-red-800 dark:text-red-200 text-xs font-medium flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                  <span className="flex-1">{joinError || localValidationError}</span>
+                </div>
+              )}
+
+              {/* Step 1: 5-Char Room Code */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
+                    1. 5 Haneli Oda Kodu
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-mono tabular-nums font-semibold text-slate-400">
+                      {joinRoomCode.length}/5
+                    </span>
+                    {hasUrlRoomParam && joinRoomCode.length === 5 && (
+                      <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800/70">
+                        Davet Kodu Yüklendi
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    required
+                    maxLength={5}
+                    value={joinRoomCode}
+                    onChange={(e) => {
+                      setJoinRoomCode(
+                        e.target.value
+                          .toUpperCase()
+                          .replace(/[^A-Z0-9]/g, '')
+                          .slice(0, 5)
+                      );
+                      if (localValidationError) setLocalValidationError(null);
+                    }}
+                    placeholder="Örn: K7X9A"
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-base font-mono font-extrabold tracking-[0.25em] uppercase text-blue-700 dark:text-blue-400 placeholder:text-slate-400 dark:placeholder:text-slate-500 placeholder:tracking-normal focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
+                  />
+                </div>
+              </div>
+
+              {/* Step 2: Display Name */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
+                    2. Adınız / Görünür İsminiz
+                  </label>
+                  <span className="text-[10px] font-semibold text-slate-400">
+                    {accountType === 'google' ? 'Google Hesabı' : 'Misafir Hesabı'}
+                  </span>
+                </div>
+                <input
+                  ref={nameInputRef}
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Örn. Ahmet Yılmaz"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
+                />
+              </div>
+
+              {/* Step 3: Avatar & Cursor Color */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
+                  3. İmleç ve Avatar Renginiz
+                </label>
+                <div className="flex items-center gap-2">
+                  {AVATAR_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setColor(c)}
+                      className={`w-6 h-6 rounded-full transition-transform cursor-pointer ${
+                        color.toLowerCase() === c.toLowerCase()
+                          ? 'scale-120 ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
+                          : 'hover:scale-110 opacity-85 hover:opacity-100'
+                      }`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsJoinCodeModalOpen(false)}
+                  className="px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Geri Dön
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCheckingRoom}
+                  className="flex-1 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold text-sm shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <DoorOpen className="w-4 h-4" />
+                  <span>{isCheckingRoom ? 'Kontrol Ediliyor...' : 'Odaya Katıl'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Animated Video Loading Screen when verifying and connecting to room */}
       {isCheckingRoom && (
         <LoadingScreen
@@ -1158,6 +1356,80 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
           onClose={() => setPreviewingRoom(null)}
         />
       )}
+    </>
+  );
+
+  if (!isInitialSetup) {
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-hidden select-none cb-anim-fade-in">
+        {entryCardNode}
+        {overlaysNode}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={landingScrollRef}
+      className={`h-dvh w-full overflow-y-auto overflow-x-hidden relative select-none cb-anim-fade-in transition-colors duration-500 ${
+        landingTheme === 'dark' ? 'bg-[#080d1a] text-slate-100' : 'bg-[#f8fafc] text-slate-900'
+      }`}
+    >
+      {/* Minimalist Top-Right Dark / Light Theme Toggle */}
+      <button
+        type="button"
+        onClick={handleToggleLandingTheme}
+        className={`fixed top-4 right-4 sm:top-5 sm:right-5 z-40 w-10 h-10 rounded-xl border backdrop-blur-md flex items-center justify-center transition-all cursor-pointer shadow-xs ${
+          landingTheme === 'dark'
+            ? 'bg-slate-900/75 hover:bg-slate-800/90 border-slate-700/80 text-amber-300'
+            : 'bg-white/85 hover:bg-white border-slate-200/90 text-slate-700'
+        }`}
+        title={landingTheme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'}
+        aria-label={landingTheme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'}
+      >
+        {landingTheme === 'dark' ? (
+          <Sun className="w-[18px] h-[18px]" />
+        ) : (
+          <Moon className="w-[18px] h-[18px]" />
+        )}
+      </button>
+
+      {/* Above-the-Fold Full-Viewport Entry Stage (Strictly 100dvh so nothing below peeks in) */}
+      <div className="relative min-h-dvh h-dvh w-full flex items-center justify-center p-3 sm:p-5 overflow-hidden shrink-0">
+        {/* Seamless Infinite Blurred Live-Canvas Background */}
+        <LandingAmbientCanvas theme={landingTheme} active={isHeroInView} />
+
+        {/* Untouched Main Entry Card */}
+        {entryCardNode}
+
+        {/* Subtle Bottom Scroll Hint (fades out as soon as the user starts scrolling) */}
+        <button
+          type="button"
+          onClick={handleScrollToIntro}
+          className={`absolute bottom-3 left-1/2 -translate-x-1/2 [@media(max-height:820px)]:left-auto [@media(max-height:820px)]:translate-x-0 [@media(max-height:820px)]:right-5 [@media(max-height:820px)]:bottom-4 z-30 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border backdrop-blur-md text-[11px] font-medium tracking-wide transition-all duration-300 cursor-pointer whitespace-nowrap ${
+            hasScrolledDown
+              ? 'opacity-0 translate-y-2 pointer-events-none'
+              : 'opacity-90 hover:opacity-100'
+          } ${
+            landingTheme === 'dark'
+              ? 'bg-slate-900/55 border-slate-700/60 text-slate-200 hover:bg-slate-800/80 hover:text-white'
+              : 'bg-white/75 border-slate-200/80 text-slate-700 hover:bg-white hover:text-slate-950'
+          }`}
+          aria-label="Özellikleri keşfetmek için aşağı kaydır"
+        >
+          <span>Özellikleri keşfet</span>
+          <ChevronDown className="w-3.5 h-3.5 cb-anim-scroll-cue" />
+        </button>
+      </div>
+
+      {/* Strictly Below-the-Fold Scroll-Driven Product Showcase */}
+      <LandingShowcase
+        theme={landingTheme}
+        scrollContainerRef={landingScrollRef}
+        onScrollToTop={handleScrollToTop}
+      />
+
+      {overlaysNode}
     </div>
   );
 };

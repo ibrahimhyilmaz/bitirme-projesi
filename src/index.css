@@ -176,6 +176,26 @@
   animation: cb-slide-up 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes cb-scroll-cue {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+
+.cb-anim-scroll-cue {
+  animation: cb-scroll-cue 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cb-anim-scroll-cue {
+    animation: none;
+  }
+}
+
 /* Theme-Adaptive Floating Bars & Popovers (Dark, Midnight, Sepia) */
 [data-theme="dark"] [data-floating-bar="true"]:not(.pointer-events-none),
 [data-theme="dark"] [data-floating-bar="true"] .bg-white,

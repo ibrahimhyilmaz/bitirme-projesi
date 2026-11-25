@@ -38,6 +38,9 @@ import { recordRoomVisit } from './utils/roomHistory';
 import { isMobileViewport, useIsMobile } from './hooks/useIsMobile';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { useCloudBoards, CloudBoardSummary } from './hooks/useCloudBoards';
+import { useAccountSocial, RoomInviteRecord } from './hooks/useAccountSocial';
+import { ProfileSocialModal, ProfileModalTab } from './components/ProfileSocialModal';
+import { RoomInviteToast } from './components/RoomInviteToast';
 import type { BoardSnapshot } from './utils/cloudBoardCodec';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 import { normalizeImageDataUrl } from './utils/fileValidation';
@@ -936,6 +939,10 @@ export default function App() {
       recordElementDelta(tx, el.id, prevEl, el);
       if (!prevEl) {
         elementsRef.current = [...elementsRef.current, el];
+        recordActivityRef.current('draw', 1);
+        if (el.type === 'pdf') {
+          recordActivityRef.current('pdf_or_ai', 1);
+        }
       }
       rawCreateElement(el);
     },
@@ -1229,6 +1236,9 @@ export default function App() {
       clearRoomError();
       setJoinGateError(null);
       setIsCreatingRoom(Boolean(creating));
+      if (creating) {
+        recordActivityRef.current('room_create', 1);
+      }
       setRestoreRoom(false);
       setCustomMaxUsers(targetMaxUsers);
       setCustomRoomName(targetRoomName || '');
@@ -1243,6 +1253,7 @@ export default function App() {
   // Firebase Cloud Firestore Persistence & Google Auth
   const {
     firebaseUser,
+    isAuthReady,
     authError,
     clearAuthError,
     isSyncingCloud,
@@ -1286,6 +1297,71 @@ export default function App() {
     loadBoard,
     deleteBoard,
   } = useCloudBoards(firebaseUser);
+
+  // Unified Account (Google Cloud Profile / Local Guest), Badges, Friends & Direct Room Invites
+  const [profileModalTab, setProfileModalTab] = useState<ProfileModalTab | null>(null);
+  const accountSocial = useAccountSocial({
+    firebaseUser,
+    isAuthReady,
+    fallbackName: currentUser.name,
+    fallbackColor: currentUser.color,
+  });
+
+  const recordActivityRef = useRef(accountSocial.recordActivity);
+  recordActivityRef.current = accountSocial.recordActivity;
+
+  // Sync resolved Google cloud profile name & color into active workspace identity
+  useEffect(() => {
+    if (accountSocial.accountType !== 'google' || !accountSocial.cloudProfile) return;
+    const p = accountSocial.cloudProfile;
+    setCurrentUser((prev) => {
+      const nextName = p.displayName || prev.name;
+      const nextColor = p.color || prev.color;
+      const nextAvatar = (nextName || prev.avatar || 'K').charAt(0).toUpperCase();
+      if (prev.name === nextName && prev.color === nextColor && prev.avatar === nextAvatar) {
+        return prev;
+      }
+      return { ...prev, name: nextName, color: nextColor, avatar: nextAvatar };
+    });
+  }, [
+    accountSocial.accountType,
+    accountSocial.cloudProfile?.displayName,
+    accountSocial.cloudProfile?.color,
+  ]);
+
+  // Badge tracker: Team Voice Collaboration (once per room when voice is active with >= 2 participants)
+  const voiceCollabRoomsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!hasEnteredWorkspace || isMuted || users.length < 2) return;
+    if (voiceCollabRoomsRef.current.has(roomId)) return;
+    voiceCollabRoomsRef.current.add(roomId);
+    recordActivityRef.current('voice_collab', 1);
+  }, [hasEnteredWorkspace, isMuted, users.length, roomId]);
+
+  // Badge tracker: Active Studio Minutes (1 tick per active visible minute in a workspace)
+  useEffect(() => {
+    if (!hasEnteredWorkspace || !firebaseUser) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden && Date.now() - lastActivityRef.current < 2 * 60 * 1000) {
+        recordActivityRef.current('active_minute', 1);
+      }
+    }, 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [hasEnteredWorkspace, firebaseUser]);
+
+  // Throttled code-edit tracker for Code Architect badge
+  const lastCodeBadgeAtRef = useRef<number>(0);
+  const handleTrackedCodeUpdate = useCallback(
+    (newContent: string, newLang?: string) => {
+      updateCode(newContent, newLang);
+      const now = Date.now();
+      if (now - lastCodeBadgeAtRef.current >= 4000) {
+        lastCodeBadgeAtRef.current = now;
+        recordActivityRef.current('code', 1);
+      }
+    },
+    [updateCode]
+  );
 
   // ---- Activity tracking: 1 hour without any interaction ends the session ----
   const handleSessionTimeoutLocal = useCallback(() => {
@@ -2619,6 +2695,9 @@ export default function App() {
       }));
       lastActivityRef.current = Date.now();
       setIsCreatingRoom(Boolean(payload.isCreatingRoom));
+      if (payload.isCreatingRoom) {
+        recordActivityRef.current('room_create', 1);
+      }
       setRestoreRoom(false);
       setCustomMaxUsers(payload.maxUsers);
       setCustomRoomName(payload.roomName || '');
@@ -2631,6 +2710,38 @@ export default function App() {
       }
     },
     [clearRoomError]
+  );
+
+  const handleAcceptRoomInvite = useCallback(
+    (invite: RoomInviteRecord) => {
+      void accountSocial.respondToRoomInvite(invite, 'accepted');
+      const resolvedName =
+        accountSocial.activeDisplayName ||
+        currentUser.name ||
+        firebaseUser?.displayName ||
+        'Kullanıcı';
+      const resolvedColor = accountSocial.activeColor || currentUser.color || '#2563eb';
+      if (!hasEnteredWorkspace) {
+        handleWelcomeOrProfileJoin({
+          name: resolvedName,
+          color: resolvedColor,
+          roomId: invite.roomId,
+          roomName: invite.roomName,
+          isCreatingRoom: false,
+        });
+      } else {
+        void handleSelectOrSwitchRoom(invite.roomId, invite.roomName, undefined, false);
+      }
+    },
+    [
+      accountSocial,
+      currentUser.name,
+      currentUser.color,
+      firebaseUser?.displayName,
+      hasEnteredWorkspace,
+      handleWelcomeOrProfileJoin,
+      handleSelectOrSwitchRoom,
+    ]
   );
 
   // Cleanly leave the current room and return to the initial entry screen
@@ -2747,44 +2858,119 @@ export default function App() {
     ]
   );
 
+  // Shared Profile Modal & Real-Time Invite / Badge Toasts (rendered on BOTH entry screen & workspace)
+  const socialOverlaysNode = (
+    <>
+      {profileModalTab && (
+        <ProfileSocialModal
+          initialTab={profileModalTab}
+          accountType={accountSocial.accountType}
+          activeDisplayName={accountSocial.activeDisplayName || currentUser.name}
+          activeColor={accountSocial.activeColor || currentUser.color}
+          activeAvatarUrl={accountSocial.activeAvatarUrl}
+          cloudProfile={accountSocial.cloudProfile}
+          isProfileLoading={accountSocial.isProfileLoading}
+          firebaseEmail={firebaseUser?.email}
+          friends={accountSocial.friends}
+          incomingFriendRequests={accountSocial.incomingFriendRequests}
+          outgoingFriendRequests={accountSocial.outgoingFriendRequests}
+          pendingRoomInvites={accountSocial.pendingRoomInvites}
+          mutedInviters={accountSocial.mutedInviters}
+          currentRoom={hasEnteredWorkspace ? { id: roomId, name: effectiveRoomName } : null}
+          onUpdateProfile={accountSocial.updateProfile}
+          onProfileSaved={({ name, color }) => {
+            setCurrentUser((prev) => ({
+              ...prev,
+              name,
+              color,
+              avatar: (name || prev.avatar || 'K').charAt(0).toUpperCase(),
+            }));
+          }}
+          onSearchUsers={accountSocial.searchUsers}
+          onSendFriendRequest={accountSocial.sendFriendRequest}
+          onAcceptFriendRequest={accountSocial.acceptFriendRequest}
+          onRemoveOrDeclineFriendship={accountSocial.removeOrDeclineFriendship}
+          onSendRoomInvite={accountSocial.sendRoomInvite}
+          onAcceptRoomInvite={handleAcceptRoomInvite}
+          onDeclineRoomInvite={(inv) => void accountSocial.respondToRoomInvite(inv, 'declined')}
+          onMuteRoomInvite={(inv) => void accountSocial.respondToRoomInvite(inv, 'muted', 15)}
+          onUnmuteInviter={accountSocial.unmuteInviter}
+          onSignInGoogle={async (preferredName) => {
+            const u = await signInWithGoogle(preferredName || currentUser.name);
+            if (u && u.displayName) {
+              setCurrentUser((prev) => ({
+                ...prev,
+                name: u.displayName || prev.name,
+                avatar: (u.displayName || prev.name || 'G').charAt(0).toUpperCase(),
+              }));
+            }
+          }}
+          onSignOutGoogle={signOutFirebase}
+          onClose={() => setProfileModalTab(null)}
+        />
+      )}
+
+      <RoomInviteToast
+        invites={accountSocial.activeToastInvites}
+        newlyUnlockedBadge={accountSocial.newlyUnlockedBadge}
+        onAcceptInvite={handleAcceptRoomInvite}
+        onDeclineInvite={(inv) => void accountSocial.respondToRoomInvite(inv, 'declined')}
+        onMuteInvite={(inv) => void accountSocial.respondToRoomInvite(inv, 'muted', 15)}
+        onDismissBadge={accountSocial.dismissBadgeToast}
+        onOpenProfileBadges={() => setProfileModalTab('badges')}
+      />
+    </>
+  );
+
   // Strict Pre-Welcome Gate: Do NOT render the whiteboard or any workspace UI until the user completes the Welcome Screen
   if (!hasEnteredWorkspace) {
     return (
-      <UserSetupModal
-        initialName={currentUser.name}
-        initialColor={currentUser.color}
-        initialRoomId={roomId}
-        initialRoomName={customRoomName}
-        hasUrlRoomParam={initialRoomInfo.hasUrlRoomParam}
-        isInitialSetup={true}
-        joinError={joinGateError || authError || roomError?.message || null}
-        onClearJoinError={() => {
-          setJoinGateError(null);
-          clearAuthError();
-          clearRoomError();
-        }}
-        roomsList={roomsList}
-        currentUserId={currentUser.id}
-        onDeleteRoom={deleteRoom}
-        firebaseUser={firebaseUser}
-        onSignInGoogle={async () => {
-          const u = await signInWithGoogle(currentUser.name);
-          if (u && u.displayName) {
-            setCurrentUser((prev) => ({
-              ...prev,
-              name: u.displayName || prev.name,
-              avatar: (u.displayName || prev.name || 'G').charAt(0).toUpperCase(),
-            }));
-          }
-        }}
-        onSignOutGoogle={signOutFirebase}
-        cloudBoards={cloudBoards}
-        cloudAutoSave={cloudAutoSave}
-        onToggleCloudAutoSave={handleToggleCloudAutoSave}
-        onResumeCloudBoard={handleResumeCloudBoard}
-        onDeleteCloudBoard={handleDeleteCloudBoard}
-        onJoin={handleWelcomeOrProfileJoin}
-      />
+      <>
+        <UserSetupModal
+          initialName={accountSocial.activeDisplayName || currentUser.name}
+          initialColor={accountSocial.activeColor || currentUser.color}
+          initialRoomId={roomId}
+          initialRoomName={customRoomName}
+          hasUrlRoomParam={initialRoomInfo.hasUrlRoomParam}
+          isInitialSetup={true}
+          joinError={joinGateError || authError || roomError?.message || null}
+          onClearJoinError={() => {
+            setJoinGateError(null);
+            clearAuthError();
+            clearRoomError();
+          }}
+          roomsList={roomsList}
+          currentUserId={currentUser.id}
+          onDeleteRoom={deleteRoom}
+          firebaseUser={firebaseUser}
+          accountType={accountSocial.accountType}
+          profileAvatarUrl={accountSocial.activeAvatarUrl}
+          profileFriendCode={accountSocial.cloudProfile?.friendCode}
+          unreadSocialCount={accountSocial.unreadNotificationCount}
+          onOpenProfile={(tab) => setProfileModalTab(tab || 'profile')}
+          onSaveGuestProfile={({ displayName, color }) => {
+            void accountSocial.updateProfile({ displayName, color });
+          }}
+          onSignInGoogle={async (preferredName) => {
+            const u = await signInWithGoogle(preferredName || currentUser.name);
+            if (u && u.displayName) {
+              setCurrentUser((prev) => ({
+                ...prev,
+                name: u.displayName || prev.name,
+                avatar: (u.displayName || prev.name || 'G').charAt(0).toUpperCase(),
+              }));
+            }
+          }}
+          onSignOutGoogle={signOutFirebase}
+          cloudBoards={cloudBoards}
+          cloudAutoSave={cloudAutoSave}
+          onToggleCloudAutoSave={handleToggleCloudAutoSave}
+          onResumeCloudBoard={handleResumeCloudBoard}
+          onDeleteCloudBoard={handleDeleteCloudBoard}
+          onJoin={handleWelcomeOrProfileJoin}
+        />
+        {socialOverlaysNode}
+      </>
     );
   }
 
@@ -2802,6 +2988,9 @@ export default function App() {
         isConnected={isConnected}
         users={users}
         currentUser={currentUser}
+        currentUserAvatarUrl={accountSocial.activeAvatarUrl}
+        unreadSocialCount={accountSocial.unreadNotificationCount}
+        onOpenProfile={(tab) => setProfileModalTab(tab || 'profile')}
         activePanel={activePanel}
         onTogglePanel={handleTogglePanel}
         onOpenTemplates={() => setIsTemplatesOpen(true)}
@@ -3203,7 +3392,7 @@ export default function App() {
             code={code}
             codeCursors={codeCursors}
             currentUserId={currentUser.id}
-            onUpdateCode={updateCode}
+            onUpdateCode={handleTrackedCodeUpdate}
             codeFiles={codeFiles}
             onUpsertCodeFile={upsertCodeFile}
             onDeleteCodeFile={deleteCodeFile}
@@ -3333,6 +3522,7 @@ export default function App() {
           authorName={currentUser.name}
           onElementsGenerated={(aiElements) => {
             if (!aiElements || aiElements.length === 0) return;
+            recordActivityRef.current('pdf_or_ai', 1);
             recordUndo();
 
             // Compute bounding box of generated elements and center them around current viewport center
@@ -3453,6 +3643,7 @@ export default function App() {
       {isTemplatesOpen && (
         <TemplatesModal
           onLoadTemplate={(tplElements, mode) => {
+            recordActivityRef.current('pdf_or_ai', 1);
             recordUndo();
             if (mode === 'replace') {
               replaceElements(tplElements);
@@ -3483,11 +3674,11 @@ export default function App() {
       {/* Profile & Room Switcher Modal (when opened from inside the workspace) */}
       {isUserSetupOpen && (
         <UserSetupModal
-          initialName={currentUser.name}
-          initialColor={currentUser.color}
+          initialName={accountSocial.activeDisplayName || currentUser.name}
+          initialColor={accountSocial.activeColor || currentUser.color}
           initialRoomId={roomId}
           initialRoomName={effectiveRoomName}
-          hasUrlRoomParam={true}
+          hasUrlRoomParam={false}
           isInitialSetup={isInitialSetup}
           joinError={joinGateError || authError || roomError?.message || null}
           onClearJoinError={() => {
@@ -3499,8 +3690,19 @@ export default function App() {
           currentUserId={currentUser.id}
           onDeleteRoom={deleteRoom}
           firebaseUser={firebaseUser}
-          onSignInGoogle={async () => {
-            const u = await signInWithGoogle(currentUser.name);
+          accountType={accountSocial.accountType}
+          profileAvatarUrl={accountSocial.activeAvatarUrl}
+          profileFriendCode={accountSocial.cloudProfile?.friendCode}
+          unreadSocialCount={accountSocial.unreadNotificationCount}
+          onOpenProfile={(tab) => {
+            setIsUserSetupOpen(false);
+            setProfileModalTab(tab || 'profile');
+          }}
+          onSaveGuestProfile={({ displayName, color }) => {
+            void accountSocial.updateProfile({ displayName, color });
+          }}
+          onSignInGoogle={async (preferredName) => {
+            const u = await signInWithGoogle(preferredName || currentUser.name);
             if (u && u.displayName) {
               setCurrentUser((prev) => ({
                 ...prev,
@@ -3519,6 +3721,8 @@ export default function App() {
           onJoin={handleWelcomeOrProfileJoin}
         />
       )}
+
+      {socialOverlaysNode}
 
       {cloudToast && (
         <div

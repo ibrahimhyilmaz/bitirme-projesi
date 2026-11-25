@@ -40,6 +40,7 @@ import {
   Menu as MenuIcon,
   X as XIcon,
   LogOut,
+  User as UserIcon,
 } from 'lucide-react';
 import { RoomSettings, ThemeMode, UserPresence, UserRole } from '../types';
 import { getShareableRoomUrl } from './RoomsModal';
@@ -91,6 +92,9 @@ interface TopNavProps {
   onToggleFullscreen?: () => void;
   onSwitchRoomByCode?: (roomCode: string) => void;
   onLeaveRoom?: () => void;
+  currentUserAvatarUrl?: string;
+  unreadSocialCount?: number;
+  onOpenProfile?: (tab?: 'profile' | 'badges' | 'friends') => void;
 }
 
 const ROLE_TEXT: Record<UserRole, string> = {
@@ -147,6 +151,9 @@ export const TopNav: React.FC<TopNavProps> = ({
   onToggleFullscreen,
   onSwitchRoomByCode,
   onLeaveRoom,
+  currentUserAvatarUrl = '',
+  unreadSocialCount = 0,
+  onOpenProfile,
 }) => {
   const [copied, setCopied] = useState(false);
   const [copiedRoomCode, setCopiedRoomCode] = useState(false);
@@ -927,40 +934,86 @@ export const TopNav: React.FC<TopNavProps> = ({
 
         {/* User Avatars Presence & Profile Switcher */}
         <div className="flex items-center gap-1">
-          <div className="flex items-center -space-x-1.5 overflow-hidden">
-            {users.slice(0, 3).map((u) => {
-              const isSelf = u.id === currentUser.id;
-              return (
+          {(() => {
+            const otherUsers = users.filter((u) => u.id !== currentUser.id);
+            const selfPresence = users.find((u) => u.id === currentUser.id);
+            const handleProfileClick = () => {
+              if (onOpenProfile) {
+                onOpenProfile(unreadSocialCount > 0 ? 'friends' : 'profile');
+              } else {
+                onOpenUserSetup();
+              }
+            };
+            return (
+              <>
+                {otherUsers.length > 0 && (
+                  <div className="flex items-center -space-x-1.5 overflow-hidden mr-0.5">
+                    {otherUsers.slice(0, 2).map((u) => (
+                      <div
+                        key={u.id}
+                        title={`${u.name} ${
+                          u.isSpeaking ? '· Konuşuyor' : u.isMuted ? '· Sessiz' : ''
+                        }`}
+                        className={`relative w-6.5 h-6.5 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-white text-[10px] font-bold shadow-xs ${
+                          u.isSpeaking ? 'speaking-active' : ''
+                        }`}
+                        style={{ backgroundColor: u.color || '#2563eb' }}
+                      >
+                        {u.avatar || u.name.charAt(0).toUpperCase()}
+                      </div>
+                    ))}
+                    {otherUsers.length > 2 && (
+                      <div className="w-6.5 h-6.5 rounded-full bg-slate-200 dark:bg-slate-700 border-2 border-white dark:border-slate-900 flex items-center justify-center text-[9px] font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-200">
+                        +{otherUsers.length - 2}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Dedicated Profile Button (Directly left of UserCog / left of the button left of Export) */}
                 <button
-                  key={u.id}
-                  onClick={onOpenUserSetup}
-                  title={`${u.name} ${isSelf ? '(Sen - Profili Düzenle)' : ''} ${
-                    u.isSpeaking ? '· Konuşuyor' : u.isMuted ? '· Sessiz' : ''
+                  type="button"
+                  onClick={handleProfileClick}
+                  title={`${currentUser.name} · Profil, Rozetler ve Arkadaşlar${
+                    unreadSocialCount > 0 ? ` (${unreadSocialCount} bildirim)` : ''
                   }`}
-                  className={`relative w-6.5 h-6.5 rounded-full border-2 border-white flex items-center justify-center text-white text-[10px] font-bold shadow-xs transition-transform hover:scale-105 ${
-                    u.isSpeaking ? 'speaking-active' : ''
-                  }`}
-                  style={{ backgroundColor: u.color || '#2563eb' }}
+                  className={`relative w-7 h-7 rounded-full border-2 flex items-center justify-center text-white text-[11px] font-bold shadow-xs transition-transform hover:scale-105 cursor-pointer overflow-visible ${
+                    isDark ? 'border-slate-700' : 'border-white ring-1 ring-slate-200'
+                  } ${selfPresence?.isSpeaking ? 'speaking-active' : ''}`}
+                  style={{
+                    backgroundColor: currentUserAvatarUrl
+                      ? 'transparent'
+                      : currentUser.color || '#2563eb',
+                  }}
                 >
-                  {u.avatar || u.name.charAt(0).toUpperCase()}
+                  {currentUserAvatarUrl ? (
+                    <img
+                      src={currentUserAvatarUrl}
+                      alt={currentUser.name}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  ) : (
+                    <span>{currentUser.avatar || currentUser.name.charAt(0).toUpperCase()}</span>
+                  )}
+                  {unreadSocialCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-mono tabular-nums font-bold flex items-center justify-center ring-2 ring-white dark:ring-slate-900">
+                      {unreadSocialCount > 9 ? '9+' : unreadSocialCount}
+                    </span>
+                  )}
                 </button>
-              );
-            })}
-            {users.length > 3 && (
-              <div className="w-6.5 h-6.5 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[9px] font-mono tabular-nums font-semibold text-slate-700">
-                +{users.length - 3}
-              </div>
-            )}
-          </div>
+              </>
+            );
+          })()}
 
           <button
             onClick={onOpenUserSetup}
-            className={`p-1.5 rounded-lg transition-colors ${
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
               isDark
                 ? 'text-slate-400 hover:text-white hover:bg-slate-800'
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
             }`}
-            title="Kullanıcı & Oda Ayarları"
+            title="Oda Geçişi & Hızlı Ayarlar"
           >
             <UserCog className="w-4 h-4" />
           </button>
@@ -1021,9 +1074,9 @@ export const TopNav: React.FC<TopNavProps> = ({
           }`}
         >
           <MenuIcon className="w-5 h-5" />
-          {unreadChatCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center">
-              {unreadChatCount}
+          {unreadChatCount + unreadSocialCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-mono tabular-nums font-bold flex items-center justify-center">
+              {unreadChatCount + unreadSocialCount}
             </span>
           )}
         </button>
@@ -1121,7 +1174,14 @@ export const TopNav: React.FC<TopNavProps> = ({
                         onToggleFullscreen
                       )}
                     {onOpenSettings && cell(<Settings className="w-5 h-5" />, 'Ayarlar', () => onOpenSettings('appearance'))}
-                    {cell(<UserCog className="w-5 h-5" />, 'Profil', onOpenUserSetup)}
+                    {onOpenProfile &&
+                      cell(
+                        <UserIcon className="w-5 h-5 text-blue-500" />,
+                        'Profil & Arkadaşlar',
+                        () => onOpenProfile(unreadSocialCount > 0 ? 'friends' : 'profile'),
+                        { badge: unreadSocialCount }
+                      )}
+                    {cell(<UserCog className="w-5 h-5" />, 'Oda Geçişi', onOpenUserSetup)}
                     {cell(<Download className="w-5 h-5" />, 'Dışa Aktar', onOpenExport)}
                     {onStartOnboardingTour && cell(<Compass className="w-5 h-5 text-indigo-500" />, 'Tur', onStartOnboardingTour)}
                     {onLeaveRoom && cell(<LogOut className="w-5 h-5 text-rose-500" />, 'Odadan Çık', onLeaveRoom)}

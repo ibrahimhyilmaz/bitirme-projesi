@@ -12,6 +12,14 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidPairId(id) {
+      return id is string && id.size() >= 3 && id.size() <= 260 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function friendshipPairId(a, b) {
+      return a < b ? a + '_' + b : b + '_' + a;
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -52,6 +60,155 @@ service cloud.firestore {
         data.photoURL is string && data.photoURL.size() <= 2000 &&
         data.createdAt is timestamp &&
         data.lastLoginAt is timestamp;
+    }
+
+    function isValidStatsMap(stats) {
+      return stats is map &&
+        stats.keys().hasAll([
+          'drawCount',
+          'codeEditCount',
+          'voiceCollabs',
+          'roomsCreated',
+          'pdfOrAiCount',
+          'activeMinutes',
+          'acceptedInvites'
+        ]) &&
+        stats.keys().hasOnly([
+          'drawCount',
+          'codeEditCount',
+          'voiceCollabs',
+          'roomsCreated',
+          'pdfOrAiCount',
+          'activeMinutes',
+          'acceptedInvites'
+        ]) &&
+        stats.drawCount is int && stats.drawCount >= 0 && stats.drawCount <= 1000000 &&
+        stats.codeEditCount is int && stats.codeEditCount >= 0 && stats.codeEditCount <= 1000000 &&
+        stats.voiceCollabs is int && stats.voiceCollabs >= 0 && stats.voiceCollabs <= 1000000 &&
+        stats.roomsCreated is int && stats.roomsCreated >= 0 && stats.roomsCreated <= 1000000 &&
+        stats.pdfOrAiCount is int && stats.pdfOrAiCount >= 0 && stats.pdfOrAiCount <= 1000000 &&
+        stats.activeMinutes is int && stats.activeMinutes >= 0 && stats.activeMinutes <= 1000000 &&
+        stats.acceptedInvites is int && stats.acceptedInvites >= 0 && stats.acceptedInvites <= 1000000;
+    }
+
+    function isValidPublicProfile(data) {
+      return data.keys().hasAll([
+          'uid',
+          'displayName',
+          'displayNameLower',
+          'friendCode',
+          'avatarUrl',
+          'color',
+          'badges',
+          'stats',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'displayNameLower',
+          'friendCode',
+          'avatarUrl',
+          'color',
+          'badges',
+          'stats',
+          'updatedAt'
+        ]) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 60 &&
+        data.displayNameLower is string && data.displayNameLower.size() >= 1 && data.displayNameLower.size() <= 60 &&
+        data.friendCode is string && data.friendCode.size() >= 5 && data.friendCode.size() <= 16 && data.friendCode.matches('^CB-[A-Z0-9]{4,8}$') &&
+        data.avatarUrl is string && data.avatarUrl.size() <= 350000 &&
+        data.color is string && data.color.size() >= 4 && data.color.size() <= 32 &&
+        data.badges is list && data.badges.size() <= 20 && (data.badges.size() == 0 || data.badges[0] is string) &&
+        isValidStatsMap(data.stats) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMutedInviter(data, senderId) {
+      return data.keys().hasAll(['senderUid', 'senderName', 'mutedUntil', 'createdAt']) &&
+        data.keys().hasOnly(['senderUid', 'senderName', 'mutedUntil', 'createdAt']) &&
+        data.senderUid is string && data.senderUid == senderId &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 60 &&
+        data.mutedUntil is timestamp &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidFriendship(data, pairId) {
+      return data.keys().hasAll([
+          'pairId',
+          'participants',
+          'requesterId',
+          'recipientId',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'pairId',
+          'participants',
+          'requesterId',
+          'recipientId',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.pairId is string && data.pairId == pairId &&
+        data.participants is list && data.participants.size() == 2 &&
+        data.participants[0] is string && data.participants[1] is string &&
+        data.requesterId is string && isValidId(data.requesterId) &&
+        data.recipientId is string && isValidId(data.recipientId) &&
+        data.requesterId != data.recipientId &&
+        data.pairId == friendshipPairId(data.requesterId, data.recipientId) &&
+        data.status is string && (data.status == 'pending' || data.status == 'accepted') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidRoomInvite(data, inviteId) {
+      return data.keys().hasAll([
+          'inviteId',
+          'fromUid',
+          'fromName',
+          'fromAvatar',
+          'fromColor',
+          'toUid',
+          'roomId',
+          'roomName',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'inviteId',
+          'fromUid',
+          'fromName',
+          'fromAvatar',
+          'fromColor',
+          'toUid',
+          'roomId',
+          'roomName',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.inviteId is string && data.inviteId == inviteId &&
+        data.fromUid is string && isValidId(data.fromUid) &&
+        data.fromName is string && data.fromName.size() >= 1 && data.fromName.size() <= 60 &&
+        data.fromAvatar is string && data.fromAvatar.size() <= 350000 &&
+        data.fromColor is string && data.fromColor.size() >= 4 && data.fromColor.size() <= 32 &&
+        data.toUid is string && isValidId(data.toUid) &&
+        data.fromUid != data.toUid &&
+        data.roomId is string && data.roomId.size() >= 1 && data.roomId.size() <= 32 && data.roomId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.roomName is string && data.roomName.size() >= 1 && data.roomName.size() <= 120 &&
+        data.status is string && (
+          data.status == 'pending' ||
+          data.status == 'accepted' ||
+          data.status == 'declined' ||
+          data.status == 'muted'
+        ) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
     }
 
     function isValidRoom(data) {
@@ -187,7 +344,27 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(adminId);
     }
 
-    // Google account profile, private to its owner
+    // PII-free public social profiles searchable by friendCode or displayNameLower
+    match /publicProfiles/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId);
+      allow list: if isVerifiedUser() && request.query.limit != null && request.query.limit <= 20 && resource.data.uid is string;
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidPublicProfile(incoming()) &&
+        incoming().uid == userId &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidPublicProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().friendCode == existing().friendCode &&
+        incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // Google account private profile (contains email PII — strictly owner-only)
     match /users/{userId} {
       allow get: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId;
       allow list: if false;
@@ -206,6 +383,79 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().lastLoginAt == request.time;
       allow delete: if false;
+    }
+
+    // Temporary mute records blocking spam room invites from a specific friend
+    match /users/{userId}/mutedInviters/{senderId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && isValidId(senderId) && (request.auth.uid == userId || request.auth.uid == senderId);
+      allow list: if isVerifiedUser() && request.auth.uid == userId && resource.data.senderUid is string;
+      allow create, update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidId(senderId) &&
+        request.auth.uid == userId &&
+        senderId != userId &&
+        isValidMutedInviter(incoming(), senderId);
+      allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(senderId) && request.auth.uid == userId;
+    }
+
+    // Bidirectional friend requests & accepted friendships
+    match /friendships/{pairId} {
+      allow get: if isVerifiedUser() && isValidPairId(pairId) && (resource == null || request.auth.uid in existing().participants);
+      allow list: if isVerifiedUser() && request.auth.uid in resource.data.participants;
+      allow create: if isVerifiedUser() &&
+        isValidPairId(pairId) &&
+        isValidFriendship(incoming(), pairId) &&
+        incoming().requesterId == request.auth.uid &&
+        incoming().status == 'pending' &&
+        request.auth.uid in incoming().participants &&
+        incoming().recipientId in incoming().participants &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidPairId(pairId) &&
+        isValidFriendship(incoming(), pairId) &&
+        existing().status == 'pending' &&
+        incoming().status == 'accepted' &&
+        request.auth.uid == existing().recipientId &&
+        incoming().requesterId == existing().requesterId &&
+        incoming().recipientId == existing().recipientId &&
+        incoming().participants == existing().participants &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidPairId(pairId) && request.auth.uid in existing().participants;
+    }
+
+    // Direct real-time room invitations between accepted friends (enforces mute cooldown)
+    match /roomInvites/{inviteId} {
+      allow get: if isVerifiedUser() && isValidId(inviteId) && (existing().fromUid == request.auth.uid || existing().toUid == request.auth.uid);
+      allow list: if isVerifiedUser() && (resource.data.toUid == request.auth.uid || resource.data.fromUid == request.auth.uid);
+      allow create: if isVerifiedUser() &&
+        isValidId(inviteId) &&
+        isValidRoomInvite(incoming(), inviteId) &&
+        incoming().fromUid == request.auth.uid &&
+        incoming().status == 'pending' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/friendships/$(friendshipPairId(request.auth.uid, incoming().toUid))) &&
+        get(/databases/$(database)/documents/friendships/$(friendshipPairId(request.auth.uid, incoming().toUid))).data.status == 'accepted' &&
+        (
+          !exists(/databases/$(database)/documents/users/$(incoming().toUid)/mutedInviters/$(request.auth.uid)) ||
+          get(/databases/$(database)/documents/users/$(incoming().toUid)/mutedInviters/$(request.auth.uid)).data.mutedUntil < request.time
+        );
+      allow update: if isVerifiedUser() &&
+        isValidId(inviteId) &&
+        isValidRoomInvite(incoming(), inviteId) &&
+        request.auth.uid == existing().toUid &&
+        existing().status == 'pending' &&
+        (incoming().status == 'accepted' || incoming().status == 'declined' || incoming().status == 'muted') &&
+        incoming().fromUid == existing().fromUid &&
+        incoming().toUid == existing().toUid &&
+        incoming().roomId == existing().roomId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(inviteId) && (existing().toUid == request.auth.uid || existing().fromUid == request.auth.uid);
     }
 
     // Saved boards of a Google account (metadata only; the heavy snapshot lives in boardData)
