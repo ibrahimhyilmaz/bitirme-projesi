@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   MousePointer,
   Hand,
@@ -36,6 +37,7 @@ import {
   EyeOff,
   PaintBucket,
   Folder,
+  MoreHorizontal,
 } from 'lucide-react';
 import { ALL_SHAPE_TYPES, ToolType } from '../types';
 import { EXTRA_SHAPES, getExtraShape, type ExtraShapeId } from '../utils/extraShapes';
@@ -397,6 +399,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   // Draggable state (null = default top docked Flex position)
   const isMobile = useIsMobile();
+  const [mobileMore, setMobileMore] = useState(false);
+  const [mobileSheet, setMobileSheet] = useState<null | 'pen' | 'eraser' | 'shape' | 'more'>(null);
   const [storedPosition, setPosition] = useState<{ x: number; y: number } | null>(() => {
     try {
       const saved = localStorage.getItem('collab_toolbar_pos');
@@ -418,8 +422,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [storedVertical, setIsVertical] = useState<boolean>(() => {
     return localStorage.getItem('collab_toolbar_vertical') === 'true';
   });
-  // Phones always use the docked horizontal bar (no free dragging / vertical mode)
-  const position = isMobile ? null : storedPosition;
+  // Free dragging works on every device (mouse, pen, finger); only the 2-column vertical mode is desktop-only
+  const position = storedPosition;
   const isVertical = !isMobile && storedVertical;
 
   const [isDraggingBar, setIsDraggingBar] = useState(false);
@@ -632,7 +636,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   // Determine smart popover direction based on position
   const openPopoverUpward =
-    isMobile || (position && typeof window !== 'undefined' && position.y > window.innerHeight * 0.6);
+    (isMobile && !position) || (position && typeof window !== 'undefined' && position.y > window.innerHeight * 0.6);
   const openPopoverLeftward =
     position && typeof window !== 'undefined' && position.x > window.innerWidth * 0.6;
 
@@ -685,6 +689,394 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     );
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // Phone layout: a clean tab-bar dock (6 essentials) + bottom sheets for everything else.
+  // The dock can still be dragged by its grabber (it then floats) and re-docked with one tap.
+  // ---------------------------------------------------------------------------------------------
+  if (isMobile) {
+    const closeSheet = () => setMobileSheet(null);
+    const pick = (t: ToolType) => {
+      onSelectTool(t);
+      closeSheet();
+    };
+    const penActive = activeTool === 'pencil' || activeTool === 'fountain-pen';
+    const eraserActive = activeTool === 'eraser' || activeTool === 'point-eraser';
+    const shapeActive = (ALL_SHAPE_TYPES as readonly string[]).includes(activeTool);
+    const moreActive = ['pan', 'bucket', 'highlighter', 'arrow', 'line', 'sticky', 'folder', 'laser', 'ping'].includes(activeTool);
+
+    const Tab: React.FC<{
+      label: string;
+      active?: boolean;
+      disabled?: boolean;
+      hasSheet?: boolean;
+      onClick: () => void;
+      children: React.ReactNode;
+    }> = ({ label, active, disabled, hasSheet, onClick, children }) => (
+      <button
+        type="button"
+        disabled={disabled}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={onClick}
+        aria-label={label}
+        title={label}
+        className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[54px] rounded-2xl text-[10px] font-semibold leading-none transition-colors disabled:opacity-35 ${
+          active ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 active:bg-slate-100'
+        }`}
+      >
+        <span className="w-6 h-6 flex items-center justify-center">{children}</span>
+        <span className="truncate max-w-full px-0.5">{label}</span>
+        {hasSheet && (
+          <span className={`absolute top-1 right-2 w-1 h-1 rounded-full ${active ? 'bg-blue-200' : 'bg-slate-300'}`} />
+        )}
+      </button>
+    );
+
+    const Tile: React.FC<{
+      label: string;
+      active?: boolean;
+      danger?: boolean;
+      onClick: () => void;
+      children: React.ReactNode;
+    }> = ({ label, active, danger, onClick, children }) => (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex flex-col items-center justify-center gap-1.5 min-h-[72px] px-1 py-2 rounded-2xl border text-[11px] font-semibold leading-tight text-center transition-colors ${
+          danger
+            ? 'bg-rose-600 border-rose-600 text-white'
+            : active
+            ? 'bg-blue-600 border-blue-600 text-white'
+            : 'bg-slate-50 border-slate-200 text-slate-700 active:bg-slate-100'
+        }`}
+      >
+        <span className="w-6 h-6 flex items-center justify-center">{children}</span>
+        <span className="line-clamp-2">{label}</span>
+      </button>
+    );
+
+    const sheetTitle =
+      mobileSheet === 'pen' ? 'Kalem' : mobileSheet === 'eraser' ? 'Silgi' : mobileSheet === 'shape' ? 'Şekiller' : 'Tüm Araçlar';
+
+    const sheet =
+      mobileSheet && typeof document !== 'undefined'
+        ? createPortal(
+            <>
+              <div className="fixed inset-0 z-[64] bg-slate-900/35" onPointerDown={closeSheet} />
+              <div
+                data-floating-bar="true"
+                onPointerDown={(e) => e.stopPropagation()}
+                className="fixed inset-x-0 bottom-0 z-[65] bg-white rounded-t-3xl shadow-2xl max-h-[72vh] flex flex-col cb-anim-slide-up"
+              >
+                <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                  <div className="mx-auto absolute left-1/2 -translate-x-1/2 top-1.5 h-1.5 w-10 rounded-full bg-slate-300" />
+                  <h3 className="text-sm font-bold text-slate-800">{sheetTitle}</h3>
+                  <button type="button" onClick={closeSheet} aria-label="Kapat" className="w-9 h-9 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div
+                  className="px-4 overflow-y-auto"
+                  style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+                >
+                  {mobileSheet === 'pen' && (
+                    <div className="grid grid-cols-1 gap-2">
+                      {([
+                        ['pencil', 'Çizim Kalemi', 'Sabit kalınlıkta akıcı serbest çizim', <Pencil key="i" className="w-5 h-5" />],
+                        ['fountain-pen', 'Dolma Kalem', 'Hıza ve baskıya duyarlı: yavaşta kalın, hızlıda ince', <FountainPenNibIcon key="i" className="w-5 h-5" />],
+                        ['highlighter', 'Fosforlu Kalem', 'Yarı saydam vurgulayıcı', <Highlighter key="i" className="w-5 h-5" />],
+                      ] as [ToolType, string, string, React.ReactNode][]).map(([id, name, desc, icon]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            if (id === 'pencil' || id === 'fountain-pen') {
+                              setLastPenTool(id);
+                              try {
+                                localStorage.setItem('collab_last_pen', id);
+                              } catch {}
+                            }
+                            pick(id);
+                          }}
+                          className={`flex items-center gap-3 p-3 rounded-2xl border text-left ${
+                            activeTool === id ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <span className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0">{icon}</span>
+                          <span className="min-w-0">
+                            <span className="block text-sm font-bold">{name}</span>
+                            <span className="block text-[11px] text-slate-500 leading-snug">{desc}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {mobileSheet === 'eraser' && (
+                    <div className="grid grid-cols-1 gap-2">
+                      {([
+                        ['eraser', 'Nesne Silgisi', 'Dokunduğun çizimi / nesneyi tamamen siler', <Eraser key="i" className="w-5 h-5" />],
+                        ['point-eraser', 'Hassas Silgi', 'Çizginin yalnızca dokunduğun kısmını keser', <Scissors key="i" className="w-5 h-5" />],
+                      ] as [ToolType, string, string, React.ReactNode][]).map(([id, name, desc, icon]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            setLastEraserTool(id as 'eraser' | 'point-eraser');
+                            pick(id);
+                          }}
+                          className={`flex items-center gap-3 p-3 rounded-2xl border text-left ${
+                            activeTool === id ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <span className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0">{icon}</span>
+                          <span className="min-w-0">
+                            <span className="block text-sm font-bold">{name}</span>
+                            <span className="block text-[11px] text-slate-500 leading-snug">{desc}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {mobileSheet === 'shape' && (
+                    <div className="space-y-3">
+                      {SHAPE_CATEGORIES.map((cat) => (
+                        <div key={cat.title}>
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">{cat.title}</div>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {cat.items.map((item) => (
+                              <Tile key={item.id} label={item.label} active={activeTool === item.id} onClick={() => pick(item.id)}>
+                                {renderShapeSvgIcon(item.id, 'w-5 h-5')}
+                              </Tile>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {mobileSheet === 'more' && (
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {canEdit && (
+                        <>
+                          <Tile label="Boya Kovası" active={activeTool === 'bucket'} onClick={() => pick('bucket')}>
+                            <PaintBucket className="w-5 h-5" />
+                          </Tile>
+                          <Tile label="Ok" active={activeTool === 'arrow'} onClick={() => pick('arrow')}>
+                            <ArrowRight className="w-5 h-5" />
+                          </Tile>
+                          <Tile label="Çizgi" active={activeTool === 'line'} onClick={() => pick('line')}>
+                            <Minus className="w-5 h-5" />
+                          </Tile>
+                          <Tile label="Yapışkan Not" active={activeTool === 'sticky'} onClick={() => pick('sticky')}>
+                            <StickyNote className="w-5 h-5" />
+                          </Tile>
+                          <Tile label="Klasör" active={activeTool === 'folder'} onClick={() => pick('folder')}>
+                            <Folder className="w-5 h-5" />
+                          </Tile>
+                          {onAddImageFile && (
+                            <Tile
+                              label="Görsel Ekle"
+                              onClick={() => {
+                                imageInputRef.current?.click();
+                                closeSheet();
+                              }}
+                            >
+                              <ImagePlus className="w-5 h-5" />
+                            </Tile>
+                          )}
+                          {onOpenAIPrompt && (
+                            <Tile
+                              label="AI Çizim"
+                              onClick={() => {
+                                onOpenAIPrompt();
+                                closeSheet();
+                              }}
+                            >
+                              <Wand2 className="w-5 h-5 text-violet-600" />
+                            </Tile>
+                          )}
+                          <Tile label="Yinele" onClick={() => canRedo && onRedo()}>
+                            <Redo2 className={`w-5 h-5 ${canRedo ? '' : 'opacity-30'}`} />
+                          </Tile>
+                        </>
+                      )}
+                      <Tile label="Lazer İşaretçi" active={activeTool === 'laser'} onClick={() => pick('laser')}>
+                        <Flame className="w-5 h-5" />
+                      </Tile>
+                      <Tile
+                        label="Konum İşareti"
+                        active={activeTool === 'ping'}
+                        onClick={() => {
+                          onPingClick();
+                          closeSheet();
+                        }}
+                      >
+                        <Radio className="w-5 h-5" />
+                      </Tile>
+                      <Tile label="Yakınlaş" onClick={onZoomIn}>
+                        <ZoomIn className="w-5 h-5" />
+                      </Tile>
+                      <Tile label={`Uzaklaş (%${Math.round(zoom * 100)})`} onClick={onZoomOut}>
+                        <ZoomOut className="w-5 h-5" />
+                      </Tile>
+                      <Tile label="Yakınlaştırmayı Sıfırla" onClick={onResetZoom}>
+                        <RotateCcw className="w-5 h-5" />
+                      </Tile>
+                      {canEdit && (
+                        <Tile
+                          label={confirmClearOpen ? 'Emin misin? Dokun' : 'Tahtayı Temizle'}
+                          danger={confirmClearOpen}
+                          onClick={() => {
+                            if (!confirmClearOpen) {
+                              setConfirmClearOpen(true);
+                              window.setTimeout(() => setConfirmClearOpen(false), 3500);
+                            } else {
+                              onClear();
+                              setConfirmClearOpen(false);
+                              closeSheet();
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </Tile>
+                      )}
+                      <Tile
+                        label="Araç Çubuğunu Gizle"
+                        onClick={() => {
+                          closeSheet();
+                          handleToggleMinimize();
+                        }}
+                      >
+                        <EyeOff className="w-5 h-5" />
+                      </Tile>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>,
+            document.body
+          )
+        : null;
+
+    return (
+      <>
+        <div
+          ref={toolbarRef}
+          data-tour="toolbar"
+          data-floating-bar="true"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onFocus?.();
+          }}
+          style={{
+            zIndex: zIndex ?? 30,
+            ...(position
+              ? { position: 'absolute', left: `${position.x}px`, top: `${position.y}px`, transform: 'none' }
+              : {}),
+          }}
+          className={`absolute pointer-events-auto bg-white select-none ${
+            position
+              ? 'w-[min(380px,calc(100vw-16px))] rounded-3xl border border-slate-200 shadow-2xl'
+              : 'bottom-0 inset-x-0 rounded-t-3xl border-t border-slate-200 shadow-[0_-8px_28px_rgba(15,23,42,0.14)]'
+          } ${isDraggingBar ? 'ring-2 ring-blue-500/30' : ''}`}
+        >
+          {/* Grabber: drag to float the dock, double-tap (or the chip) to dock it again */}
+          <div className="relative flex items-center justify-center">
+            <div
+              onPointerDown={handleGripPointerDown}
+              onDoubleClick={handleResetPosition}
+              style={{ touchAction: 'none' }}
+              className="touch-none cursor-grab px-10 pt-1.5 pb-1"
+              title="Araç çubuğunu sürükle (çift dokun: yerine yerleştir)"
+              aria-label="Araç çubuğunu taşı"
+            >
+              <div className="h-1.5 w-10 rounded-full bg-slate-300" />
+            </div>
+            {position && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleResetPosition}
+                className="absolute right-2 top-0.5 px-2 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold flex items-center gap-1"
+                title="Alta yerleştir"
+              >
+                <RotateCcw className="w-3 h-3" />
+                Yerleştir
+              </button>
+            )}
+          </div>
+
+          {onAddImageFile && (
+            <input ref={imageInputRef} type="file" accept="image/*" onChange={handleQuickImageUpload} className="hidden" />
+          )}
+
+          <div
+            className="grid gap-0.5 px-1.5"
+            style={{
+              gridTemplateColumns: `repeat(${canEdit ? 7 : 4}, minmax(0, 1fr))`,
+              paddingBottom: position ? '6px' : 'calc(env(safe-area-inset-bottom) + 6px)',
+            }}
+          >
+            <Tab label="Seç" active={activeTool === 'select'} onClick={() => pick('select')}>
+              <MousePointer className="w-[22px] h-[22px]" />
+            </Tab>
+            {canEdit ? (
+              <>
+                <Tab
+                  label="Kalem"
+                  hasSheet
+                  active={penActive || activeTool === 'highlighter'}
+                  onClick={() => (penActive ? setMobileSheet('pen') : onSelectTool(lastPenTool))}
+                >
+                  {lastPenTool === 'fountain-pen' && activeTool !== 'highlighter' ? (
+                    <FountainPenNibIcon className="w-[22px] h-[22px]" />
+                  ) : activeTool === 'highlighter' ? (
+                    <Highlighter className="w-[22px] h-[22px]" />
+                  ) : (
+                    <Pencil className="w-[22px] h-[22px]" />
+                  )}
+                </Tab>
+                <Tab label="Şekil" hasSheet active={shapeActive} onClick={() => setMobileSheet('shape')}>
+                  {shapeActive ? renderShapeSvgIcon(activeTool, 'w-[22px] h-[22px]') : <Square className="w-[22px] h-[22px]" />}
+                </Tab>
+                <Tab label="Metin" active={activeTool === 'text'} onClick={() => pick('text')}>
+                  <Type className="w-[22px] h-[22px]" />
+                </Tab>
+                <Tab
+                  label="Silgi"
+                  hasSheet
+                  active={eraserActive}
+                  onClick={() => (eraserActive ? setMobileSheet('eraser') : onSelectTool(lastEraserTool))}
+                >
+                  {lastEraserTool === 'point-eraser' ? <Scissors className="w-[22px] h-[22px]" /> : <Eraser className="w-[22px] h-[22px]" />}
+                </Tab>
+              </>
+            ) : (
+              <>
+                <Tab label="Kaydır" active={activeTool === 'pan'} onClick={() => pick('pan')}>
+                  <Hand className="w-[22px] h-[22px]" />
+                </Tab>
+                <Tab label="Lazer" active={activeTool === 'laser'} onClick={() => pick('laser')}>
+                  <Flame className="w-[22px] h-[22px]" />
+                </Tab>
+              </>
+            )}
+            {canEdit && (
+              <Tab label="Geri Al" disabled={!canUndo} onClick={onUndo}>
+                <Undo2 className="w-[22px] h-[22px]" />
+              </Tab>
+            )}
+            <Tab label="Daha" hasSheet active={moreActive || mobileSheet === 'more'} onClick={() => setMobileSheet('more')}>
+              <MoreHorizontal className="w-[22px] h-[22px]" />
+            </Tab>
+          </div>
+        </div>
+        {sheet}
+      </>
+    );
+  }
+
   return (
     <div
       ref={toolbarRef}
@@ -710,14 +1102,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       } pointer-events-auto flex ${
         isVertical
           ? 'flex-col w-[98px] p-2 gap-1.5'
-          : isMobile
+          : isMobile && !position
           ? "flex-row flex-wrap w-full max-w-full justify-center items-center gap-0.5 px-1.5 py-1 [&_button[title^='Yapay']]:hidden [&_button[title^='Uzakla']]:hidden [&_button[title^='Yak']]:hidden [&_button[title^='Reset']]:hidden"
-          : 'flex-row flex-wrap w-auto max-w-max items-center gap-1 p-1.5'
+          : isMobile
+          ? "flex-row flex-wrap w-auto max-w-[calc(100vw-16px)] items-center gap-0.5 p-1 [&_button[title^='Yapay']]:hidden [&_button[title^='Uzakla']]:hidden [&_button[title^='Yak']]:hidden [&_button[title^='Reset']]:hidden"
+          : `flex-row flex-wrap w-auto ${position ? 'max-w-max' : 'max-w-[calc(100vw-480px)]'} items-center gap-1 p-1.5`
       } bg-white/95 backdrop-blur-md border transition-colors cb-anim-scale-in ${
         isDraggingBar
           ? 'border-blue-500 shadow-2xl ring-2 ring-blue-500/20'
           : 'border-slate-200/90 shadow-lg'
-      } ${isMobile ? 'rounded-t-2xl rounded-b-none' : 'rounded-2xl'} select-none`}
+      } ${isMobile && !position ? 'rounded-t-2xl rounded-b-none' : 'rounded-2xl'} select-none`}
     >
       {/* Top Drag Handle & Orientation Controls */}
       <div
@@ -725,15 +1119,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           isVertical
             ? 'flex-col w-full gap-1 pb-1.5 border-b border-slate-200'
             : 'flex-row items-center pr-1 border-r border-slate-200 gap-0.5'
-        } ${isMobile ? '[&>div:first-child]:hidden [&>div:nth-child(2)>button:not(:last-child)]:hidden border-r-0 pr-0' : ''}`}
+        } ${isMobile ? "border-r-0 pr-0" : ''} ${isMobile && !position ? "[&_button[title^='Araç']]:hidden" : ''}`}
       >
         <div
           onPointerDown={handleGripPointerDown}
           onDoubleClick={handleResetPosition}
-          className={`rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 active:bg-blue-50 cursor-grab active:cursor-grabbing transition-colors flex items-center justify-center touch-none ${
+          style={{ touchAction: 'none' }}
+          className={`rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 active:bg-blue-50 cursor-grab active:cursor-grabbing transition-colors flex items-center justify-center touch-none select-none ${
             isVertical
               ? 'w-full py-1 px-1.5 bg-slate-100/80 border border-slate-200/80 text-slate-600'
-              : 'p-1.5'
+              : 'p-1.5 [@media(pointer:coarse)]:p-2.5 [@media(pointer:coarse)]:min-w-[40px] [@media(pointer:coarse)]:min-h-[40px]'
           }`}
           title="Araç Çubuğunu Sürükle & Serbest Taşı (Kenetlemek için çift tıkla)"
         >
@@ -745,6 +1140,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
 
         <div className={`flex items-center ${isVertical ? ' justify-between w-full' : 'gap-0.5'}`}>
+          {!isMobile && (
           <button
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
@@ -754,6 +1150,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           >
             {isVertical ? <Rows2 className="w-3.5 h-3.5" /> : <Columns2 className="w-3.5 h-3.5" />}
           </button>
+          )}
 
           {(position || isVertical) && (
             <button
@@ -779,13 +1176,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       </div>
 
+      {/* Phones: show the essentials first, everything else behind one button (keeps the bar to two rows) */}
+      {isMobile && (
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => setMobileMore((v) => !v)}
+          className={`p-2 rounded-lg flex items-center justify-center gap-1 text-[11px] font-semibold order-last ${
+            mobileMore ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
+          }`}
+          title={mobileMore ? 'Araçları daralt' : 'Tüm araçları göster'}
+        >
+          <MoreHorizontal className="w-4 h-4" />
+          <span>{mobileMore ? 'Az' : 'Çok'}</span>
+        </button>
+      )}
+
       {/* Tools Container: 2-Column Compact Grid when Vertical, Flex Row when Horizontal */}
       <div
         className={
           isVertical
             ? 'grid grid-cols-2 gap-1 w-full place-items-center'
             : isMobile
-            ? 'flex flex-1 min-w-0 flex-row flex-wrap items-center justify-center gap-0.5'
+            ? `flex flex-1 min-w-0 flex-row flex-wrap items-center justify-center gap-0.5 ${mobileMore ? '' : 'cb-tb-compact'}`
             : 'flex flex-row flex-wrap items-center gap-1'
         }
       >

@@ -156,13 +156,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="flex flex-col md:flex-row flex-1 min-h-0">
         {/* Navigation Tabs: vertical, left-aligned sidebar on desktop; compact strip on phones */}
         <div
-          className={`px-3 pt-2 md:pt-3 md:pb-3 border-b md:border-b-0 md:border-r flex flex-wrap md:flex-col md:flex-nowrap items-center md:items-stretch gap-1 md:w-60 md:shrink-0 md:overflow-y-auto max-md:[&>button:not(.border-blue-600)>span]:hidden ${
+          className={`px-3 pt-2 md:pt-3 md:pb-3 border-b md:border-b-0 md:border-r flex flex-wrap md:flex-col md:flex-nowrap items-center md:items-stretch gap-1 md:w-60 md:shrink-0 md:overflow-y-auto max-md:flex-nowrap max-md:overflow-x-auto max-md:items-stretch ${
             isDark ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'
           }`}
         >
           <button
             onClick={() => setActiveTab('appearance')}
-            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] max-md:flex-col max-md:gap-0.5 max-md:px-1 max-md:text-[10px] max-md:justify-center max-md:shrink-0 max-md:min-w-[78px] max-md:text-center font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'appearance'
                 ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
@@ -176,7 +176,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('language')}
-            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] max-md:flex-col max-md:gap-0.5 max-md:px-1 max-md:text-[10px] max-md:justify-center max-md:shrink-0 max-md:min-w-[78px] max-md:text-center font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'language'
                 ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
@@ -190,7 +190,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('panels')}
-            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] max-md:flex-col max-md:gap-0.5 max-md:px-1 max-md:text-[10px] max-md:justify-center max-md:shrink-0 max-md:min-w-[78px] max-md:text-center font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'panels'
                 ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
@@ -204,7 +204,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('editor')}
-            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] max-md:flex-col max-md:gap-0.5 max-md:px-1 max-md:text-[10px] max-md:justify-center max-md:shrink-0 max-md:min-w-[78px] max-md:text-center font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'editor'
                 ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
@@ -218,7 +218,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('drawing')}
-            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] max-md:flex-col max-md:gap-0.5 max-md:px-1 max-md:text-[10px] max-md:justify-center max-md:shrink-0 max-md:min-w-[78px] max-md:text-center font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'drawing'
                 ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark
@@ -232,7 +232,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={() => setActiveTab('shortcuts')}
-            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs md:text-[13px] max-md:flex-col max-md:gap-0.5 max-md:px-1 max-md:text-[10px] max-md:justify-center max-md:shrink-0 max-md:min-w-[78px] max-md:text-center font-semibold border-b-2 md:border-b-0 md:border-l-[3px] md:rounded-r-xl md:justify-start text-left transition-colors whitespace-nowrap ${
               activeTab === 'shortcuts'
                 ? 'border-blue-600 text-blue-600 md:bg-blue-600/10'
                 : isDark

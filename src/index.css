@@ -424,3 +424,33 @@ body {
     max-width: calc(100vw - 16px);
   }
 }
+
+/* Phone toolbar, collapsed: only the essential tools stay visible */
+.cb-tb-compact button[title^='Düz'],
+.cb-tb-compact button[title^='Yapışkan'],
+.cb-tb-compact button[title^='Klasör'],
+.cb-tb-compact button[title^='Tahtaya'],
+.cb-tb-compact button[title^='Tahtayı'],
+.cb-tb-compact button[title^='Lazer'],
+.cb-tb-compact button[title^='Konum'],
+.cb-tb-compact button[title^='Yinele'],
+.cb-tb-compact button[title^='Fosforlu'],
+.cb-tb-compact button[title^='Bağlantı'] {
+  display: none;
+}
+
+/* ---------- Touch: finger-sized controls everywhere (modals, panels, header) ---------- */
+@media (pointer: coarse) {
+  /* modal dialogs (fixed + inset-0) and the top bar */
+  .fixed.inset-0 button:not([data-compact]):not(.aspect-square),
+  header button {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}
+
+/* Drag / resize handles must receive touch moves instead of letting the browser scroll the page */
+.cursor-grab,
+.cursor-nwse-resize {
+  touch-action: none;
+}

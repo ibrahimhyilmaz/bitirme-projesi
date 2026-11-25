@@ -52,6 +52,8 @@ interface PropertiesPanelProps {
   /** Turn the selected shape into an editable polygon and show its vertex handles */
   onEditPoints?: () => void;
   isEditingPoints?: boolean;
+  /** Pixels to keep free on the right edge (side panels such as chat) */
+  rightOffset?: number;
   onClose?: () => void;
 }
 
@@ -190,6 +192,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   onToggleLock,
   onEditPoints,
   isEditingPoints,
+  rightOffset = 0,
   onClose,
 }) => {
   const isDark = theme === 'dark' || theme === 'midnight';
@@ -569,7 +572,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         data-floating-bar="true"
         onPointerDown={stopCanvas}
         onWheel={stopCanvas}
-        className="hidden md:flex fixed right-3 top-24 bottom-24 z-[60] items-start gap-2 pointer-events-none"
+        style={{ right: 12 + rightOffset }}
+        className="hidden md:flex fixed top-24 bottom-24 z-[60] items-start gap-2 pointer-events-none transition-[right] duration-200"
       >
         {open && (
           <div className={`pointer-events-auto w-[272px] max-h-full flex flex-col border rounded-2xl shadow-xl backdrop-blur-md cb-anim-scale-in ${card}`}>

@@ -235,7 +235,7 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     }
   });
 
-  const position = isMobile ? null : storedPosition;
+  const position = storedPosition;
   const effectiveHidden = isHidden !== undefined ? isHidden : internalHidden;
 
   const handleToggleMinimize = () => {
@@ -441,7 +441,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
         <div
           onPointerDown={handleGripPointerDown}
           onDoubleClick={() => setPosition(null)}
-          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
+          style={{ touchAction: 'none' }}
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors touch-none select-none [@media(pointer:coarse)]:p-2.5"
           title="Stil Çubuğunu Taşı (Kenetlemek için çift tıkla)"
         >
           <GripVertical className="w-4 h-4" />
@@ -503,7 +504,8 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       <div
         onPointerDown={handleGripPointerDown}
         onDoubleClick={() => setPosition(null)}
-        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors"
+        style={{ touchAction: 'none' }}
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing transition-colors touch-none select-none [@media(pointer:coarse)]:p-2.5"
         title="Stil Çubuğunu Sürükle & Serbest Taşı (Kenetlemek için çift tıkla)"
       >
         <GripVertical className="w-4 h-4" />

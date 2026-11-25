@@ -864,7 +864,27 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
 
         {/* Body */}
         <div className="p-5 space-y-4 overflow-y-auto flex-1">
-          {/* STEP 1: API Key Source Selection & Real-Time Usage Quota Tracker */}
+          {/* Sources & keys live in a collapsible section so the prompt box is the first thing people see */}
+          <details
+            
+            className="group rounded-2xl border border-slate-200/90 dark:border-slate-700/80 bg-slate-50/60 dark:bg-slate-800/30"
+          >
+            <summary className="cursor-pointer select-none list-none flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 text-xs font-bold text-slate-800 dark:text-slate-100">
+              <span className="flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                Yapay zeka kaynağı & ayarlar
+              </span>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                {provSaved
+                  ? getProviderInfo(provCfg.provider).label
+                  : geminiKey
+                  ? 'Kendi Gemini anahtarım'
+                  : 'Ücretsiz / varsayılan'}
+                <span className="ml-1.5 text-slate-400 group-open:hidden">▾ değiştir</span>
+                <span className="ml-1.5 text-slate-400 hidden group-open:inline">▴ kapat</span>
+              </span>
+            </summary>
+            <div className="px-2 pb-2">
           <div
             className={`rounded-2xl border p-3.5 transition-all ${
               !hasConfirmedSource
@@ -1138,6 +1158,8 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
               </div>
             </div>
           </div>
+            </div>
+          </details>
 
           {/* Mode Selector Tabs */}
           <div className="grid grid-cols-2 gap-2">

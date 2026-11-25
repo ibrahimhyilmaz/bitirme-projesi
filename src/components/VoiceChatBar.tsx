@@ -240,7 +240,7 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
         <div
           onPointerDown={handleGripPointerDown}
           onDoubleClick={() => setPosition(null)}
-          className={`p-1 rounded-lg cursor-grab active:cursor-grabbing transition-colors ${
+          className={`p-1 [@media(pointer:coarse)]:p-2.5 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${
             isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
           }`}
           title="Sesli Kanalı Taşı (Kenetlemek için çift tıkla)"
@@ -325,7 +325,7 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
         <div
           onPointerDown={handleGripPointerDown}
           onDoubleClick={() => setPosition(null)}
-          className={`p-1 rounded-lg cursor-grab active:cursor-grabbing transition-colors ${
+          className={`p-1 [@media(pointer:coarse)]:p-2.5 rounded-lg cursor-grab active:cursor-grabbing transition-colors select-none ${
             isDark
               ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
               : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'

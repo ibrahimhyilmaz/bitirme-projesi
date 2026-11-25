@@ -15,6 +15,7 @@ import {
 import { TopNav } from './components/TopNav';
 import { Toolbar } from './components/Toolbar';
 import { StyleBar } from './components/StyleBar';
+import { useAutoAria } from './hooks/useAutoAria';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { VertexEditor } from './components/VertexEditor';
 import { normaliseSegment, SEGMENT_TYPES, shapeToPolygonChanges } from './utils/polygonEdit';
@@ -256,6 +257,7 @@ function clearSavedSession() {
 export default function App() {
   useI18n();
   useAutoTranslateDOM();
+  useAutoAria();
   const isMobile = useIsMobile();
   const initialRoomInfo = useMemo(() => extractRoomInfoFromLocation(), []);
 
@@ -2075,6 +2077,18 @@ export default function App() {
     return selectedElements.length > 0 ? selectedElements[0] : null;
   }, [selectedElements]);
 
+  // The properties panel sits on the right edge: make room for side panels (chat / code / ...) instead of overlapping them
+  const sidePanelWidth =
+    activePanel === 'chat' ? 436 : activePanel === 'code' ? 696 : activePanel === 'none' ? 0 : 440;
+  const [viewportW, setViewportW] = useState<number>(() => (typeof window === 'undefined' ? 1280 : window.innerWidth));
+  useEffect(() => {
+    const onResize = () => setViewportW(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const propsPanelOffset = !isMobile && sidePanelWidth > 0 ? sidePanelWidth : 0;
+  const propsPanelVisible = sidePanelWidth === 0 || (!isMobile && viewportW - sidePanelWidth > 560);
+
   // Point-level (vertex) editing of a polygon
   const [editingPointsId, setEditingPointsId] = useState<string | null>(null);
   const editingPointsElement = useMemo(
@@ -3135,7 +3149,7 @@ export default function App() {
 
         {/* Contextual Style & Transform Bar (Draggable, Bottom Center by default) */}
         {/* Right-side vertical properties panel: appears as soon as something is selected */}
-        {canEdit && !uiHidden && selectedElements.length > 0 && activeTool === 'select' && (
+        {canEdit && !uiHidden && selectedElements.length > 0 && activeTool === 'select' && propsPanelVisible && (
           <PropertiesPanel
             elements={selectedElements}
             theme={settings.theme}
@@ -3156,6 +3170,7 @@ export default function App() {
             onBringStepForward={handleBringStepForward}
             onSendStepBackward={handleSendStepBackward}
             onToggleLock={handleToggleLock}
+            rightOffset={propsPanelOffset}
             onEditPoints={handleEditPoints}
             isEditingPoints={Boolean(editingPointsElement)}
             onClose={() => setSelectedElementIds([])}
