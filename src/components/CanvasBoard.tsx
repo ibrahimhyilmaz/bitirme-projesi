@@ -61,11 +61,10 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { getPdfInfo, renderPdfPage } from '../utils/pdfRenderer';
+import { getDocumentPageInfo, renderDocumentPage } from '../utils/documentPageRenderer';
 import {
   validateFile,
   validateVideoFileMetadata,
-  createDocumentCardSvgDataUrl,
-  createMarkdownCardSvgDataUrl,
   extractTextFromDataUrl,
   buildRealDocumentPreviewDataUrl,
   normalizeImageDataUrl,
@@ -146,9 +145,12 @@ interface CanvasBoardProps {
   users: UserPresence[];
   currentUser: {
     id: string;
+    identityKey?: string;
     name: string;
     avatar: string;
+    avatarUrl?: string;
     color: string;
+    cursorColor?: string;
   };
   activeTool: ToolType;
   onSelectTool?: (tool: ToolType) => void;
@@ -179,7 +181,7 @@ interface CanvasBoardProps {
   onLaserMove?: (point: Point, color?: string) => void;
   onPing?: (point: Point) => void;
   onSaveHistorySnapshot?: () => void;
-  onCreateElement: (el: CanvasElement) => void;
+  onCreateElement: (el: CanvasElement, insertBeforeId?: string) => void;
   onUpdateElement: (id: string, changes: Partial<CanvasElement>) => void;
   onBatchUpdateElements: (updates: { id: string; changes: Partial<CanvasElement> }[]) => void;
   onDeleteElements: (ids: string[]) => void;
@@ -664,14 +666,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const lastWidthFactorRef = useRef<number>(1.25);
   const smoothedDrawPtRef = useRef<Point>({ x: 0, y: 0 });
 
-  // Paint Bucket (Kova) Fill helper: fills enclosed areas (freehand or geometric) or shapes
+  // Paint Bucket (Kova) Fill helper: MS Paint–style world-space flood fill strictly bounded by lines/shapes,
+  // inserted behind its enclosing strokes and bound to them so it moves seamlessly as one drawing
   const applyBucketFill = useCallback(
-    (canvasPt: Point, screenPt: Point) => {
+    (canvasPt: Point, _screenPt: Point) => {
       if (!canEdit) return;
       const paintColor =
         strokeColor || (fillColor && fillColor !== 'transparent' ? fillColor : '#2563eb');
 
-      // Parse hex / rgb paint color into [R, G, B, A]
       const parseColorToRgba = (col: string, alpha = 1): [number, number, number, number] => {
         const probe = document.createElement('canvas');
         probe.width = 1;
@@ -684,318 +686,357 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         return [d[0], d[1], d[2], Math.round((d[3] / 255) * alpha * 255)];
       };
 
-      // 1) The click landed inside a shape / polygon / closed outline: recolour THAT object.
-      //    (Flood-filling would be cut up by its text label, shadow or gradient and drop loose
-      //    pictures on top of the board, which looked like duplicated, scattered shapes.)
-      {
-        const hitCanvas = document.createElement('canvas');
-        hitCanvas.width = 3;
-        hitCanvas.height = 3;
-        const hctx = hitCanvas.getContext('2d', { willReadFrequently: true });
-        const fillableTypes1 = new Set<string>([...ALL_SHAPE_TYPES, 'polygon', 'sticky']);
-        const isClosedFreehand1 = (el: CanvasElement) => {
-          if (el.type !== 'pencil' && el.type !== 'fountain-pen') return false;
-          const pts = el.points;
-          if (!pts || pts.length < 6) return false;
-          const bb = getElementBounds(el);
-          const gap = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y);
-          return gap <= Math.max(24, Math.hypot(bb.width, bb.height) * 0.12);
-        };
-        const pixelHit = (el: CanvasElement) => {
-          if (!hctx) return isPointInsideElement(canvasPt, el);
-          hctx.clearRect(0, 0, 3, 3);
-          hctx.save();
-          hctx.translate(1 - canvasPt.x, 1 - canvasPt.y);
-          try {
-            drawElement(hctx, {
-              ...el,
-              fillColor: '#000000',
-              color: '#000000',
-              text: undefined,
-              opacity: 1,
-              shadowBlur: 0,
-              gradientTo: '',
-              strokeWidth: Math.max(el.strokeWidth || 3, 2),
-            });
-          } catch {}
-          hctx.restore();
-          return hctx.getImageData(1, 1, 1, 1).data[3] > 40;
-        };
-        const target = [...elements]
-          .reverse()
-          .find(
-            (el) =>
-              !el.isLocked &&
-              (fillableTypes1.has(el.type) || isClosedFreehand1(el)) &&
-              el.type !== 'double-arrow' &&
-              el.type !== 'curved-arrow' &&
-              pixelHit(el)
-          );
-        if (target) {
-          if (onSaveHistorySnapshot) onSaveHistorySnapshot();
-          onUpdateElement(target.id, { fillColor: paintColor, gradientTo: '', updatedAt: Date.now() });
-          return;
-        }
-      }
+      const fillableTypes = new Set<string>([...ALL_SHAPE_TYPES, 'polygon', 'sticky']);
+      const isClosedFreehand = (el: CanvasElement) => {
+        if (el.type !== 'pencil' && el.type !== 'fountain-pen') return false;
+        const pts = el.points;
+        if (!pts || pts.length < 6) return false;
+        const bb = getElementBounds(el);
+        const gap = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y);
+        return gap <= Math.max(24, Math.hypot(bb.width, bb.height) * 0.12);
+      };
 
-      const container = containerRef.current;
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        const w = Math.max(1, Math.floor(rect.width));
-        const h = Math.max(1, Math.floor(rect.height));
-        const startX = Math.floor(screenPt.x);
-        const startY = Math.floor(screenPt.y);
+      // Gather all non-bucket-fill visual barrier elements
+      const barrierElements = elements.filter(
+        (el) => !el.isBucketFill && el.type !== 'folder' && el.type !== 'video'
+      );
 
-        if (startX >= 0 && startX < w && startY >= 0 && startY < h) {
-          const off = document.createElement('canvas');
-          off.width = w;
-          off.height = h;
-          const ctx = off.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            ctx.save();
-            ctx.translate(pan.x, pan.y);
-            ctx.scale(zoom, zoom);
+      if (barrierElements.length > 0) {
+        let minWX = canvasPt.x;
+        let maxWX = canvasPt.x;
+        let minWY = canvasPt.y;
+        let maxWY = canvasPt.y;
+
+        const barrierBoundsList = barrierElements.map((el) => {
+          const b = getElementBounds(el);
+          if (b.minX < minWX) minWX = b.minX;
+          if (b.maxX > maxWX) maxWX = b.maxX;
+          if (b.minY < minWY) minWY = b.minY;
+          if (b.maxY > maxWY) maxWY = b.maxY;
+          return { el, b };
+        });
+
+        const worldPad = 36;
+        minWX -= worldPad;
+        minWY -= worldPad;
+        maxWX += worldPad;
+        maxWY += worldPad;
+
+        const worldW = Math.max(16, maxWX - minWX);
+        const worldH = Math.max(16, maxWY - minWY);
+        const maxRasterDim = 1200;
+        const scale = Math.min(2.0, Math.max(0.45, maxRasterDim / Math.max(worldW, worldH)));
+        const w = Math.max(4, Math.ceil(worldW * scale));
+        const h = Math.max(4, Math.ceil(worldH * scale));
+        const startX = Math.floor((canvasPt.x - minWX) * scale);
+        const startY = Math.floor((canvasPt.y - minWY) * scale);
+
+        if (startX > 0 && startX < w - 1 && startY > 0 && startY < h - 1) {
+          // 1) Wall canvas: outlines/strokes only (guaranteed crisp watertight barriers, no text/fills blocking)
+          const wallCanvas = document.createElement('canvas');
+          wallCanvas.width = w;
+          wallCanvas.height = h;
+          const wallCtx = wallCanvas.getContext('2d', { willReadFrequently: true });
+
+          // 2) Full scene canvas: includes existing fills & bucket fills so re-filling / splitting respects color boundaries
+          const sceneCanvas = document.createElement('canvas');
+          sceneCanvas.width = w;
+          sceneCanvas.height = h;
+          const sceneCtx = sceneCanvas.getContext('2d', { willReadFrequently: true });
+
+          if (wallCtx && sceneCtx) {
+            wallCtx.save();
+            wallCtx.scale(scale, scale);
+            wallCtx.translate(-minWX, -minWY);
+            for (const { el } of barrierBoundsList) {
+              if (el.type === 'text') continue;
+              const isShape = fillableTypes.has(el.type);
+              const wallEl: CanvasElement = isShape
+                ? {
+                    ...el,
+                    fillColor: 'transparent',
+                    gradientTo: '',
+                    text: undefined,
+                    shadowBlur: 0,
+                    opacity: 1,
+                    color: el.color && el.color !== 'transparent' ? el.color : '#000000',
+                    strokeWidth: Math.max(el.strokeWidth || 2, 2.5 / scale),
+                  }
+                : {
+                    ...el,
+                    shadowBlur: 0,
+                    opacity: 1,
+                    strokeWidth: Math.max(el.strokeWidth || 2, 2.5 / scale),
+                  };
+              try {
+                drawElement(wallCtx, wallEl);
+              } catch {}
+            }
+            wallCtx.restore();
+
+            sceneCtx.save();
+            sceneCtx.scale(scale, scale);
+            sceneCtx.translate(-minWX, -minWY);
             for (const el of elements) {
-              drawElement(ctx, el);
+              if (el.type === 'text' || el.type === 'folder' || el.type === 'video') continue;
+              try {
+                drawElement(sceneCtx, {
+                  ...el,
+                  text: undefined,
+                  shadowBlur: 0,
+                });
+              } catch {}
             }
-            ctx.restore();
+            sceneCtx.restore();
 
-            const imgData = ctx.getImageData(0, 0, w, h);
-            const data = imgData.data;
-            const startIdx = (startY * w + startX) * 4;
-            const sr = data[startIdx];
-            const sg = data[startIdx + 1];
-            const sb = data[startIdx + 2];
-            const sa = data[startIdx + 3];
+            const wallData = wallCtx.getImageData(0, 0, w, h).data;
+            const sceneData = sceneCtx.getImageData(0, 0, w, h).data;
+            const startFlat = startY * w + startX;
+            const startWallA = wallData[startFlat * 4 + 3];
 
-            const [fr, fg, fb, fa] = parseColorToRgba(paintColor, opacity ?? 1);
+            if (startWallA < 42) {
+              const sIdx = startFlat * 4;
+              const sr = sceneData[sIdx];
+              const sg = sceneData[sIdx + 1];
+              const sb = sceneData[sIdx + 2];
+              const sa = sceneData[sIdx + 3];
+              const [fr, fg, fb, fa] = parseColorToRgba(paintColor, opacity ?? 1);
 
-            // Tolerance for matching the target background / interior color
-            const tol = 38;
-            const matchesStart = (pixelIndex: number) => {
-              const i = pixelIndex * 4;
-              const da = Math.abs(data[i + 3] - sa);
-              if (sa < 20) {
-                return data[i + 3] < 45;
-              }
-              return (
-                da <= tol &&
-                Math.abs(data[i] - sr) <= tol &&
-                Math.abs(data[i + 1] - sg) <= tol &&
-                Math.abs(data[i + 2] - sb) <= tol
-              );
-            };
-
-            const visited = new Uint8Array(w * h);
-            const filledIndices: number[] = [];
-            const stack: number[] = [startY * w + startX];
-            visited[startY * w + startX] = 1;
-
-            let touchesBorder = false;
-            let minPxX = startX;
-            let maxPxX = startX;
-            let minPxY = startY;
-            let maxPxY = startY;
-            const maxAllowedPixels = Math.floor(w * h * 0.82);
-
-            while (stack.length > 0) {
-              const curr = stack.pop()!;
-              const cy = Math.floor(curr / w);
-              const cx = curr - cy * w;
-
-              if (cx === 0 || cx === w - 1 || cy === 0 || cy === h - 1) {
-                touchesBorder = true;
-                break;
-              }
-
-              filledIndices.push(curr);
-              if (filledIndices.length > maxAllowedPixels) {
-                touchesBorder = true;
-                break;
-              }
-
-              if (cx < minPxX) minPxX = cx;
-              if (cx > maxPxX) maxPxX = cx;
-              if (cy < minPxY) minPxY = cy;
-              if (cy > maxPxY) maxPxY = cy;
-
-              // 4-neighbors
-              const left = curr - 1;
-              if (cx > 0 && !visited[left] && matchesStart(left)) {
-                visited[left] = 1;
-                stack.push(left);
-              }
-              const right = curr + 1;
-              if (cx < w - 1 && !visited[right] && matchesStart(right)) {
-                visited[right] = 1;
-                stack.push(right);
-              }
-              const up = curr - w;
-              if (cy > 0 && !visited[up] && matchesStart(up)) {
-                visited[up] = 1;
-                stack.push(up);
-              }
-              const down = curr + w;
-              if (cy < h - 1 && !visited[down] && matchesStart(down)) {
-                visited[down] = 1;
-                stack.push(down);
-              }
-            }
-
-            if (!touchesBorder && filledIndices.length >= 6) {
-              // Check if this bounded region is simply an un-subdivided geometric shape or sticky note
-              const fillableTypes = new Set<string>([
-                'rectangle',
-                'rounded-rect',
-                'circle',
-                'triangle',
-                'diamond',
-                'star',
-                'hexagon',
-                'pentagon',
-                'octagon',
-                'parallelogram',
-                'trapezoid',
-                'cross',
-                'heart',
-                'cloud',
-                'callout',
-                'cylinder',
-                'cube',
-                'sticky',
-              ]);
-              // A freehand loop whose ends (almost) meet is a closed shape too
-              const isClosedFreehand = (el: CanvasElement) => {
-                if (el.type !== 'pencil' && el.type !== 'fountain-pen') return false;
-                const pts = el.points;
-                if (!pts || pts.length < 6) return false;
-                const first = pts[0];
-                const last = pts[pts.length - 1];
-                const bb = getElementBounds(el);
-                const gap = Math.hypot(first.x - last.x, first.y - last.y);
-                return gap <= Math.max(24, Math.hypot(bb.width, bb.height) * 0.12);
-              };
-              const insideFreehand = (el: CanvasElement) => {
-                const pts = el.points || [];
-                let inside = false;
-                for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-                  const intersect =
-                    pts[i].y > canvasPt.y !== pts[j].y > canvasPt.y &&
-                    canvasPt.x <
-                      ((pts[j].x - pts[i].x) * (canvasPt.y - pts[i].y)) / (pts[j].y - pts[i].y + 1e-9) +
-                        pts[i].x;
-                  if (intersect) inside = !inside;
+              const tol = 42;
+              const isPassable = (pixelIndex: number) => {
+                const i = pixelIndex * 4;
+                if (wallData[i + 3] >= 42) return false;
+                if (sa < 24) {
+                  return sceneData[i + 3] < 48;
                 }
-                return inside;
+                return (
+                  Math.abs(sceneData[i + 3] - sa) <= tol &&
+                  Math.abs(sceneData[i] - sr) <= tol &&
+                  Math.abs(sceneData[i + 1] - sg) <= tol &&
+                  Math.abs(sceneData[i + 2] - sb) <= tol
+                );
               };
-              const hitShape = [...elements].reverse().find((el) => {
-                if (el.isLocked) return false;
-                if (fillableTypes.has(el.type)) return isPointInsideElement(canvasPt, el);
-                return isClosedFreehand(el) && insideFreehand(el);
-              });
 
-              if (hitShape) {
-                const b = getElementBounds(hitShape);
-                const shapeScreenW = b.width * zoom;
-                const shapeScreenH = b.height * zoom;
-                const fillW = maxPxX - minPxX + 1;
-                const fillH = maxPxY - minPxY + 1;
-                // The region the bucket found is (most of) the interior of this object -> colour the object itself
-                // instead of dropping a separate picture on top of it. Text/marks inside the object only
-                // carve holes in the flood region, so the threshold is deliberately generous.
-                if (
-                  fillW >= shapeScreenW * 0.4 &&
-                  fillH >= shapeScreenH * 0.4 &&
-                  fillW <= shapeScreenW * 1.2 &&
-                  fillH <= shapeScreenH * 1.2
-                ) {
-                  if (onSaveHistorySnapshot) onSaveHistorySnapshot();
-                  onUpdateElement(hitShape.id, {
-                    fillColor: paintColor,
-                    updatedAt: Date.now(),
+              const visited = new Uint8Array(w * h);
+              const queue = new Int32Array(w * h);
+              let qHead = 0;
+              let qTail = 0;
+              queue[qTail++] = startFlat;
+              visited[startFlat] = 1;
+
+              const filledIndices: number[] = [];
+              let touchesBorder = false;
+              let minPxX = startX;
+              let maxPxX = startX;
+              let minPxY = startY;
+              let maxPxY = startY;
+              const maxAllowedPixels = Math.floor(w * h * 0.85);
+
+              while (qHead < qTail) {
+                const curr = queue[qHead++];
+                const cy = Math.floor(curr / w);
+                const cx = curr - cy * w;
+
+                if (cx === 0 || cx === w - 1 || cy === 0 || cy === h - 1) {
+                  touchesBorder = true;
+                  break;
+                }
+
+                filledIndices.push(curr);
+                if (filledIndices.length > maxAllowedPixels) {
+                  touchesBorder = true;
+                  break;
+                }
+
+                if (cx < minPxX) minPxX = cx;
+                if (cx > maxPxX) maxPxX = cx;
+                if (cy < minPxY) minPxY = cy;
+                if (cy > maxPxY) maxPxY = cy;
+
+                const left = curr - 1;
+                if (!visited[left] && isPassable(left)) {
+                  visited[left] = 1;
+                  queue[qTail++] = left;
+                }
+                const right = curr + 1;
+                if (!visited[right] && isPassable(right)) {
+                  visited[right] = 1;
+                  queue[qTail++] = right;
+                }
+                const up = curr - w;
+                if (!visited[up] && isPassable(up)) {
+                  visited[up] = 1;
+                  queue[qTail++] = up;
+                }
+                const down = curr + w;
+                if (!visited[down] && isPassable(down)) {
+                  visited[down] = 1;
+                  queue[qTail++] = down;
+                }
+              }
+
+              if (!touchesBorder && filledIndices.length >= 6) {
+                const fillWorldMinX = minWX + minPxX / scale;
+                const fillWorldMaxX = minWX + (maxPxX + 1) / scale;
+                const fillWorldMinY = minWY + minPxY / scale;
+                const fillWorldMaxY = minWY + (maxPxY + 1) / scale;
+                const fillWorldW = Math.max(1, fillWorldMaxX - fillWorldMinX);
+                const fillWorldH = Math.max(1, fillWorldMaxY - fillWorldMinY);
+
+                // Find barrier elements whose bounds touch or surround the flooded region
+                const touchMargin = Math.max(6, 6 / scale);
+                const touchingBarriers = barrierBoundsList.filter(
+                  ({ el, b }) =>
+                    el.type !== 'text' &&
+                    b.maxX >= fillWorldMinX - touchMargin &&
+                    b.minX <= fillWorldMaxX + touchMargin &&
+                    b.maxY >= fillWorldMinY - touchMargin &&
+                    b.minY <= fillWorldMaxY + touchMargin
+                );
+
+                // Check if this enclosed area is simply ONE un-subdivided fillable geometric shape (not split by lines!)
+                const hitShape = [...elements].reverse().find((el) => {
+                  if (el.isLocked) return false;
+                  if (el.type === 'double-arrow' || el.type === 'curved-arrow') return false;
+                  if (fillableTypes.has(el.type)) return isPointInsideElement(canvasPt, el);
+                  return false;
+                });
+
+                if (hitShape) {
+                  const hb = getElementBounds(hitShape);
+                  const otherDividerInside = touchingBarriers.some(({ el }) => el.id !== hitShape.id);
+                  const matchesWholeShape =
+                    !otherDividerInside &&
+                    fillWorldW >= hb.width * 0.72 &&
+                    fillWorldH >= hb.height * 0.72 &&
+                    fillWorldW <= hb.width * 1.15 &&
+                    fillWorldH <= hb.height * 1.15;
+
+                  if (matchesWholeShape) {
+                    if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                    onUpdateElement(hitShape.id, {
+                      fillColor: paintColor,
+                      gradientTo: '',
+                      updatedAt: Date.now(),
+                    });
+                    return;
+                  }
+                }
+
+                // Render dilated (+1px) crisp fill mask so zero anti-alias halo appears beneath boundary strokes
+                const padMinX = Math.max(0, minPxX - 1);
+                const padMaxX = Math.min(w - 1, maxPxX + 1);
+                const padMinY = Math.max(0, minPxY - 1);
+                const padMaxY = Math.min(h - 1, maxPxY + 1);
+                const cropW = padMaxX - padMinX + 1;
+                const cropH = padMaxY - padMinY + 1;
+
+                const outCanvas = document.createElement('canvas');
+                outCanvas.width = cropW;
+                outCanvas.height = cropH;
+                const outCtx = outCanvas.getContext('2d');
+                if (outCtx) {
+                  const outImg = outCtx.createImageData(cropW, cropH);
+                  const outData = outImg.data;
+
+                  const paintPixel = (gx: number, gy: number) => {
+                    const lx = gx - padMinX;
+                    const ly = gy - padMinY;
+                    if (lx < 0 || lx >= cropW || ly < 0 || ly >= cropH) return;
+                    const oi = (ly * cropW + lx) * 4;
+                    outData[oi] = fr;
+                    outData[oi + 1] = fg;
+                    outData[oi + 2] = fb;
+                    outData[oi + 3] = fa;
+                  };
+
+                  for (let k = 0; k < filledIndices.length; k++) {
+                    const idx = filledIndices[k];
+                    const gy = Math.floor(idx / w);
+                    const gx = idx - gy * w;
+                    paintPixel(gx, gy);
+                    paintPixel(gx - 1, gy);
+                    paintPixel(gx + 1, gy);
+                    paintPixel(gx, gy - 1);
+                    paintPixel(gx, gy + 1);
+                  }
+
+                  outCtx.putImageData(outImg, 0, 0);
+                  const dataUrl = outCanvas.toDataURL('image/png');
+                  const worldX = minWX + padMinX / scale;
+                  const worldY = minWY + padMinY / scale;
+                  const worldBoxW = Math.max(2, (padMaxX + 1 - padMinX) / scale);
+                  const worldBoxH = Math.max(2, (padMaxY + 1 - padMinY) / scale);
+
+                  const boundIds = touchingBarriers.map(({ el }) => el.id);
+
+                  // If re-filling the exact same existing bucket-fill region, update it in place instead of stacking
+                  const existingMatchingFill = [...elements].reverse().find((el) => {
+                    if (!el.isBucketFill || el.isLocked) return false;
+                    const eb = getElementBounds(el);
+                    const eps = Math.max(6, 6 / scale);
+                    return (
+                      Math.abs(eb.minX - worldX) <= eps &&
+                      Math.abs(eb.minY - worldY) <= eps &&
+                      Math.abs(eb.width - worldBoxW) <= eps * 2 &&
+                      Math.abs(eb.height - worldBoxH) <= eps * 2
+                    );
                   });
+
+                  if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                  if (existingMatchingFill) {
+                    onUpdateElement(existingMatchingFill.id, {
+                      x: worldX,
+                      y: worldY,
+                      width: worldBoxW,
+                      height: worldBoxH,
+                      imageUrl: dataUrl,
+                      fillColor: paintColor,
+                      boundElementIds: boundIds.length > 0 ? boundIds : existingMatchingFill.boundElementIds,
+                      updatedAt: Date.now(),
+                    });
+                    return;
+                  }
+
+                  // Place the fill strictly BEHIND the earliest enclosing stroke so lines always stay crisp on top
+                  const boundSet = new Set(boundIds);
+                  const earliestBoundEl = elements.find((el) => boundSet.has(el.id));
+
+                  const fillElement: CanvasElement = {
+                    id: `fill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                    type: 'image',
+                    isBucketFill: true,
+                    boundElementIds: boundIds,
+                    x: worldX,
+                    y: worldY,
+                    width: worldBoxW,
+                    height: worldBoxH,
+                    imageUrl: dataUrl,
+                    color: 'transparent',
+                    fillColor: paintColor,
+                    strokeWidth: 0,
+                    opacity: 1,
+                    rotation: 0,
+                    flipX: false,
+                    flipY: false,
+                    createdBy: currentUser.name,
+                    updatedAt: Date.now(),
+                  };
+                  onCreateElement(fillElement, earliestBoundEl?.id);
                   return;
                 }
-              }
-
-              // Dilate filled mask by 1px so anti-aliased stroke edges have no gap
-              const padMinX = Math.max(0, minPxX - 1);
-              const padMaxX = Math.min(w - 1, maxPxX + 1);
-              const padMinY = Math.max(0, minPxY - 1);
-              const padMaxY = Math.min(h - 1, maxPxY + 1);
-              const cropW = padMaxX - padMinX + 1;
-              const cropH = padMaxY - padMinY + 1;
-
-              const outCanvas = document.createElement('canvas');
-              outCanvas.width = cropW;
-              outCanvas.height = cropH;
-              const outCtx = outCanvas.getContext('2d');
-              if (outCtx) {
-                const outImg = outCtx.createImageData(cropW, cropH);
-                const outData = outImg.data;
-
-                const paintPixel = (gx: number, gy: number) => {
-                  const lx = gx - padMinX;
-                  const ly = gy - padMinY;
-                  if (lx < 0 || lx >= cropW || ly < 0 || ly >= cropH) return;
-                  const oi = (ly * cropW + lx) * 4;
-                  outData[oi] = fr;
-                  outData[oi + 1] = fg;
-                  outData[oi + 2] = fb;
-                  outData[oi + 3] = fa;
-                };
-
-                for (let k = 0; k < filledIndices.length; k++) {
-                  const idx = filledIndices[k];
-                  const gy = Math.floor(idx / w);
-                  const gx = idx - gy * w;
-                  paintPixel(gx, gy);
-                  paintPixel(gx - 1, gy);
-                  paintPixel(gx + 1, gy);
-                  paintPixel(gx, gy - 1);
-                  paintPixel(gx, gy + 1);
-                }
-
-                outCtx.putImageData(outImg, 0, 0);
-                const dataUrl = outCanvas.toDataURL('image/png');
-                const worldTL = screenToCanvas({ x: padMinX, y: padMinY }, pan, zoom);
-                const worldBR = screenToCanvas({ x: padMaxX + 1, y: padMaxY + 1 }, pan, zoom);
-
-                if (onSaveHistorySnapshot) onSaveHistorySnapshot();
-                const fillElement: CanvasElement = {
-                  id: `fill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                  type: 'image',
-                  x: worldTL.x,
-                  y: worldTL.y,
-                  width: Math.max(2, worldBR.x - worldTL.x),
-                  height: Math.max(2, worldBR.y - worldTL.y),
-                  imageUrl: dataUrl,
-                  color: 'transparent',
-                  strokeWidth: 0,
-                  opacity: 1,
-                  rotation: 0,
-                  flipX: false,
-                  flipY: false,
-                  createdBy: currentUser.name,
-                  updatedAt: Date.now(),
-                };
-                onCreateElement(fillElement);
-                return;
               }
             }
           }
         }
       }
 
-      // Fallback: Vector hit test for shapes, sticky notes, or nearly-closed freehand loops
+      // Fallback: direct hit on a single fillable shape or closed freehand loop
       const hitEl = [...elements].reverse().find((el) => {
-        if (el.isLocked) return false;
-        if (
-          (el.type === 'pencil' || el.type === 'fountain-pen') &&
-          el.points &&
-          el.points.length >= 4
-        ) {
-          // Ray-casting point-in-polygon check for freehand loop
+        if (el.isLocked || el.isBucketFill) return false;
+        if (el.type === 'double-arrow' || el.type === 'curved-arrow') return false;
+        if (fillableTypes.has(el.type)) return isPointInsideElement(canvasPt, el);
+        if (isClosedFreehand(el) && el.points) {
           let inside = false;
           const pts = el.points;
           for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -1008,15 +1049,16 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               canvasPt.x < ((xj - xi) * (canvasPt.y - yi)) / (yj - yi + 1e-9) + xi;
             if (intersect) inside = !inside;
           }
-          if (inside) return true;
+          return inside;
         }
-        return isPointInsideElement(canvasPt, el);
+        return false;
       });
 
       if (hitEl && !hitEl.isLocked) {
         if (onSaveHistorySnapshot) onSaveHistorySnapshot();
         onUpdateElement(hitEl.id, {
           fillColor: paintColor,
+          gradientTo: '',
           updatedAt: Date.now(),
         });
       }
@@ -1026,8 +1068,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       strokeColor,
       fillColor,
       opacity,
-      pan,
-      zoom,
       elements,
       currentUser.name,
       onSaveHistorySnapshot,
@@ -1841,9 +1881,47 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
       }
 
+      // Helper: prioritize non-bucket-fill strokes/shapes before bucket fills on click,
+      // and include bound bucket fills when dragging their enclosing strokes so fills never detach
+      const findBestHitElement = (filterFn?: (el: CanvasElement) => boolean) => {
+        const reversed = [...elements].reverse();
+        const nonFill = reversed.find(
+          (el) => !el.isBucketFill && (!filterFn || filterFn(el)) && isPointInsideElement(canvasPt, el)
+        );
+        if (nonFill) return nonFill;
+        return reversed.find(
+          (el) => el.isBucketFill && (!filterFn || filterFn(el)) && isPointInsideElement(canvasPt, el)
+        );
+      };
+
+      const buildDragSnapshotWithBoundFills = (baseIds: string[]) => {
+        const snapMap = new Map<string, CanvasElement>();
+        const idSet = new Set(baseIds);
+        // Attach any unlocked bucket fill whose enclosing boundary strokes are being moved
+        for (const el of elements) {
+          if (!el.isBucketFill || el.isLocked || idSet.has(el.id)) continue;
+          const bound = el.boundElementIds || [];
+          if (bound.length > 0) {
+            const existingBound = bound.filter((bid) => elements.some((item) => item.id === bid));
+            if (existingBound.length > 0 && existingBound.every((bid) => idSet.has(bid))) {
+              idSet.add(el.id);
+            }
+          }
+        }
+        elements
+          .filter((el) => idSet.has(el.id))
+          .forEach((el) => {
+            snapMap.set(el.id, {
+              ...el,
+              points: el.points ? el.points.map((p) => ({ ...p })) : undefined,
+            });
+          });
+        return snapMap;
+      };
+
       // 3. When Ctrl or Left/Right Shift is held: clicking ANY element toggles it in/out of multi-selection!
       if (isMultiModifier) {
-        const hitAny = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
+        const hitAny = findBestHitElement();
         if (hitAny) {
           const alreadySelected = activeSelectedIds.includes(hitAny.id);
           const nextIds = alreadySelected
@@ -1851,21 +1929,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             : [...activeSelectedIds, hitAny.id];
           updateSelectedIds(nextIds);
 
-          // If we added it to selection (or still have selected items), prepare drag snapshot so holding Ctrl/Shift + dragging moves all selected items
           if (!alreadySelected && !hitAny.isLocked) {
             if (onSaveHistorySnapshot) onSaveHistorySnapshot();
             isDraggingSelectedRef.current = true;
             dragStartCanvasPointRef.current = canvasPt;
-            const snapMap = new Map<string, CanvasElement>();
-            elements
-              .filter((el) => nextIds.includes(el.id))
-              .forEach((el) => {
-                snapMap.set(el.id, {
-                  ...el,
-                  points: el.points ? el.points.map((p) => ({ ...p })) : undefined,
-                });
-              });
-            initialElementsSnapshotRef.current = snapMap;
+            initialElementsSnapshotRef.current = buildDragSnapshotWithBoundFills(nextIds);
             initialElementSnapshotRef.current = {
               ...hitAny,
               points: hitAny.points ? hitAny.points.map((p) => ({ ...p })) : undefined,
@@ -1877,25 +1945,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
 
       // 4. Check if clicked inside an already-selected element (drag selected group)
-      const hitSelected = [...elements]
-        .reverse()
-        .find((el) => activeSelectedIds.includes(el.id) && isPointInsideElement(canvasPt, el));
+      const hitSelected = findBestHitElement((el) => activeSelectedIds.includes(el.id));
 
       if (hitSelected) {
         if (!hitSelected.isLocked) {
           if (onSaveHistorySnapshot) onSaveHistorySnapshot();
           isDraggingSelectedRef.current = true;
           dragStartCanvasPointRef.current = canvasPt;
-          const snapMap = new Map<string, CanvasElement>();
-          elements
-            .filter((el) => activeSelectedIds.includes(el.id))
-            .forEach((el) => {
-              snapMap.set(el.id, {
-                ...el,
-                points: el.points ? el.points.map((p) => ({ ...p })) : undefined,
-              });
-            });
-          initialElementsSnapshotRef.current = snapMap;
+          initialElementsSnapshotRef.current = buildDragSnapshotWithBoundFills(activeSelectedIds);
           initialElementSnapshotRef.current = {
             ...hitSelected,
             points: hitSelected.points ? hitSelected.points.map((p) => ({ ...p })) : undefined,
@@ -1906,19 +1963,24 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
 
       // 5. Otherwise check if clicked on any unselected element
-      const hitElement = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
+      const hitElement = findBestHitElement();
       if (hitElement) {
-        updateSelectedIds([hitElement.id]);
+        // Clicking the colored interior of a bucket fill selects it together with its enclosing boundary strokes
+        let selectionIds: string[] = [hitElement.id];
+        if (hitElement.isBucketFill && hitElement.boundElementIds && hitElement.boundElementIds.length > 0) {
+          const aliveBound = hitElement.boundElementIds.filter((bid) =>
+            elements.some((item) => item.id === bid && !item.isLocked)
+          );
+          if (aliveBound.length > 0) {
+            selectionIds = [hitElement.id, ...aliveBound];
+          }
+        }
+        updateSelectedIds(selectionIds);
         if (!hitElement.isLocked) {
           if (onSaveHistorySnapshot) onSaveHistorySnapshot();
           isDraggingSelectedRef.current = true;
           dragStartCanvasPointRef.current = canvasPt;
-          const snapMap = new Map<string, CanvasElement>();
-          snapMap.set(hitElement.id, {
-            ...hitElement,
-            points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
-          });
-          initialElementsSnapshotRef.current = snapMap;
+          initialElementsSnapshotRef.current = buildDragSnapshotWithBoundFills(selectionIds);
           initialElementSnapshotRef.current = {
             ...hitElement,
             points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
@@ -2463,7 +2525,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       let hasDraggableBoardFile = false;
       for (const [id, initEl] of initialElementsSnapshotRef.current.entries()) {
         if (initEl.isLocked) continue;
-        if (initEl.type === 'image' || initEl.type === 'pdf' || initEl.type === 'video') {
+        if (
+          !initEl.isBucketFill &&
+          (initEl.type === 'image' || initEl.type === 'pdf' || initEl.type === 'video')
+        ) {
           hasDraggableBoardFile = true;
         }
         if (initEl.points && initEl.points.length > 0) {
@@ -2715,7 +2780,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         const newFolderItems: FolderFileItem[] = [];
 
         for (const [id, initEl] of initialElementsSnapshotRef.current.entries()) {
-          if (initEl.isLocked) continue;
+          if (initEl.isLocked || initEl.isBucketFill) continue;
           if (initEl.type === 'image' || initEl.type === 'pdf' || initEl.type === 'video') {
             const latestEl = elements.find((item) => item.id === id) || initEl;
             const dataUrl = latestEl.pdfUrl || latestEl.videoUrl || latestEl.imageUrl || '';
@@ -3017,12 +3082,35 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
   const handlePdfPageTurn = useCallback(
     async (el: CanvasElement, direction: 'prev' | 'next') => {
-      if (!el.pdfUrl || loadingPdfPages[el.id]) return;
+      if (loadingPdfPages[el.id]) return;
       const cur = el.currentPage || 1;
       const total = el.totalPages || 1;
       const targetPage = direction === 'prev' ? cur - 1 : cur + 1;
       if (targetPage < 1 || targetPage > total) return;
 
+      // Paginated Markdown (.md) or Plain Text (.txt) document on board
+      if (el.documentKind === 'markdown' || el.documentKind === 'text') {
+        try {
+          setLoadingPdfPages((prev) => ({ ...prev, [el.id]: true }));
+          const newPageImageUrl = renderDocumentPage(
+            el.markdownContent || '',
+            el.documentKind,
+            el.fileName || (el.documentKind === 'markdown' ? 'Belge.md' : 'Not.txt'),
+            targetPage
+          );
+          onUpdateElement(el.id, {
+            currentPage: targetPage,
+            imageUrl: newPageImageUrl,
+          });
+        } catch (err) {
+          console.error('Failed to turn document page:', err);
+        } finally {
+          setLoadingPdfPages((prev) => ({ ...prev, [el.id]: false }));
+        }
+        return;
+      }
+
+      if (!el.pdfUrl) return;
       try {
         setLoadingPdfPages((prev) => ({ ...prev, [el.id]: true }));
         const newPageImageUrl = await renderPdfPage(el.pdfUrl, targetPage);
@@ -3087,6 +3175,57 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       window.removeEventListener('resize', onResize);
     };
   }, [fullscreenPdfId, elements, editingElementId, exitPdfFullscreen, fitPdfToViewport, handlePdfPageTurn]);
+
+  const handleAddDocumentAtPosition = (
+    content: string,
+    kind: 'markdown' | 'text',
+    fileName: string,
+    targetX: number,
+    targetY: number
+  ) => {
+    try {
+      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+      const resolvedName = fileName || (kind === 'markdown' ? 'Belge.md' : 'Not.txt');
+      const { totalPages, defaultWidth, defaultHeight } = getDocumentPageInfo(
+        content,
+        kind,
+        resolvedName
+      );
+      const page1ImageUrl = renderDocumentPage(content, kind, resolvedName, 1);
+
+      const docEl: CanvasElement = {
+        id: `doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'pdf',
+        documentKind: kind,
+        x: targetX - defaultWidth / 2,
+        y: targetY - defaultHeight / 2,
+        width: defaultWidth,
+        height: defaultHeight,
+        imageUrl: page1ImageUrl,
+        markdownContent: content,
+        currentPage: 1,
+        totalPages: totalPages || 1,
+        fileName: resolvedName,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
+
+      onCreateElement(docEl);
+      if (onSelectElements) {
+        onSelectElements([docEl.id]);
+      } else {
+        onSelectElement(docEl.id);
+      }
+      if (onSelectTool) {
+        onSelectTool('select');
+      }
+    } catch (err) {
+      console.error('Failed to add document at position:', err);
+    }
+  };
 
   const handleAddPdfAtPosition = async (
     pdfUrl: string,
@@ -3342,14 +3481,19 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         img.src = normalizedUrl;
         return;
       }
-      if (isMarkdown) {
-        const mdText = extractTextFromDataUrl(file.dataUrl || '') || '';
-        const mdCard = createMarkdownCardSvgDataUrl({
-          name: file.name || 'Belge.md',
-          size: file.size || 0,
-          markdownContent: mdText,
-        });
-        handleAddImageAtPosition(mdCard.dataUrl, x, y, mdCard.width, mdCard.height, file.name);
+      const isPlainText =
+        lowerName.endsWith('.txt') ||
+        file.type === 'text/plain';
+
+      if (isMarkdown || isPlainText) {
+        const docText = extractTextFromDataUrl(file.dataUrl || '') || '';
+        handleAddDocumentAtPosition(
+          docText,
+          isMarkdown ? 'markdown' : 'text',
+          file.name || (isMarkdown ? 'Belge.md' : 'Not.txt'),
+          x,
+          y
+        );
         return;
       }
 
@@ -5442,16 +5586,24 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         theme={theme}
       />
 
-      {/* Remote User Cursors — Highest Board Z-Index Overlay (Always above GIFs, videos, folders, PDF controls & text editors) */}
+      {/* Remote User Cursors — Above Canvas Items (z-6..16) & Strictly Below Floating Bars (z-25..40+) */}
       <div
-        className="pointer-events-none absolute inset-0 z-[48] overflow-hidden select-none"
+        className="pointer-events-none absolute inset-0 z-[18] overflow-hidden select-none"
         aria-hidden="true"
       >
         {users.map((user) => {
-          if (user.id === currentUser.id || !user.cursor) return null;
+          if (
+            user.id === currentUser.id ||
+            (currentUser.identityKey &&
+              user.identityKey &&
+              user.identityKey === currentUser.identityKey) ||
+            !user.cursor
+          ) {
+            return null;
+          }
           const screenX = user.cursor.x * zoom + pan.x;
           const screenY = user.cursor.y * zoom + pan.y;
-          const userColor = user.color || '#2563eb';
+          const userColor = user.cursorColor || user.color || '#2563eb';
           return (
             <div
               key={`remote-cursor-${user.id}`}

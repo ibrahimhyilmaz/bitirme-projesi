@@ -35,6 +35,7 @@ export interface PublicProfileData {
   friendCode: string;
   avatarUrl: string;
   color: string;
+  cursorColor: string;
   badges: BadgeId[];
   stats: AccountStats;
 }
@@ -43,6 +44,7 @@ export interface GuestAccountData {
   guestId: string;
   displayName: string;
   color: string;
+  cursorColor: string;
   createdAt: number;
 }
 
@@ -97,10 +99,12 @@ function loadGuestAccount(fallbackName: string, fallbackColor: string): GuestAcc
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<GuestAccountData>;
       if (parsed && typeof parsed.guestId === 'string') {
+        const resolvedColor = parsed.color || fallbackColor || '#2563eb';
         return {
           guestId: parsed.guestId,
           displayName: (parsed.displayName || fallbackName || '').slice(0, 60),
-          color: parsed.color || fallbackColor || '#2563eb',
+          color: resolvedColor,
+          cursorColor: parsed.cursorColor || resolvedColor,
           createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : Date.now(),
         };
       }
@@ -109,10 +113,12 @@ function loadGuestAccount(fallbackName: string, fallbackColor: string): GuestAcc
     // ignore storage errors
   }
 
+  const baseColor = fallbackColor || '#2563eb';
   const fresh: GuestAccountData = {
     guestId: `guest_${Math.random().toString(36).slice(2, 10)}`,
     displayName: (fallbackName || '').slice(0, 60),
-    color: fallbackColor || '#2563eb',
+    color: baseColor,
+    cursorColor: baseColor,
     createdAt: Date.now(),
   };
   try {
@@ -148,13 +154,17 @@ function parsePublicProfileDoc(uid: string, raw: Record<string, unknown>): Publi
     : [];
   const badges = evaluateUnlockedBadges(stats, rawBadges);
   const displayName = String(raw.displayName || 'Kullanıcı').slice(0, 60);
+  const color = typeof raw.color === 'string' && raw.color.length >= 4 ? raw.color : '#2563eb';
+  const cursorColor =
+    typeof raw.cursorColor === 'string' && raw.cursorColor.length >= 4 ? raw.cursorColor : color;
   return {
     uid: String(raw.uid || uid),
     displayName,
     displayNameLower: String(raw.displayNameLower || displayName.toLocaleLowerCase('tr-TR')).slice(0, 60),
     friendCode: String(raw.friendCode || 'CB-0000'),
     avatarUrl: typeof raw.avatarUrl === 'string' ? raw.avatarUrl : '',
-    color: typeof raw.color === 'string' && raw.color.length >= 4 ? raw.color : '#2563eb',
+    color,
+    cursorColor,
     badges,
     stats,
   };
@@ -224,13 +234,15 @@ export function useAccountSocial({
           )
             .trim()
             .slice(0, 60);
+          const baseColor = guestAccount.color || fallbackColor || '#2563eb';
           const initialPayload = {
             uid,
             displayName: initialName || 'Kullanıcı',
             displayNameLower: (initialName || 'Kullanıcı').toLocaleLowerCase('tr-TR'),
             friendCode: generateFriendCode(),
             avatarUrl: (firebaseUser.photoURL || '').slice(0, 350000),
-            color: guestAccount.color || fallbackColor || '#2563eb',
+            color: baseColor,
+            cursorColor: guestAccount.cursorColor || baseColor,
             badges: [] as string[],
             stats: { ...EMPTY_ACCOUNT_STATS },
             updatedAt: serverTimestamp(),
@@ -425,9 +437,10 @@ export function useAccountSocial({
 
   // Update guest or cloud profile
   const updateProfile = useCallback(
-    async (patch: { displayName?: string; color?: string; avatarUrl?: string }) => {
+    async (patch: { displayName?: string; color?: string; cursorColor?: string; avatarUrl?: string }) => {
       const cleanName = patch.displayName?.trim().slice(0, 60);
       const cleanColor = patch.color?.trim().slice(0, 32);
+      const cleanCursorColor = patch.cursorColor?.trim().slice(0, 32);
 
       if (!firebaseUser) {
         setGuestAccount((prev) => {
@@ -435,6 +448,7 @@ export function useAccountSocial({
             ...prev,
             displayName: cleanName !== undefined && cleanName.length > 0 ? cleanName : prev.displayName,
             color: cleanColor || prev.color,
+            cursorColor: cleanCursorColor || prev.cursorColor || cleanColor || prev.color,
           };
           try {
             localStorage.setItem(GUEST_STORAGE_KEY, JSON.stringify(next));
@@ -451,6 +465,7 @@ export function useAccountSocial({
           ? cleanName
           : current?.displayName || firebaseUser.displayName || 'Kullanıcı';
       const nextColor = cleanColor || current?.color || '#2563eb';
+      const nextCursorColor = cleanCursorColor || current?.cursorColor || nextColor;
       const nextAvatar =
         patch.avatarUrl !== undefined
           ? patch.avatarUrl.slice(0, 350000)
@@ -468,6 +483,7 @@ export function useAccountSocial({
           friendCode,
           avatarUrl: nextAvatar,
           color: nextColor,
+          cursorColor: nextCursorColor,
           badges,
           stats,
           updatedAt: serverTimestamp(),
@@ -511,6 +527,7 @@ export function useAccountSocial({
         friendCode: current.friendCode,
         avatarUrl: current.avatarUrl,
         color: current.color,
+        cursorColor: current.cursorColor || current.color,
         badges: nextBadges,
         stats: nextStats,
         updatedAt: serverTimestamp(),
@@ -864,6 +881,11 @@ export function useAccountSocial({
       ? cloudProfile?.color || guestAccount.color || fallbackColor || '#2563eb'
       : guestAccount.color || fallbackColor || '#2563eb';
 
+  const activeCursorColor =
+    accountType === 'google'
+      ? cloudProfile?.cursorColor || cloudProfile?.color || guestAccount.cursorColor || activeColor
+      : guestAccount.cursorColor || activeColor;
+
   const activeAvatarUrl =
     accountType === 'google' ? cloudProfile?.avatarUrl || firebaseUser?.photoURL || '' : '';
 
@@ -874,6 +896,7 @@ export function useAccountSocial({
     isProfileLoading,
     activeDisplayName,
     activeColor,
+    activeCursorColor,
     activeAvatarUrl,
     friends,
     incomingFriendRequests,

@@ -1436,6 +1436,12 @@ export function drawElement(
             drawn = false;
           }
         }
+        const docPrefix =
+          element.documentKind === 'markdown'
+            ? 'Markdown Sayfa'
+            : element.documentKind === 'text'
+            ? 'Belge Sayfa'
+            : 'PDF Sayfa';
         if (!drawn) {
           ctx.fillStyle = '#f8fafc';
           ctx.beginPath();
@@ -1443,16 +1449,22 @@ export function drawElement(
           ctx.fill();
           ctx.fillStyle = '#64748b';
           ctx.font = '500 13px "Plus Jakarta Sans", sans-serif';
-          ctx.fillText(`PDF Sayfa ${element.currentPage || 1} yükleniyor...`, element.x + 20, element.y + 40);
+          ctx.fillText(`${docPrefix} ${element.currentPage || 1} yükleniyor...`, element.x + 20, element.y + 40);
         }
       } else {
+        const docPrefix =
+          element.documentKind === 'markdown'
+            ? 'Markdown Sayfa'
+            : element.documentKind === 'text'
+            ? 'Belge Sayfa'
+            : 'PDF Sayfa';
         ctx.fillStyle = '#f8fafc';
         ctx.beginPath();
         ctx.roundRect(element.x, element.y, w, h, 6);
         ctx.fill();
         ctx.fillStyle = '#64748b';
         ctx.font = '500 13px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText(`PDF Sayfa ${element.currentPage || 1} yükleniyor...`, element.x + 20, element.y + 40);
+        ctx.fillText(`${docPrefix} ${element.currentPage || 1} yükleniyor...`, element.x + 20, element.y + 40);
       }
 
       // Crisp paper border

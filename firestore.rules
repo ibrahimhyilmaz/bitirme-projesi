@@ -110,6 +110,7 @@ service cloud.firestore {
           'friendCode',
           'avatarUrl',
           'color',
+          'cursorColor',
           'badges',
           'stats',
           'updatedAt'
@@ -120,6 +121,7 @@ service cloud.firestore {
         data.friendCode is string && data.friendCode.size() >= 5 && data.friendCode.size() <= 16 && data.friendCode.matches('^CB-[A-Z0-9]{4,8}$') &&
         data.avatarUrl is string && data.avatarUrl.size() <= 350000 &&
         data.color is string && data.color.size() >= 4 && data.color.size() <= 32 &&
+        (!('cursorColor' in data) || (data.cursorColor is string && data.cursorColor.size() >= 4 && data.cursorColor.size() <= 32)) &&
         data.badges is list && data.badges.size() <= 20 && (data.badges.size() == 0 || data.badges[0] is string) &&
         isValidStatsMap(data.stats) &&
         data.updatedAt is timestamp;

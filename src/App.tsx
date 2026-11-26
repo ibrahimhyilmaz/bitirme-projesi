@@ -44,7 +44,9 @@ import { ProfileSocialModal, ProfileModalTab } from './components/ProfileSocialM
 import { RoomInviteToast } from './components/RoomInviteToast';
 import type { BoardSnapshot } from './utils/cloudBoardCodec';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
-import { normalizeImageDataUrl } from './utils/fileValidation';
+import { getDocumentPageInfo, renderDocumentPage } from './utils/documentPageRenderer';
+import { normalizeImageDataUrl, extractTextFromDataUrl } from './utils/fileValidation';
+import { buildIdentityKey } from './utils/userIdentity';
 
 interface ElementDelta {
   id: string;
@@ -329,6 +331,7 @@ export default function App() {
     } catch {}
     const savedName = localStorage.getItem('collab_username');
     const savedColor = localStorage.getItem('collab_usercolor');
+    const savedCursorColor = localStorage.getItem('collab_cursorcolor');
     const colors = ['#2563eb', '#7c3aed', '#059669', '#ea580c', '#db2777', '#0891b2'];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
@@ -343,11 +346,15 @@ export default function App() {
       sessionUserId = `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
     }
 
+    const initialColor = savedColor || randomColor;
     return {
       id: sessionUserId,
+      identityKey: buildIdentityKey(null, getOrCreateOwnerKey()),
       name: savedName || '',
       avatar: (savedName || 'M').charAt(0).toUpperCase(),
-      color: savedColor || randomColor,
+      avatarUrl: undefined as string | undefined,
+      color: initialColor,
+      cursorColor: savedCursorColor || initialColor,
     };
   });
 
@@ -360,6 +367,9 @@ export default function App() {
       localStorage.setItem('collab_username', currentUser.name);
     }
     localStorage.setItem('collab_usercolor', currentUser.color);
+    if (currentUser.cursorColor) {
+      localStorage.setItem('collab_cursorcolor', currentUser.cursorColor);
+    }
   }, [currentUser]);
 
   // Keep URL search param synced when roomId changes (only after entering workspace)
@@ -934,19 +944,30 @@ export default function App() {
 
   // Tracked local element mutators (remote WS/MQTT packets bypass these and never enter local undo)
   const createElement = useCallback(
-    (el: CanvasElement) => {
+    (el: CanvasElement, insertBeforeId?: string) => {
       if (!canEdit) return;
       const tx = getOrOpenTx();
       const prevEl = elementsRef.current.find((e) => e.id === el.id) ?? null;
       recordElementDelta(tx, el.id, prevEl, el);
       if (!prevEl) {
-        elementsRef.current = [...elementsRef.current, el];
+        if (insertBeforeId) {
+          const idx = elementsRef.current.findIndex((e) => e.id === insertBeforeId);
+          if (idx >= 0) {
+            const next = [...elementsRef.current];
+            next.splice(idx, 0, el);
+            elementsRef.current = next;
+          } else {
+            elementsRef.current = [...elementsRef.current, el];
+          }
+        } else {
+          elementsRef.current = [...elementsRef.current, el];
+        }
         recordActivityRef.current('draw', 1);
         if (el.type === 'pdf') {
           recordActivityRef.current('pdf_or_ai', 1);
         }
       }
-      rawCreateElement(el);
+      rawCreateElement(el, insertBeforeId);
     },
     [canEdit, getOrOpenTx, recordElementDelta, rawCreateElement]
   );
@@ -1312,23 +1333,49 @@ export default function App() {
   const recordActivityRef = useRef(accountSocial.recordActivity);
   recordActivityRef.current = accountSocial.recordActivity;
 
-  // Sync resolved Google cloud profile name & color into active workspace identity
+  // Sync resolved identityKey, profile picture, avatar color & cursor color into active workspace identity
   useEffect(() => {
-    if (accountSocial.accountType !== 'google' || !accountSocial.cloudProfile) return;
-    const p = accountSocial.cloudProfile;
+    const resolvedIdentityKey = buildIdentityKey(firebaseUser?.uid, getOrCreateOwnerKey());
+    const resolvedAvatarUrl = accountSocial.activeAvatarUrl || undefined;
+    const resolvedCursorColor = accountSocial.activeCursorColor || undefined;
     setCurrentUser((prev) => {
-      const nextName = p.displayName || prev.name;
-      const nextColor = p.color || prev.color;
+      const nextName =
+        accountSocial.accountType === 'google' && accountSocial.cloudProfile?.displayName
+          ? accountSocial.cloudProfile.displayName
+          : prev.name;
+      const nextColor =
+        accountSocial.accountType === 'google' && accountSocial.cloudProfile?.color
+          ? accountSocial.cloudProfile.color
+          : prev.color;
+      const nextCursorColor = resolvedCursorColor || prev.cursorColor || nextColor;
       const nextAvatar = (nextName || prev.avatar || 'K').charAt(0).toUpperCase();
-      if (prev.name === nextName && prev.color === nextColor && prev.avatar === nextAvatar) {
+      if (
+        prev.identityKey === resolvedIdentityKey &&
+        prev.name === nextName &&
+        prev.color === nextColor &&
+        prev.cursorColor === nextCursorColor &&
+        prev.avatar === nextAvatar &&
+        prev.avatarUrl === resolvedAvatarUrl
+      ) {
         return prev;
       }
-      return { ...prev, name: nextName, color: nextColor, avatar: nextAvatar };
+      return {
+        ...prev,
+        identityKey: resolvedIdentityKey,
+        name: nextName,
+        color: nextColor,
+        cursorColor: nextCursorColor,
+        avatar: nextAvatar,
+        avatarUrl: resolvedAvatarUrl,
+      };
     });
   }, [
+    firebaseUser?.uid,
     accountSocial.accountType,
     accountSocial.cloudProfile?.displayName,
     accountSocial.cloudProfile?.color,
+    accountSocial.activeAvatarUrl,
+    accountSocial.activeCursorColor,
   ]);
 
   // Badge tracker: Team Voice Collaboration (once per room when voice is active with >= 2 participants)
@@ -2493,11 +2540,11 @@ export default function App() {
   ]);
 
   // Element Actions
-  const handleCreateElement = (el: CanvasElement) => {
+  const handleCreateElement = (el: CanvasElement, insertBeforeId?: string) => {
     if (!activeTxRef.current) {
       recordUndo();
     }
-    createElement(el);
+    createElement(el, insertBeforeId);
   };
 
   const handleUpdateElement = (id: string, changes: Partial<CanvasElement>) => {
@@ -2666,6 +2713,52 @@ export default function App() {
     }
   };
 
+  // Add Paginated Markdown (.md) or Plain Text (.txt) document directly to canvas center (like PDF)
+  const handleAddDocumentToCanvas = (
+    content: string,
+    kind: 'markdown' | 'text',
+    name?: string
+  ) => {
+    try {
+      const fileName = name || (kind === 'markdown' ? 'Belge.md' : 'Not.txt');
+      const { totalPages, defaultWidth, defaultHeight } = getDocumentPageInfo(content, kind, fileName);
+      const page1ImageUrl = renderDocumentPage(content, kind, fileName, 1);
+
+      const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - defaultWidth / 2;
+      const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - defaultHeight / 2;
+
+      recordUndo();
+      const docEl: CanvasElement = {
+        id: `doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'pdf',
+        documentKind: kind,
+        x: canvasCenterX,
+        y: canvasCenterY,
+        width: defaultWidth,
+        height: defaultHeight,
+        imageUrl: page1ImageUrl,
+        markdownContent: content,
+        currentPage: 1,
+        totalPages: totalPages || 1,
+        fileName,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
+
+      createElement(docEl);
+      setSelectedElementIds([docEl.id]);
+      setActiveTool('select');
+      if (activePanel === 'files') {
+        setActivePanel('none');
+      }
+    } catch (err) {
+      console.error('Failed to add document to canvas:', err);
+    }
+  };
+
   // Add a file received in chat directly onto the whiteboard canvas
   const handleAddChatFileToCanvas = async (file: {
     name: string;
@@ -2685,9 +2778,21 @@ export default function App() {
       (file.type && file.type.startsWith('video/')) ||
       /\.(mp4|webm|mov|ogg)$/i.test(lowerName) ||
       fileUrl.startsWith('data:video/');
+    const isMarkdown =
+      /\.(md|markdown)$/i.test(lowerName) ||
+      file.type === 'text/markdown' ||
+      file.type === 'text/x-markdown';
+    const isText =
+      lowerName.endsWith('.txt') ||
+      file.type === 'text/plain';
 
     if (isPdf) {
       await handleAddPdfToCanvas(fileUrl, file.name);
+      return;
+    }
+    if (isMarkdown || isText) {
+      const decodedText = extractTextFromDataUrl(fileUrl) ?? '';
+      handleAddDocumentToCanvas(decodedText, isMarkdown ? 'markdown' : 'text', file.name);
       return;
     }
     if (isVideo) {
@@ -2881,6 +2986,9 @@ export default function App() {
           accountType={accountSocial.accountType}
           activeDisplayName={accountSocial.activeDisplayName || currentUser.name}
           activeColor={accountSocial.activeColor || currentUser.color}
+          activeCursorColor={
+            accountSocial.activeCursorColor || currentUser.cursorColor || currentUser.color
+          }
           activeAvatarUrl={accountSocial.activeAvatarUrl}
           cloudProfile={accountSocial.cloudProfile}
           isProfileLoading={accountSocial.isProfileLoading}
@@ -2892,11 +3000,12 @@ export default function App() {
           mutedInviters={accountSocial.mutedInviters}
           currentRoom={hasEnteredWorkspace ? { id: roomId, name: effectiveRoomName } : null}
           onUpdateProfile={accountSocial.updateProfile}
-          onProfileSaved={({ name, color }) => {
+          onProfileSaved={({ name, color, cursorColor }) => {
             setCurrentUser((prev) => ({
               ...prev,
               name,
               color,
+              cursorColor: cursorColor || prev.cursorColor || color,
               avatar: (name || prev.avatar || 'K').charAt(0).toUpperCase(),
             }));
           }}
@@ -3437,6 +3546,9 @@ export default function App() {
             onDeleteFile={deleteFile}
             onAddImageToCanvas={(dataUrl, name, w, h) => handleAddImageToCanvas(dataUrl, name, w, h)}
             onAddPdfToCanvas={(pdfUrl, name) => handleAddPdfToCanvas(pdfUrl, name)}
+            onAddDocumentToCanvas={(content, kind, name) =>
+              handleAddDocumentToCanvas(content, kind, name)
+            }
             onAddVideoToCanvas={(videoUrl, name) => handleAddVideoToCanvas(videoUrl, name)}
             onClose={() => setActivePanel('none')}
           />

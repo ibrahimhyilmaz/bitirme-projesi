@@ -203,14 +203,32 @@ const CodeDemo: React.FC<DemoProps> = ({ active, reduced }) => {
         </span>
       </div>
       <div className="leading-6">
-        {shown.map((l, i) => (
-          <div key={i} className="flex">
-            <span className="w-6 shrink-0 text-slate-600 select-none">{i + 1}</span>
-            <span className={`${l.c} whitespace-pre`}>{l.text}</span>
-            {!finished && i === caretLine && <span className="inline-block w-[2px] h-4 mt-1 bg-amber-400 animate-pulse" />}
-            {i === 1 && typed > 20 && <span className="ml-2 px-1.5 rounded text-[10px] bg-rose-500 text-white self-center">Elif</span>}
-          </div>
-        ))}
+        {shown.map((l, i) => {
+          const isKaanLine = (!finished && i === caretLine) || (finished && i === CODE_LINES.length - 1);
+          const isElifLine = i === 1 && typed > 16;
+          return (
+            <div key={i} className="flex items-center">
+              <span className="w-6 shrink-0 text-slate-600 select-none">{i + 1}</span>
+              <span className={`${l.c} whitespace-pre`}>{l.text}</span>
+              {isKaanLine && (
+                <span className="inline-flex items-center ml-0.5 align-middle">
+                  <span className="inline-block w-[2px] h-4 bg-amber-400 animate-pulse" />
+                  <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500 text-slate-950 leading-none shadow-xs">
+                    Kaan
+                  </span>
+                </span>
+              )}
+              {isElifLine && !isKaanLine && (
+                <span className="inline-flex items-center ml-1.5 align-middle">
+                  <span className="inline-block w-[2px] h-4 bg-rose-400 animate-pulse" />
+                  <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-500 text-white leading-none shadow-xs">
+                    Elif
+                  </span>
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
       <div
         className="absolute left-3 right-3 bottom-3 rounded-lg border border-slate-700 bg-slate-900 p-2.5 text-[12px]"

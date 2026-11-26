@@ -147,9 +147,12 @@ export interface RoomSettings {
 
 export interface RoomActiveUser {
   id: string;
+  identityKey?: string;
   name: string;
   avatar: string;
+  avatarUrl?: string;
   color: string;
+  cursorColor?: string;
   role: UserRole;
 }
 
@@ -223,6 +226,12 @@ export interface CanvasElement {
   pdfUrl?: string;
   videoUrl?: string;
   markdownContent?: string;
+  /** Paginated document kind: PDF (pdf.js), formatted Markdown (.md), or clean plain text (.txt) */
+  documentKind?: 'pdf' | 'markdown' | 'text';
+  /** Marks a Paint-style bucket flood-fill layer bound to enclosing strokes */
+  isBucketFill?: boolean;
+  /** IDs of boundary strokes/shapes enclosing this bucket fill */
+  boundElementIds?: string[];
   isPlaying?: boolean;
   currentTime?: number;
   volume?: number;
@@ -612,9 +621,12 @@ export interface ChatMessage {
 
 export interface UserPresence {
   id: string;
+  identityKey?: string;
   name: string;
   avatar: string;
+  avatarUrl?: string;
   color: string;
+  cursorColor?: string;
   role: UserRole;
   cursor: Point;
   isDrawing: boolean;

@@ -286,7 +286,13 @@
         },
         "color": {
           "type": "string",
-          "description": "Selected hex profile and cursor color.",
+          "description": "Selected hex profile and avatar color.",
+          "minLength": 4,
+          "maxLength": 32
+        },
+        "cursorColor": {
+          "type": "string",
+          "description": "Independent hex cursor color used on canvas and code editors.",
           "minLength": 4,
           "maxLength": 32
         },

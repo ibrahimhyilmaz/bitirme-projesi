@@ -46,6 +46,7 @@ interface ProfileSocialModalProps {
   accountType: AccountType;
   activeDisplayName: string;
   activeColor: string;
+  activeCursorColor: string;
   activeAvatarUrl: string;
   cloudProfile: PublicProfileData | null;
   isProfileLoading?: boolean;
@@ -59,9 +60,10 @@ interface ProfileSocialModalProps {
   onUpdateProfile: (patch: {
     displayName?: string;
     color?: string;
+    cursorColor?: string;
     avatarUrl?: string;
   }) => Promise<void>;
-  onProfileSaved?: (patch: { name: string; color: string; avatarUrl: string }) => void;
+  onProfileSaved?: (patch: { name: string; color: string; cursorColor: string; avatarUrl: string }) => void;
   onSearchUsers: (query: string) => Promise<PublicProfileData[]>;
   onSendFriendRequest: (targetUid: string) => Promise<{ ok: boolean; message: string }>;
   onAcceptFriendRequest: (pairId: string) => Promise<void>;
@@ -113,6 +115,7 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
   accountType,
   activeDisplayName,
   activeColor,
+  activeCursorColor,
   activeAvatarUrl,
   cloudProfile,
   isProfileLoading = false,
@@ -141,6 +144,7 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
   const [activeTab, setActiveTab] = useState<ProfileModalTab>(initialTab);
   const [displayName, setDisplayName] = useState(activeDisplayName || '');
   const [color, setColor] = useState(activeColor || PROFILE_COLOR_PALETTE[0]);
+  const [cursorColor, setCursorColor] = useState(activeCursorColor || activeColor || PROFILE_COLOR_PALETTE[0]);
   const [avatarPreview, setAvatarPreview] = useState(activeAvatarUrl || '');
   const [isSaving, setIsSaving] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(
@@ -167,6 +171,10 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
   useEffect(() => {
     if (activeColor) setColor(activeColor);
   }, [activeColor]);
+
+  useEffect(() => {
+    if (activeCursorColor) setCursorColor(activeCursorColor);
+  }, [activeCursorColor]);
 
   useEffect(() => {
     setAvatarPreview(activeAvatarUrl || '');
@@ -220,12 +228,14 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
       await onUpdateProfile({
         displayName: trimmed,
         color,
+        cursorColor,
         avatarUrl: isGoogle ? avatarPreview : undefined,
       });
       if (onProfileSaved) {
         onProfileSaved({
           name: trimmed,
           color,
+          cursorColor,
           avatarUrl: isGoogle ? avatarPreview : '',
         });
       }
@@ -570,18 +580,23 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
                   />
                 </div>
 
-                {/* Color Palette */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                      Profil ve İmleç Rengi
-                    </label>
-                    <span className="text-[11px] font-mono text-slate-400 uppercase">{color}</span>
+                {/* Profile / Avatar Color Palette */}
+                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/35 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block">
+                        Profil / Avatar Rengi
+                      </label>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Profil fotoğrafı yokken avatar çemberinde ve sohbet adında kullanılır.
+                      </p>
+                    </div>
+                    <span className="text-[11px] font-mono text-slate-400 uppercase shrink-0">{color}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {PROFILE_COLOR_PALETTE.map((c) => (
                       <button
-                        key={c}
+                        key={`avatar-${c}`}
                         type="button"
                         onClick={() => setColor(c)}
                         className={`w-7 h-7 rounded-full transition-transform cursor-pointer ${
@@ -595,12 +610,77 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
                     ))}
                     <label
                       className="w-7 h-7 rounded-full border border-dashed border-slate-400 dark:border-slate-600 flex items-center justify-center text-[10px] font-bold text-slate-500 dark:text-slate-400 cursor-pointer hover:border-blue-500 overflow-hidden"
-                      title="Özel renk seç"
+                      title="Özel avatar rengi seç"
                     >
                       <input
                         type="color"
                         value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : '#2563eb'}
                         onChange={(e) => setColor(e.target.value)}
+                        className="opacity-0 w-0 h-0 absolute"
+                      />
+                      <span>+</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Independent Cursor Color Palette + Live Cursor Preview */}
+                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/35 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block">
+                        İmleç Rengi
+                      </label>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Tahtada ve ortak kod editöründe diğer kişilere görünen imleç renginiz.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Live miniature cursor preview */}
+                      <div className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                        <svg width="12" height="16" viewBox="0 0 16 22" fill="none" className="shrink-0">
+                          <path
+                            d="M0 0L0 16L4.5 12L8.5 19L11 17.5L7 10.5L12 10.5Z"
+                            fill={cursorColor}
+                            stroke="#ffffff"
+                            strokeWidth="1.5"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-white max-w-[76px] truncate leading-none"
+                          style={{ backgroundColor: cursorColor }}
+                        >
+                          {displayName.trim() || activeDisplayName || 'İmleç'}
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-mono text-slate-400 uppercase hidden sm:inline">
+                        {cursorColor}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {PROFILE_COLOR_PALETTE.map((c) => (
+                      <button
+                        key={`cursor-${c}`}
+                        type="button"
+                        onClick={() => setCursorColor(c)}
+                        className={`w-7 h-7 rounded-full transition-transform cursor-pointer ${
+                          cursorColor.toLowerCase() === c.toLowerCase()
+                            ? 'scale-115 ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
+                            : 'hover:scale-110 opacity-85 hover:opacity-100'
+                        }`}
+                        style={{ backgroundColor: c }}
+                        title={c}
+                      />
+                    ))}
+                    <label
+                      className="w-7 h-7 rounded-full border border-dashed border-slate-400 dark:border-slate-600 flex items-center justify-center text-[10px] font-bold text-slate-500 dark:text-slate-400 cursor-pointer hover:border-blue-500 overflow-hidden"
+                      title="Özel imleç rengi seç"
+                    >
+                      <input
+                        type="color"
+                        value={/^#[0-9a-fA-F]{6}$/.test(cursorColor) ? cursorColor : '#2563eb'}
+                        onChange={(e) => setCursorColor(e.target.value)}
                         className="opacity-0 w-0 h-0 absolute"
                       />
                       <span>+</span>

@@ -9,8 +9,166 @@ import {
   Lock,
   Layers,
 } from 'lucide-react';
+import mqtt, { MqttClient } from 'mqtt';
 import { CanvasElement, RoomSummary } from '../types';
 import { drawElement, getElementBounds } from '../utils/canvasRenderer';
+import { meshLoad } from '../utils/meshStore';
+import { LoadingScreen } from './LoadingScreen';
+
+const PREVIEW_WSS_BROKERS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+];
+
+async function requestRoomPreviewViaMesh(
+  room: RoomSummary,
+  signal?: AbortSignal
+): Promise<{ locked?: boolean; data?: PreviewResponse } | null> {
+  const safeId = room.id.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'oda';
+  const requesterId = `preview-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const peerTopic = `collabboard/v3/room/${safeId}/peer/${requesterId}`;
+  const eventsTopic = `collabboard/v3/room/${safeId}/events`;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const clients: MqttClient[] = [];
+    let bc: BroadcastChannel | null = null;
+    const chunkBuffers = new Map<string, { n: number; parts: Map<number, string> }>();
+
+    const cleanup = () => {
+      if (timer) window.clearTimeout(timer);
+      if (bc) {
+        try {
+          bc.close();
+        } catch {}
+        bc = null;
+      }
+      for (const c of clients) {
+        try {
+          c.end(true);
+        } catch {}
+      }
+      clients.length = 0;
+    };
+
+    const finish = (result: { locked?: boolean; data?: PreviewResponse } | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const handleRaw = (raw: string) => {
+      if (settled) return;
+      try {
+        const msg = JSON.parse(raw);
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === 'mesh-chunk') {
+          const key = String(msg.chunkId || '');
+          if (!key) return;
+          let entry = chunkBuffers.get(key);
+          if (!entry) {
+            entry = { n: Number(msg.n) || 1, parts: new Map() };
+            chunkBuffers.set(key, entry);
+          }
+          entry.parts.set(Number(msg.i), String(msg.data || ''));
+          if (entry.parts.size >= entry.n) {
+            chunkBuffers.delete(key);
+            let full = '';
+            for (let i = 0; i < entry.n; i++) full += entry.parts.get(i) || '';
+            handleRaw(full);
+          }
+          return;
+        }
+        if (msg.type === 'preview-response' && msg.requestId === requestId) {
+          if (msg.isLocked) {
+            finish({ locked: true });
+            return;
+          }
+          const elements: CanvasElement[] = Array.isArray(msg.elements) ? msg.elements : [];
+          finish({
+            data: {
+              roomId: String(msg.roomId || room.id),
+              name: String(msg.name || room.name),
+              ownerName: String(msg.ownerName || room.ownerName || 'Bilinmiyor'),
+              userCount: typeof msg.userCount === 'number' ? msg.userCount : room.userCount,
+              maxUsers: typeof msg.maxUsers === 'number' ? msg.maxUsers : room.maxUsers,
+              elementCount: elements.length,
+              elements,
+            },
+          });
+        }
+      } catch {
+        // ignore malformed packet
+      }
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        finish(null);
+        return;
+      }
+      signal.addEventListener('abort', () => finish(null), { once: true });
+    }
+
+    const reqPayload = JSON.stringify({
+      type: 'preview-request',
+      requestId,
+      requesterId,
+      _senderId: requesterId,
+      _roomId: room.id,
+      _ts: Date.now(),
+    });
+
+    // 1. Same-browser BroadcastChannel (instant if room is open in this browser)
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel(`collabboard_room_${safeId}`);
+        bc.onmessage = (ev) => {
+          if (typeof ev.data === 'string') handleRaw(ev.data);
+        };
+        bc.postMessage(reqPayload);
+      }
+    } catch {}
+
+    // 2. Public WSS MQTT brokers for remote peers on static deployments
+    for (const brokerUrl of PREVIEW_WSS_BROKERS) {
+      try {
+        const client = mqtt.connect(brokerUrl, {
+          clientId: `${requesterId}-${Math.random().toString(36).slice(2, 5)}`,
+          clean: true,
+          connectTimeout: 2800,
+          reconnectPeriod: 0,
+        });
+        clients.push(client);
+        client.on('connect', () => {
+          if (settled) {
+            try {
+              client.end(true);
+            } catch {}
+            return;
+          }
+          client.subscribe(peerTopic, { qos: 0 }, () => {
+            try {
+              client.publish(eventsTopic, reqPayload, { qos: 0 });
+            } catch {}
+          });
+        });
+        client.on('message', (_topic, payload) => {
+          handleRaw(payload.toString());
+        });
+        client.on('error', () => {
+          // ignore individual broker failures
+        });
+      } catch {}
+    }
+
+    const timer = window.setTimeout(() => {
+      finish(null);
+    }, 3200);
+  });
+}
 
 interface RoomPreviewModalProps {
   room: RoomSummary;
@@ -97,34 +255,107 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
       .replace(/\s+#[A-Z0-9_-]{3,8}\s*$/i, '')
       .trim() || room.name;
 
-  const fetchPreview = useCallback(async (signal?: AbortSignal) => {
-    setStatus('loading');
-    setErrorMessage(null);
-    setIsLockedError(false);
+  const fetchPreview = useCallback(
+    async (signal?: AbortSignal) => {
+      setStatus('loading');
+      setErrorMessage(null);
+      setIsLockedError(false);
 
-    try {
-      const res = await fetch(
-        `/api/rooms/${encodeURIComponent(room.id)}/preview`,
-        { signal }
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setIsLockedError(res.status === 403 || Boolean(body?.isLocked));
-        setErrorMessage(
-          body?.error || 'Tahta önizlemesi yüklenirken bir hata oluştu.'
+      // 1. Try local Express backend API first (works in AI Studio & self-hosted server deployments)
+      try {
+        const res = await fetch(
+          `/api/rooms/${encodeURIComponent(room.id)}/preview`,
+          { signal }
         );
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data: PreviewResponse = await res.json();
+          if (data && Array.isArray(data.elements)) {
+            setPreviewData(data);
+            setStatus('ready');
+            return;
+          }
+        } else if (res.status === 403 && contentType.includes('application/json')) {
+          const body = await res.json().catch(() => ({}));
+          setIsLockedError(true);
+          setErrorMessage(
+            body?.error || 'Bu oda kilitli olduğu için önizlenemiyor.'
+          );
+          setStatus('error');
+          return;
+        }
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+        // Fall through to serverless mesh / local cache fallback
+      }
+
+      if (signal?.aborted) return;
+
+      if (room.isLocked && !isOwnedByMe && !isCurrentRoom) {
+        setIsLockedError(true);
+        setErrorMessage('Bu oda kilitli olduğu için önizlenemiyor.');
         setStatus('error');
         return;
       }
-      const data: PreviewResponse = await res.json();
-      setPreviewData(data);
-      setStatus('ready');
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') return;
-      setErrorMessage('Sunucuya bağlanılamadı. Lütfen tekrar deneyin.');
+
+      // 2. Serverless live snapshot over BroadcastChannel + MQTT WSS mesh
+      const meshRes = await requestRoomPreviewViaMesh(room, signal);
+      if (signal?.aborted) return;
+      if (meshRes?.locked) {
+        setIsLockedError(true);
+        setErrorMessage('Bu oda kilitli olduğu için önizlenemiyor.');
+        setStatus('error');
+        return;
+      }
+      if (meshRes?.data) {
+        setPreviewData(meshRes.data);
+        setStatus('ready');
+        return;
+      }
+
+      // 3. Fallback to local IndexedDB room cache (rooms previously opened on this device)
+      try {
+        const cached = await meshLoad(room.id.trim().toLowerCase());
+        if (signal?.aborted) return;
+        if (cached && Array.isArray(cached.elements)) {
+          setPreviewData({
+            roomId: room.id,
+            name: room.name,
+            ownerName: room.ownerName || 'Bilinmiyor',
+            userCount: room.userCount,
+            maxUsers: room.maxUsers,
+            elementCount: cached.elements.length,
+            elements: cached.elements,
+          });
+          setStatus('ready');
+          return;
+        }
+      } catch {
+        // ignore IndexedDB read errors
+      }
+
+      // 4. If room reports 0 elements and no peer responded, render clean empty state instead of error
+      if ((room.elementCount || 0) === 0) {
+        setPreviewData({
+          roomId: room.id,
+          name: room.name,
+          ownerName: room.ownerName || 'Bilinmiyor',
+          userCount: room.userCount,
+          maxUsers: room.maxUsers,
+          elementCount: 0,
+          elements: [],
+        });
+        setStatus('ready');
+        return;
+      }
+
+      setErrorMessage(
+        'Önizleme görüntüsü alınamadı. Odada aktif bir katılımcı bulunmuyor veya ağ bağlantısı zaman aşımına uğradı.'
+      );
       setStatus('error');
-    }
-  }, [room.id]);
+    },
+    [room, isOwnedByMe, isCurrentRoom]
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -361,20 +592,12 @@ export const RoomPreviewModal: React.FC<RoomPreviewModalProps> = ({
           }`}
         >
           {status === 'loading' && (
-            <div
-              className={`flex flex-col items-center gap-3 ${
-                previewBg === 'dark' ? 'text-slate-300' : 'text-slate-500'
-              }`}
-            >
-              <div
-                className={`w-9 h-9 rounded-full border-2 animate-spin ${
-                  previewBg === 'dark'
-                    ? 'border-slate-700 border-t-blue-400'
-                    : 'border-slate-300 border-t-blue-600'
-                }`}
-              />
-              <span className="text-xs font-medium">Tahta görüntüsü hazırlanıyor...</span>
-            </div>
+            <LoadingScreen
+              isFullPage={false}
+              message="Tahta Önizlemesi Yükleniyor..."
+              subMessage="Oda içeriği ve son çizimler hazırlanıyor..."
+              className="w-full h-full bg-slate-950/90"
+            />
           )}
 
           {status === 'error' && (

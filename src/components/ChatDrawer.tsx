@@ -318,13 +318,19 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [customGifUrl, setCustomGifUrl] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, Record<string, string[]>>>({});
-  const [pendingFile, setPendingFile] = useState<{
-    file?: File;
-    name: string;
-    size: number;
-    type: string;
-    dataUrl: string;
-  } | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<
+    Array<{
+      id: string;
+      file?: File;
+      name: string;
+      size: number;
+      type: string;
+      dataUrl: string;
+    }>
+  >([]);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [chatFileError, setChatFileError] = useState<string | null>(null);
+  const dragDepthRef = useRef(0);
   const [addedMessageIds, setAddedMessageIds] = useState<Set<string>>(new Set());
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -394,35 +400,115 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     }, 2500);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    if (file.size > 25 * 1024 * 1024) {
-      alert('Sohbet üzerinden paylaşılan dosya boyutu maksimum 25 MB olabilir.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      if (dataUrl) {
-        setPendingFile({
+  const enqueueChatFiles = async (fileList: FileList | File[]) => {
+    const arr = Array.from(fileList);
+    if (arr.length === 0) return;
+    setChatFileError(null);
+
+    const rejected: string[] = [];
+    const loaded: Array<{
+      id: string;
+      file?: File;
+      name: string;
+      size: number;
+      type: string;
+      dataUrl: string;
+    }> = [];
+
+    for (const file of arr) {
+      if (file.size > 25 * 1024 * 1024) {
+        rejected.push(`${file.name} (25 MB sınırı)`);
+        continue;
+      }
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const res = ev.target?.result as string;
+            if (res) resolve(res);
+            else reject(new Error('Okunamadı'));
+          };
+          reader.onerror = () => reject(new Error('Okunamadı'));
+          reader.readAsDataURL(file);
+        });
+        loaded.push({
+          id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           file,
           name: file.name,
           size: file.size,
           type: file.type || 'application/octet-stream',
           dataUrl,
         });
+      } catch {
+        rejected.push(`${file.name} (okunamadı)`);
       }
-    };
-    reader.readAsDataURL(file);
-    if (chatFileInputRef.current) {
-      chatFileInputRef.current.value = '';
+    }
+
+    if (loaded.length > 0) {
+      setPendingFiles((prev) => [...prev, ...loaded]);
+    }
+    if (rejected.length > 0) {
+      setChatFileError(`Eklenemeyen dosya(lar): ${rejected.slice(0, 3).join(', ')}`);
+      window.setTimeout(() => setChatFileError(null), 5000);
     }
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const arr = Array.from(files);
+    if (chatFileInputRef.current) {
+      chatFileInputRef.current.value = '';
+    }
+    void enqueueChatFiles(arr);
+  };
+
+  const handleDrawerDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current += 1;
+    setIsDraggingFiles(true);
+  };
+
+  const handleDrawerDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrawerDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setIsDraggingFiles(false);
+    }
+  };
+
+  const handleDrawerDrop = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.files || e.dataTransfer.files.length === 0) {
+      dragDepthRef.current = 0;
+      setIsDraggingFiles(false);
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = 0;
+    setIsDraggingFiles(false);
+    void enqueueChatFiles(e.dataTransfer.files);
+  };
+
   const otherUsers = useMemo(() => {
-    return (users || []).filter((u) => u.id !== currentUserId);
+    const selfUser = (users || []).find((u) => u.id === currentUserId);
+    const selfIdentity = selfUser?.identityKey;
+    return (users || []).filter(
+      (u) =>
+        u.id !== currentUserId &&
+        !(selfIdentity && u.identityKey && u.identityKey === selfIdentity)
+    );
   }, [users, currentUserId]);
 
   const activeRecipient = useMemo(() => {
@@ -507,7 +593,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = inputText.trim();
-    if (!trimmed && !pendingFile) return;
+    if (!trimmed && pendingFiles.length === 0) return;
 
     const isDirectGif =
       trimmed &&
@@ -518,20 +604,23 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     const recipientId = activeTab !== 'general' ? activeTab : undefined;
     const recipientName = activeRecipient?.name;
 
-    if (pendingFile) {
-      onSendMessage(
-        trimmed || pendingFile.name,
-        {
-          name: pendingFile.name,
-          url: pendingFile.dataUrl,
-          dataUrl: pendingFile.dataUrl,
-          type: pendingFile.type,
-          size: pendingFile.size,
-        },
-        recipientId,
-        recipientName
-      );
-      setPendingFile(null);
+    if (pendingFiles.length > 0) {
+      pendingFiles.forEach((pf, idx) => {
+        const caption = idx === 0 && trimmed ? trimmed : pf.name;
+        onSendMessage(
+          caption,
+          {
+            name: pf.name,
+            url: pf.dataUrl,
+            dataUrl: pf.dataUrl,
+            type: pf.type,
+            size: pf.size,
+          },
+          recipientId,
+          recipientName
+        );
+      });
+      setPendingFiles([]);
     } else if (isDirectGif) {
       onSendMessage(
         trimmed,
@@ -627,6 +716,10 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
   return (
     <div
+      onDragEnter={handleDrawerDragEnter}
+      onDragOver={handleDrawerDragOver}
+      onDragLeave={handleDrawerDragLeave}
+      onDrop={handleDrawerDrop}
       className={`fixed flex flex-col overflow-hidden select-none cb-anim-scale-in transition-all duration-200 ${
         isFullscreen
           ? 'inset-0 w-screen h-screen max-w-none z-[70] border-0 rounded-none shadow-none'
@@ -635,6 +728,20 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
       }`}
     >
+      {/* Multi-file Drag & Drop Overlay */}
+      {isDraggingFiles && (
+        <div className="absolute inset-0 z-50 bg-blue-600/15 dark:bg-blue-500/20 backdrop-blur-[2px] border-2 border-dashed border-blue-500 rounded-2xl flex flex-col items-center justify-center p-6 text-center pointer-events-none">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg mb-2.5">
+            <Paperclip className="w-6 h-6" />
+          </div>
+          <p className="text-sm font-bold text-blue-700 dark:text-blue-200">
+            Dosyaları sohbete eklemek için bırakın
+          </p>
+          <p className="text-[11px] text-blue-600/80 dark:text-blue-300/80 mt-1">
+            Birden fazla görsel, PDF veya belgeyi aynı anda ekleyebilirsiniz
+          </p>
+        </div>
+      )}
       {/* Header with Conversation Title & Close */}
       <div
         className={`h-12 border-b px-4 flex items-center justify-between text-xs shrink-0 ${
@@ -1376,52 +1483,88 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         </div>
       )}
 
-      {/* Hidden File Input for Chat Attachments */}
+      {/* Hidden Multi-File Input for Chat Attachments */}
       <input
         ref={chatFileInputRef}
         type="file"
+        multiple
         onChange={handleFileSelect}
         className="hidden"
       />
 
-      {/* Pending File Attachment Chip */}
-      {pendingFile && (
+      {/* File Rejection Warning */}
+      {chatFileError && (
+        <div className="mx-3 mb-1.5 px-2.5 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-[11px] text-rose-700 dark:text-rose-300 flex items-center justify-between gap-2">
+          <span className="truncate">{chatFileError}</span>
+          <button
+            type="button"
+            onClick={() => setChatFileError(null)}
+            className="p-0.5 text-rose-500 hover:text-rose-700 cursor-pointer shrink-0"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
+      {/* Pending Multi-File Attachment Queue */}
+      {pendingFiles.length > 0 && (
         <div
-          className={`mx-3 mb-1.5 p-2 rounded-xl border flex items-center justify-between gap-2 text-xs shadow-xs ${
+          className={`mx-3 mb-1.5 p-2 rounded-xl border text-xs shadow-xs space-y-1.5 max-h-36 overflow-y-auto ${
             isDark
-              ? 'bg-slate-800 border-slate-700 text-slate-100'
+              ? 'bg-slate-800/95 border-slate-700 text-slate-100'
               : 'bg-blue-50/90 border-blue-200 text-slate-800'
           }`}
         >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            {pendingFile.type.startsWith('image/') ? (
-              <img
-                src={pendingFile.dataUrl}
-                alt="Önizleme"
-                className="w-8 h-8 rounded-lg object-cover bg-white border border-slate-200 shrink-0"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                <FileText className="w-4 h-4" />
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold truncate" title={pendingFile.name}>
-                {pendingFile.name}
-              </p>
-              <p className="text-[10px] text-slate-400 font-mono">
-                {formatFileSize(pendingFile.size)}
-              </p>
+          {pendingFiles.length > 1 && (
+            <div className="flex items-center justify-between text-[10px] font-semibold px-0.5 text-slate-500 dark:text-slate-400">
+              <span className="tabular-nums">{pendingFiles.length} dosya eklendi</span>
+              <button
+                type="button"
+                onClick={() => setPendingFiles([])}
+                className="text-rose-500 hover:text-rose-600 cursor-pointer"
+              >
+                Tümünü kaldır
+              </button>
             </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPendingFile(null)}
-            className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
-            title="Eki kaldır"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+          )}
+          {pendingFiles.map((pf) => (
+            <div
+              key={pf.id}
+              className={`flex items-center justify-between gap-2 p-1.5 rounded-lg ${
+                isDark ? 'bg-slate-900/60' : 'bg-white/80'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {pf.type.startsWith('image/') ? (
+                  <img
+                    src={pf.dataUrl}
+                    alt="Önizleme"
+                    className="w-7 h-7 rounded-md object-cover bg-white border border-slate-200 shrink-0"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-md bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                    <FileText className="w-3.5 h-3.5" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold truncate" title={pf.name}>
+                    {pf.name}
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-mono tabular-nums">
+                    {formatFileSize(pf.size)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingFiles((prev) => prev.filter((item) => item.id !== pf.id))}
+                className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer shrink-0"
+                title="Eki kaldır"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -1471,16 +1614,21 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         <button
           type="button"
           onClick={() => chatFileInputRef.current?.click()}
-          className={`p-2 rounded-xl transition-colors cursor-pointer ${
-            pendingFile
+          className={`relative p-2 rounded-xl transition-colors cursor-pointer ${
+            pendingFiles.length > 0
               ? 'bg-blue-600 text-white shadow-xs'
               : isDark
               ? 'text-slate-400 hover:text-blue-400 hover:bg-slate-800'
               : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
           }`}
-          title="Dosya Gönder (Görsel, GIF, Belge, PDF...)"
+          title="Birden Fazla Dosya Seç veya Sürükle-Bırak"
         >
           <Paperclip className="w-4 h-4" />
+          {pendingFiles.length > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold font-mono tabular-nums flex items-center justify-center">
+              {pendingFiles.length}
+            </span>
+          )}
         </button>
 
         <input
@@ -1488,11 +1636,13 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           placeholder={
-            pendingFile
-              ? `${pendingFile.name} ekli (İsteğe bağlı mesaj yazın)...`
+            pendingFiles.length > 1
+              ? `${pendingFiles.length} dosya ekli (İsteğe bağlı mesaj yazın)...`
+              : pendingFiles.length === 1
+              ? `${pendingFiles[0].name} ekli (İsteğe bağlı mesaj yazın)...`
               : activeRecipient
-              ? `${activeRecipient.name} için özel mesaj yazın... (Enter)`
-              : 'Genel odaya mesaj yazın... (Enter)'
+              ? `${activeRecipient.name} için özel mesaj yazın veya dosya sürükleyin...`
+              : 'Genel odaya mesaj yazın veya dosya sürükleyin...'
           }
           className={`flex-1 px-3 py-2 rounded-xl text-xs outline-none focus:ring-1 focus:ring-blue-500 ${
             isDark
@@ -1503,9 +1653,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
         <button
           type="submit"
-          disabled={!inputText.trim() && !pendingFile}
+          disabled={!inputText.trim() && pendingFiles.length === 0}
           className={`p-2 rounded-xl text-white transition-all cursor-pointer ${
-            inputText.trim() || pendingFile
+            inputText.trim() || pendingFiles.length > 0
               ? 'bg-blue-600 hover:bg-blue-700 shadow-xs active:scale-95'
               : isDark
               ? 'bg-slate-800 text-slate-600 cursor-not-allowed'

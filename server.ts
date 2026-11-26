@@ -122,9 +122,12 @@ interface ChatMessage {
 
 interface UserPresence {
   id: string;
+  identityKey?: string;
   name: string;
   avatar: string;
+  avatarUrl?: string;
   color: string;
+  cursorColor?: string;
   role: UserRole;
   cursor: { x: number; y: number };
   isDrawing: boolean;
@@ -258,28 +261,70 @@ function sanitizeRoomDisplayName(rawName: string | undefined, _roomId: string): 
   return cleaned || 'Çalışma Odası';
 }
 
+const SERVER_ROLE_WEIGHT: Record<UserRole, number> = {
+  owner: 4,
+  admin: 3,
+  editor: 2,
+  viewer: 1,
+};
+
+function deduplicateRoomUsers(room: RoomState): UserPresence[] {
+  const byKey = new Map<string, UserPresence>();
+  for (const { presence } of room.users.values()) {
+    const key = (presence.identityKey && presence.identityKey.trim()) || presence.id;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, { ...presence });
+      continue;
+    }
+    const existingWeight = SERVER_ROLE_WEIGHT[existing.role] ?? 0;
+    const nextWeight = SERVER_ROLE_WEIGHT[presence.role] ?? 0;
+    const primary = nextWeight > existingWeight ? presence : existing;
+    const secondary = nextWeight > existingWeight ? existing : presence;
+    byKey.set(key, {
+      ...secondary,
+      ...primary,
+      role: existingWeight >= nextWeight ? existing.role : presence.role,
+      avatarUrl: primary.avatarUrl || secondary.avatarUrl,
+      cursorColor: primary.cursorColor || secondary.cursorColor,
+      isDrawing: existing.isDrawing || presence.isDrawing,
+      isSpeaking: existing.isSpeaking || presence.isSpeaking,
+      isMuted: existing.isMuted && presence.isMuted,
+      isDeafened: existing.isDeafened && presence.isDeafened,
+      joinedAt: Math.min(existing.joinedAt, presence.joinedAt),
+    });
+  }
+  return Array.from(byKey.values());
+}
+
 function getRoomSummaries() {
-  return Array.from(rooms.values()).map((r) => ({
-    id: r.id,
-    name: r.name,
-    userCount: r.users.size,
-    maxUsers: r.settings.maxUsers,
-    isLocked: r.settings.isLocked,
-    elementCount: r.elements.size,
-    createdAt: r.createdAt,
-    ownerName: r.ownerName,
-    ownerId: r.settings.ownerId,
-    ownerKey: r.ownerKey,
-    lockedByIdle: Boolean(r.lockedByIdle),
-    lastActivityAt: r.lastActivityAt,
-    activeUsers: Array.from(r.users.values()).map((u) => ({
-      id: u.presence.id,
-      name: u.presence.name,
-      avatar: u.presence.avatar,
-      color: u.presence.color,
-      role: u.presence.role,
-    })),
-  }));
+  return Array.from(rooms.values()).map((r) => {
+    const uniqueUsers = deduplicateRoomUsers(r);
+    return {
+      id: r.id,
+      name: r.name,
+      userCount: uniqueUsers.length,
+      maxUsers: r.settings.maxUsers,
+      isLocked: r.settings.isLocked,
+      elementCount: r.elements.size,
+      createdAt: r.createdAt,
+      ownerName: r.ownerName,
+      ownerId: r.settings.ownerId,
+      ownerKey: r.ownerKey,
+      lockedByIdle: Boolean(r.lockedByIdle),
+      lastActivityAt: r.lastActivityAt,
+      activeUsers: uniqueUsers.map((u) => ({
+        id: u.id,
+        identityKey: u.identityKey,
+        name: u.name,
+        avatar: u.avatar,
+        avatarUrl: u.avatarUrl,
+        color: u.color,
+        cursorColor: u.cursorColor,
+        role: u.role,
+      })),
+    };
+  });
 }
 
 function broadcastGlobalRoomsList() {
@@ -805,14 +850,27 @@ wss.on('connection', (ws: WebSocket) => {
             return;
           }
 
-          // Strictly enforce room user capacity limit for all new participants
-          if (!isAlreadyInRoom && room.users.size >= room.settings.maxUsers) {
+          const incomingIdentityKey =
+            typeof user.identityKey === 'string' && user.identityKey.trim()
+              ? user.identityKey.trim()
+              : typeof ownerKey === 'string' && ownerKey.trim()
+              ? `guest:${ownerKey.trim()}`
+              : '';
+          const sameIdentityAlreadyInRoom =
+            Boolean(incomingIdentityKey) &&
+            Array.from(room.users.values()).some(
+              (u) => u.presence.identityKey && u.presence.identityKey === incomingIdentityKey
+            );
+          const uniqueUsersCount = deduplicateRoomUsers(room).length;
+
+          // Strictly enforce room user capacity limit for all new participants (same person in a new tab does not double-count)
+          if (!isAlreadyInRoom && !sameIdentityAlreadyInRoom && uniqueUsersCount >= room.settings.maxUsers) {
             ws.send(
               JSON.stringify({
                 type: 'room-error',
                 code: 'ROOM_FULL',
                 roomId: room.id,
-                message: `"${room.name}" (#${room.id.toUpperCase()}) odası maksimum kapasiteye ulaştı (${room.users.size}/${room.settings.maxUsers} kişi). Bu odaya giriş yapılamaz.`,
+                message: `"${room.name}" (#${room.id.toUpperCase()}) odası maksimum kapasiteye ulaştı (${uniqueUsersCount}/${room.settings.maxUsers} kişi). Bu odaya giriş yapılamaz.`,
               })
             );
             return;
@@ -898,9 +956,15 @@ wss.on('connection', (ws: WebSocket) => {
           const existingPresence = room.users.get(user.id)?.presence;
           const presence: UserPresence = {
             id: user.id,
+            identityKey: incomingIdentityKey || existingPresence?.identityKey || undefined,
             name: user.name || 'Misafir Kullanıcı',
             avatar: user.avatar || (user.name || 'M').charAt(0).toUpperCase(),
+            avatarUrl: typeof user.avatarUrl === 'string' ? user.avatarUrl : existingPresence?.avatarUrl,
             color: user.color || '#2563eb',
+            cursorColor:
+              typeof user.cursorColor === 'string' && user.cursorColor.trim()
+                ? user.cursorColor.trim()
+                : user.color || existingPresence?.cursorColor || '#2563eb',
             role: assignedRole,
             cursor: existingPresence?.cursor || { x: 0, y: 0 },
             isDrawing: false,
@@ -1127,6 +1191,15 @@ wss.on('connection', (ws: WebSocket) => {
           if (userObj && msg.user) {
             userObj.presence.name = msg.user.name || userObj.presence.name;
             userObj.presence.color = msg.user.color || userObj.presence.color;
+            if (typeof msg.user.cursorColor === 'string' && msg.user.cursorColor.trim()) {
+              userObj.presence.cursorColor = msg.user.cursorColor.trim();
+            }
+            if (typeof msg.user.avatarUrl === 'string') {
+              userObj.presence.avatarUrl = msg.user.avatarUrl;
+            }
+            if (typeof msg.user.identityKey === 'string' && msg.user.identityKey.trim()) {
+              userObj.presence.identityKey = msg.user.identityKey.trim();
+            }
             userObj.presence.avatar =
               msg.user.avatar || userObj.presence.name.charAt(0).toUpperCase();
 
@@ -1216,11 +1289,22 @@ wss.on('connection', (ws: WebSocket) => {
           if (sender && !canEditWorkspace(sender.presence.role)) return;
 
           const element: CanvasElement = msg.element;
+          const insertBeforeId: string | undefined =
+            typeof msg.insertBeforeId === 'string' && msg.insertBeforeId ? msg.insertBeforeId : undefined;
           if (!element || !element.id) return;
 
           if (!room.elements.has(element.id)) {
             room.elements.set(element.id, element);
-            room.elementOrder.push(element.id);
+            if (insertBeforeId) {
+              const targetIdx = room.elementOrder.indexOf(insertBeforeId);
+              if (targetIdx >= 0) {
+                room.elementOrder.splice(targetIdx, 0, element.id);
+              } else {
+                room.elementOrder.push(element.id);
+              }
+            } else {
+              room.elementOrder.push(element.id);
+            }
           } else {
             room.elements.set(element.id, element);
           }
@@ -1230,6 +1314,7 @@ wss.on('connection', (ws: WebSocket) => {
             {
               type: 'element-created',
               element,
+              insertBeforeId,
             },
             currentUserId || undefined
           );

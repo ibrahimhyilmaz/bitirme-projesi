@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { soundEffects } from '../utils/audio';
 import { meshClear, meshLoad, meshSave } from '../utils/meshStore';
+import { deduplicateUsers } from '../utils/userIdentity';
 
 interface UseWebSocketOptions {
   roomId: string;
@@ -30,9 +31,12 @@ interface UseWebSocketOptions {
   onSessionTimeout?: (roomId: string, roomName: string) => void;
   user: {
     id: string;
+    identityKey?: string;
     name: string;
     avatar: string;
+    avatarUrl?: string;
     color: string;
+    cursorColor?: string;
   };
   onWebRTCSignal?: (fromUserId: string, signal: unknown) => void;
   onKicked?: (roomId: string, roomName: string, by: string) => void;
@@ -369,8 +373,11 @@ export function useWebSocket({
         u.id === user.id
           ? {
               ...u,
+              identityKey: user.identityKey || u.identityKey,
               name: user.name,
               color: user.color,
+              cursorColor: user.cursorColor || user.color,
+              avatarUrl: user.avatarUrl ?? u.avatarUrl,
               avatar: user.avatar || user.name.charAt(0).toUpperCase(),
             }
           : u
@@ -390,7 +397,16 @@ export function useWebSocket({
         })
       );
     }
-  }, [user.name, user.color, user.avatar, user.id, publishMeshPacket]);
+  }, [
+    user.name,
+    user.color,
+    user.cursorColor,
+    user.avatar,
+    user.avatarUrl,
+    user.identityKey,
+    user.id,
+    publishMeshPacket,
+  ]);
 
   // Process incoming room events (shared by WS, BroadcastChannel, and Serverless WSS Mesh)
   const handleIncomingPacket = useCallback(
@@ -447,6 +463,30 @@ export function useWebSocket({
         }
 
         switch (msg.type) {
+          // --- Serverless Room Preview Snapshot Responder (works on static sites & BroadcastChannel) ---
+          case 'preview-request': {
+            const requesterId = typeof msg.requesterId === 'string' ? msg.requesterId : msg._senderId;
+            const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+            if (!requesterId || !requestId) break;
+            const ownerUser = usersRef.current.find((u) => u.role === 'owner');
+            const uniqueCount = deduplicateUsers(usersRef.current, userRef.current.id).length;
+            publishMeshPacket(
+              {
+                type: 'preview-response',
+                requestId,
+                roomId,
+                name: syncedRoomNameRef.current || roomNameRef.current,
+                ownerName: ownerUser?.name || userRef.current.name || 'Kurucu',
+                userCount: Math.max(1, uniqueCount),
+                maxUsers: roomSettingsRef.current.maxUsers,
+                isLocked: Boolean(roomSettingsRef.current.isLocked),
+                elements: roomSettingsRef.current.isLocked ? [] : elementsRef.current,
+              },
+              requesterId
+            );
+            break;
+          }
+
           // --- Serverless Mesh Discovery & State Handshake ---
           case 'mesh-join': {
             if (!msg.user || msg.user.id === userRef.current.id) break;
@@ -476,14 +516,19 @@ export function useWebSocket({
                 break;
               }
 
-              if (usersRef.current.length >= roomSettingsRef.current.maxUsers) {
+              const sameIdentityAlreadyHere = Boolean(
+                joiningUser.identityKey &&
+                  usersRef.current.some((u) => u.identityKey === joiningUser.identityKey)
+              );
+              const uniqueUserCount = deduplicateUsers(usersRef.current, userRef.current.id).length;
+              if (!sameIdentityAlreadyHere && uniqueUserCount >= roomSettingsRef.current.maxUsers) {
                 publishMeshPacket(
                   {
                     type: 'room-error',
                     code: 'ROOM_FULL',
                     roomId,
                     targetUserId: joiningUser.id,
-                    message: `"${syncedRoomNameRef.current}" (#${roomId.toUpperCase()}) odası maksimum kapasiteye ulaştı (${usersRef.current.length}/${roomSettingsRef.current.maxUsers} kişi). Bu odaya giriş yapılamaz.`,
+                    message: `"${syncedRoomNameRef.current}" (#${roomId.toUpperCase()}) odası maksimum kapasiteye ulaştı (${uniqueUserCount}/${roomSettingsRef.current.maxUsers} kişi). Bu odaya giriş yapılamaz.`,
                   },
                   joiningUser.id
                 );
@@ -522,9 +567,12 @@ export function useWebSocket({
             const meInList = usersRef.current.find((u) => u.id === userRef.current.id);
             const myPresence: UserPresence = meInList || {
               id: userRef.current.id,
+              identityKey: userRef.current.identityKey,
               name: userRef.current.name,
               avatar: userRef.current.avatar,
+              avatarUrl: userRef.current.avatarUrl,
               color: userRef.current.color,
+              cursorColor: userRef.current.cursorColor || userRef.current.color,
               role: currentOwnerId === userRef.current.id ? 'owner' : 'editor',
               cursor: localCursorRef.current.cursor,
               isDrawing: localCursorRef.current.isDrawing,
@@ -917,8 +965,13 @@ export function useWebSocket({
                   u.id === uid
                     ? {
                         ...u,
+                        identityKey: updatedUser.identityKey || u.identityKey,
                         name: updatedUser.name || u.name,
                         color: updatedUser.color || u.color,
+                        cursorColor:
+                          updatedUser.cursorColor || u.cursorColor || updatedUser.color || u.color,
+                        avatarUrl:
+                          updatedUser.avatarUrl !== undefined ? updatedUser.avatarUrl : u.avatarUrl,
                         avatar:
                           updatedUser.avatar ||
                           (updatedUser.name || u.name).charAt(0).toUpperCase(),
@@ -1009,6 +1062,14 @@ export function useWebSocket({
             setElements((prev) => {
               if (prev.some((el) => el.id === msg.element.id)) {
                 return prev.map((el) => (el.id === msg.element.id ? msg.element : el));
+              }
+              if (typeof msg.insertBeforeId === 'string' && msg.insertBeforeId) {
+                const targetIdx = prev.findIndex((el) => el.id === msg.insertBeforeId);
+                if (targetIdx >= 0) {
+                  const next = prev.slice();
+                  next.splice(targetIdx, 0, msg.element);
+                  return next;
+                }
               }
               return [...prev, msg.element];
             });
@@ -1499,9 +1560,12 @@ export function useWebSocket({
 
       const initialSelfPresence: UserPresence = {
         id: userRef.current.id,
+        identityKey: userRef.current.identityKey,
         name: userRef.current.name,
         avatar: userRef.current.avatar || userRef.current.name.charAt(0).toUpperCase(),
+        avatarUrl: userRef.current.avatarUrl,
         color: userRef.current.color,
+        cursorColor: userRef.current.cursorColor || userRef.current.color,
         role: iAmFounder ? 'owner' : 'editor',
         cursor: { x: 0, y: 0 },
         isDrawing: false,
@@ -2061,15 +2125,24 @@ export function useWebSocket({
   );
 
   const createElement = useCallback(
-    (element: CanvasElement) => {
+    (element: CanvasElement, insertBeforeId?: string) => {
       if (!canEdit) return;
       setElements((prev) => {
         if (prev.some((e) => e.id === element.id)) return prev;
+        if (insertBeforeId) {
+          const targetIdx = prev.findIndex((e) => e.id === insertBeforeId);
+          if (targetIdx >= 0) {
+            const next = prev.slice();
+            next.splice(targetIdx, 0, element);
+            return next;
+          }
+        }
         return [...prev, element];
       });
       sendMessage({
         type: 'element-create',
         element,
+        ...(insertBeforeId ? { insertBeforeId } : {}),
       });
     },
     [sendMessage, canEdit]
@@ -2221,7 +2294,7 @@ export function useWebSocket({
         type: 'code-cursor-move',
         userId: userRef.current.id,
         userName: userRef.current.name,
-        userColor: userRef.current.color,
+        userColor: userRef.current.cursorColor || userRef.current.color,
         ...cursor,
       };
       const flush = () => {
@@ -2412,13 +2485,14 @@ export function useWebSocket({
   const sendPing = useCallback(
     (x: number, y: number) => {
       const now = Date.now();
+      const pingColor = userRef.current.cursorColor || userRef.current.color;
       setPings((prev) => [
         ...prev.slice(-10),
         {
           x,
           y,
           userName: userRef.current.name,
-          userColor: userRef.current.color,
+          userColor: pingColor,
           timestamp: now,
         },
       ]);
@@ -2428,7 +2502,7 @@ export function useWebSocket({
         x,
         y,
         userName: userRef.current.name,
-        userColor: userRef.current.color,
+        userColor: pingColor,
         timestamp: now,
       });
     },
@@ -2494,6 +2568,11 @@ export function useWebSocket({
     [publishMeshPacket, roomId]
   );
 
+  const deduplicatedUsers = useMemo(
+    () => deduplicateUsers(users, user.id),
+    [users, user.id]
+  );
+
   return {
     isConnected,
     reconnectTick,
@@ -2507,7 +2586,7 @@ export function useWebSocket({
     canEdit,
     canManage,
     elements,
-    users,
+    users: deduplicatedUsers,
     code,
     notes,
     files,

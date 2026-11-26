@@ -34,6 +34,7 @@ interface FileShareModalProps {
   onDeleteFile: (fileId: string) => void;
   onAddImageToCanvas: (dataUrl: string, name: string, width?: number, height?: number) => void;
   onAddPdfToCanvas?: (pdfUrl: string, name: string) => void;
+  onAddDocumentToCanvas?: (content: string, kind: 'markdown' | 'text', name: string) => void;
   onAddVideoToCanvas?: (videoUrl: string, name: string) => void;
   onClose: () => void;
 }
@@ -152,11 +153,13 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
   onDeleteFile,
   onAddImageToCanvas,
   onAddPdfToCanvas,
+  onAddDocumentToCanvas,
   onAddVideoToCanvas,
   onClose,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [previewMarkdownFile, setPreviewMarkdownFile] = useState<{
@@ -165,21 +168,28 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const processFile = async (file: File) => {
-    setValidationError(null);
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const res = e.target?.result as string;
+        if (res) resolve(res);
+        else reject(new Error('Dosya okunamadı.'));
+      };
+      reader.onerror = () => reject(new Error('Dosya okunurken bir hata oluştu.'));
+      reader.readAsDataURL(file);
+    });
+
+  const processSingleFile = async (file: File): Promise<string | null> => {
     const validation = validateFile(file.name, file.type, file.size);
     if (!validation.valid) {
-      setValidationError(validation.error || 'Bu dosya türü desteklenmiyor.');
-      return;
+      return `${file.name}: ${validation.error || 'Bu dosya türü desteklenmiyor.'}`;
     }
 
-    setIsProcessing(true);
     try {
       const videoCheck = await validateVideoFileMetadata(file);
       if (!videoCheck.valid) {
-        setValidationError(videoCheck.error || 'Video süre veya boyut sınırını aşıyor.');
-        setIsProcessing(false);
-        return;
+        return `${file.name}: ${videoCheck.error || 'Video süre veya boyut sınırını aşıyor.'}`;
       }
 
       const lower = file.name.toLowerCase();
@@ -189,6 +199,8 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
           ? 'application/pdf'
           : lower.endsWith('.md') || lower.endsWith('.markdown')
           ? 'text/markdown'
+          : lower.endsWith('.txt')
+          ? 'text/plain'
           : lower.endsWith('.mp4')
           ? 'video/mp4'
           : lower.endsWith('.webm')
@@ -197,32 +209,51 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
           ? 'video/quicktime'
           : 'application/octet-stream');
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        onUploadFile({
-          name: file.name,
-          size: file.size,
-          fileType: resolvedMime,
-          dataUrl,
-        });
-        setIsProcessing(false);
-      };
-      reader.onerror = () => {
-        setValidationError('Dosya okunurken bir hata oluştu.');
-        setIsProcessing(false);
-      };
-      reader.readAsDataURL(file);
+      const dataUrl = await readFileAsDataUrl(file);
+      onUploadFile({
+        name: file.name,
+        size: file.size,
+        fileType: resolvedMime,
+        dataUrl,
+      });
+      return null;
     } catch {
-      setValidationError('Dosya işlenirken beklenmeyen bir hata oluştu.');
-      setIsProcessing(false);
+      return `${file.name}: Dosya işlenirken beklenmeyen bir hata oluştu.`;
+    }
+  };
+
+  const processFiles = async (fileList: FileList | File[]) => {
+    const arr = Array.from(fileList);
+    if (arr.length === 0) return;
+
+    setValidationError(null);
+    setIsProcessing(true);
+    setUploadProgress({ done: 0, total: arr.length });
+
+    const errors: string[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const err = await processSingleFile(arr[i]);
+      if (err) errors.push(err);
+      setUploadProgress({ done: i + 1, total: arr.length });
+    }
+
+    setIsProcessing(false);
+    setUploadProgress(null);
+
+    if (errors.length > 0) {
+      setValidationError(
+        errors.length === 1
+          ? errors[0]
+          : `${errors.length} dosya yüklenemedi: ${errors.slice(0, 3).join(' · ')}`
+      );
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      void processFile(e.target.files[0]);
+      const selected = Array.from(e.target.files);
       e.target.value = '';
+      void processFiles(selected);
     }
   };
 
@@ -230,7 +261,7 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      void processFile(e.dataTransfer.files[0]);
+      void processFiles(Array.from(e.dataTransfer.files));
     }
   };
 
@@ -270,10 +301,29 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
 
   const handleAddMarkdownToBoard = (file: SharedFile) => {
     const mdText = extractTextFromDataUrl(file.dataUrl);
+    if (onAddDocumentToCanvas) {
+      onAddDocumentToCanvas(mdText, 'markdown', file.name);
+      return;
+    }
     const cardSvg = createMarkdownCardSvgDataUrl({
       name: file.name,
       size: file.size,
       markdownContent: mdText,
+      uploadedBy: file.uploadedBy,
+    });
+    onAddImageToCanvas(cardSvg.dataUrl, file.name, cardSvg.width, cardSvg.height);
+  };
+
+  const handleAddPlainTextToBoard = (file: SharedFile) => {
+    const txtText = extractTextFromDataUrl(file.dataUrl);
+    if (onAddDocumentToCanvas) {
+      onAddDocumentToCanvas(txtText, 'text', file.name);
+      return;
+    }
+    const cardSvg = createMarkdownCardSvgDataUrl({
+      name: file.name,
+      size: file.size,
+      markdownContent: txtText,
       uploadedBy: file.uploadedBy,
     });
     onAddImageToCanvas(cardSvg.dataUrl, file.name, cardSvg.width, cardSvg.height);
@@ -367,6 +417,7 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               accept={FILE_INPUT_ACCEPT}
               onChange={handleFileChange}
               className="hidden"
@@ -374,21 +425,23 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
             {isProcessing ? (
               <>
                 <Loader2 className="w-5 h-5 text-blue-600 animate-spin mb-1.5" />
-                <p className="text-xs font-semibold text-blue-700 dark:text-blue-400">
-                  Dosya kontrol ediliyor ve optimize ediliyor...
+                <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 tabular-nums">
+                  {uploadProgress && uploadProgress.total > 1
+                    ? `Dosyalar yükleniyor (${uploadProgress.done} / ${uploadProgress.total})...`
+                    : 'Dosya kontrol ediliyor ve optimize ediliyor...'}
                 </p>
               </>
             ) : (
               <>
                 <Upload className="w-5 h-5 text-slate-400 mb-1.5" />
                 <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Dosya yüklemek için tıklayın veya sürükleyip bırakın
+                  Bir veya birden fazla dosya seçin ya da sürükleyip bırakın
                 </p>
                 <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-                  Markdown (.md), PDF, Word, PPTX, Excel, Görseller ve Videolar (Maks. 3 dk / 50 MB)
+                  Markdown (.md), TXT, PDF, Word, PPTX, Excel, Görseller ve Videolar (Maks. 3 dk / 50 MB)
                 </p>
                 <span className="inline-block mt-1 text-[10px] text-slate-400 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full font-medium">
-                  Güvenlik: .exe ve çalıştırılabilir dosyalara izin verilmez
+                  Çoklu yükleme desteklenir · Çalıştırılabilir dosyalara izin verilmez
                 </span>
               </>
             )}
@@ -423,7 +476,9 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
                 lower.endsWith('.md') ||
                 lower.endsWith('.markdown') ||
                 file.type.includes('markdown');
-              const isOtherDoc = !isImage && !isPdf && !isVideo && !isMarkdown;
+              const isPlainText =
+                !isMarkdown && (lower.endsWith('.txt') || file.type === 'text/plain');
+              const isOtherDoc = !isImage && !isPdf && !isVideo && !isMarkdown && !isPlainText;
 
               return (
                 <div
@@ -535,6 +590,20 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
                         }}
                         className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/60 font-medium transition-colors cursor-pointer"
                         title="Videoyu Tahtaya Ekle (Oynatıcı ile)"
+                      >
+                        <PlusCircle className="w-3.5 h-3.5" />
+                        <span>Tahtaya Ekle</span>
+                      </button>
+                    )}
+
+                    {isPlainText && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddPlainTextToBoard(file);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 font-medium transition-colors cursor-pointer"
+                        title="Sayfa Sayfa Metin Belgesi Olarak Tahtaya Ekle"
                       >
                         <PlusCircle className="w-3.5 h-3.5" />
                         <span>Tahtaya Ekle</span>

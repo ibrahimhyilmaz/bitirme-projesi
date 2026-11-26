@@ -41,6 +41,8 @@ import {
   X as XIcon,
   LogOut,
   User as UserIcon,
+  Crown,
+  Pencil,
 } from 'lucide-react';
 import { RoomSettings, ThemeMode, UserPresence, UserRole } from '../types';
 import { getShareableRoomUrl } from './RoomsModal';
@@ -459,7 +461,15 @@ export const TopNav: React.FC<TopNavProps> = ({
             }`}
             title="Oda Yetkileri, Kitleme ve Rol Yönetimi"
           >
-            <Shield className="w-3.5 h-3.5 text-blue-500" />
+            {currentUserRole === 'owner' ? (
+              <Crown className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+            ) : currentUserRole === 'admin' ? (
+              <Shield className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
+            ) : currentUserRole === 'editor' ? (
+              <Pencil className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
+            ) : (
+              <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            )}
             <span>{ROLE_TEXT[currentUserRole]}</span>
           </button>
 
