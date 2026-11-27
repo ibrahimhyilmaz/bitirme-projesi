@@ -10,9 +10,15 @@ import {
   Code2,
   Share2,
   Map,
+  Hand,
+  Move,
+  ZoomIn,
+  Pencil,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { useI18n, translatePhrase } from '../i18n';
+import { useDockLayout } from '../hooks/useIsMobile';
+import { GestureDemo, GestureKind } from './GestureDemo';
 
 interface OnboardingTourProps {
   isOpen: boolean;
@@ -30,6 +36,7 @@ interface TourStep {
   selector?: string;
   tips: string[];
   icon: React.ReactNode;
+  demo?: GestureKind;
 }
 
 const TOUR_STEPS: TourStep[] = [
@@ -99,6 +106,58 @@ const TOUR_STEPS: TourStep[] = [
   },
 ];
 
+/** Phone / tablet walkthrough: how to move around with fingers, with looping gesture demos */
+const TOUCH_STEPS: TourStep[] = [
+  {
+    id: 'welcome',
+    badge: 'Adım 1 / 5 · Hoş Geldiniz',
+    title: "CollabBoard'a Hoş Geldiniz!",
+    description: 'Parmağınızla çizin, ekip arkadaşlarınızla aynı tahtada canlı çalışın. Bu kısa rehber dokunmatik kullanımı gösterir.',
+    tips: [
+      'Tek parmak: seçili araçla çizer, seçer veya taşır.',
+      'Rehberi istediğiniz zaman üst menüdeki "Tur" ile yeniden açabilirsiniz.',
+    ],
+    icon: <Pencil className="w-5 h-5 text-blue-500" />,
+    demo: 'draw',
+  },
+  {
+    id: 'touch-pan',
+    badge: 'Adım 2 / 5 · Gezinme',
+    title: 'İki parmakla tahtada gezinin',
+    description: 'Tahta sonsuzdur. İki parmağınızı birlikte sürükleyerek istediğiniz yere kaydırın. Hangi araç seçili olursa olsun çalışır.',
+    tips: ['İki parmak sürükle: tahtayı kaydır.', 'Çizerken ikinci parmağınızı koyarsanız çizim iptal edilir ve gezinme başlar.'],
+    icon: <Move className="w-5 h-5 text-indigo-500" />,
+    demo: 'pan',
+  },
+  {
+    id: 'touch-zoom',
+    badge: 'Adım 3 / 5 · Yakınlaştırma',
+    title: 'Parmaklarınızı açıp kapatın',
+    description: 'İki parmağı birbirinden uzaklaştırarak yakınlaşın, birbirine yaklaştırarak uzaklaşın.',
+    tips: ['Yakınlaştırmayı sıfırlamak için "Daha" menüsündeki ilgili düğmeyi kullanın.', 'Sol alttaki Mini Harita ile büyük tahtalarda hızlıca konum değiştirebilirsiniz.'],
+    icon: <ZoomIn className="w-5 h-5 text-emerald-500" />,
+    demo: 'zoom',
+  },
+  {
+    id: 'touch-hand',
+    badge: 'Adım 4 / 5 · Kaydır (El) Aracı',
+    title: 'Tek parmakla gezinmek için El aracı',
+    description: "Alttaki çubukta Kaydır (el) simgesine dokunun ve tek parmağınızla sürükleyerek tahtayı taşıyın. Çizmeye dönmek için Kalem veya Seç'e dokunun.",
+    selector: '[data-tour="toolbar"]',
+    tips: ['Çubuğun üstündeki tutamaçtan sürükleyerek araç çubuğunu yerinden oynatabilirsiniz.', 'Şekil, Silgi ve diğer araçlar için sekmelere dokunun; ek araçlar "Daha" menüsünde.'],
+    icon: <Hand className="w-5 h-5 text-violet-500" />,
+    demo: 'hand',
+  },
+  {
+    id: 'invite-github',
+    badge: 'Adım 5 / 5 · Davet',
+    title: 'QR kod veya bağlantıyla ekip daveti',
+    description: 'Üst menüdeki "Davet Et" ile odanın bağlantısını ya da QR kodunu paylaşın. QR kodu okutan arkadaşınız doğrudan odaya girer.',
+    tips: ['Telefon, tablet ve bilgisayar aynı odada gerçek zamanlı çalışır.', 'Başlamak için "Başla"ya dokunun.'],
+    icon: <Share2 className="w-5 h-5 text-amber-500" />,
+  },
+];
+
 export const OnboardingTour: React.FC<OnboardingTourProps> = ({
   isOpen,
   onClose,
@@ -111,7 +170,9 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
 
-  const currentStep = TOUR_STEPS[stepIndex] || TOUR_STEPS[0];
+  const isTouch = useDockLayout();
+  const steps = isTouch ? TOUCH_STEPS : TOUR_STEPS;
+  const currentStep = steps[stepIndex] || steps[0];
 
   useEffect(() => {
     if (!isOpen) {
@@ -135,14 +196,22 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
     updateRect();
     window.addEventListener('resize', updateRect);
     return () => window.removeEventListener('resize', updateRect);
-  }, [isOpen, stepIndex, currentStep.selector]);
+  }, [isOpen, stepIndex, currentStep.selector, isTouch]);
 
   if (!isOpen) return null;
 
-  const isLastStep = stepIndex === TOUR_STEPS.length - 1;
+  const isLastStep = stepIndex === steps.length - 1;
 
   // Calculate smart card position near spotlight or centered
   const getCardStyle = (): React.CSSProperties => {
+    if (isTouch) {
+      const base: React.CSSProperties = { left: 8, right: 8, maxHeight: 'calc(100dvh - 16px)', overflowY: 'auto' };
+      if (targetRect) {
+        // dock lives at the bottom: park the card above it
+        return { ...base, bottom: Math.max(8, window.innerHeight - targetRect.top + 14) };
+      }
+      return { ...base, top: '50%', transform: 'translateY(-50%)' };
+    }
     if (!targetRect) {
       return {
         top: '50%',
@@ -246,7 +315,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
 
       {/* Tour Step Card */}
       <div
-        className="fixed z-[97] pointer-events-auto w-[430px] max-w-[calc(100vw-32px)] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-700 overflow-hidden transition-all duration-300"
+        className={`fixed z-[97] pointer-events-auto ${isTouch ? 'mx-auto max-w-[430px]' : 'w-[430px] max-w-[calc(100vw-32px)]'} bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-700 overflow-hidden transition-all duration-300`}
         style={getCardStyle()}
       >
         {/* Top Accent Banner */}
@@ -286,6 +355,8 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
               </p>
             </div>
           </div>
+
+          {currentStep.demo && <GestureDemo kind={currentStep.demo} />}
 
           {/* Interactive Tips Box */}
           <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 rounded-xl p-3.5 space-y-2">
@@ -339,11 +410,13 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
           {/* Step Dots + Navigation */}
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              {TOUR_STEPS.map((s, idx) => (
+              {steps.map((s, idx) => (
                 <button
                   key={s.id}
+                  data-compact
+                  aria-label={`${idx + 1}. ${trPhrase('Adım')}`}
                   onClick={() => setStepIndex(idx)}
-                  className={`h-2 rounded-full transition-all ${
+                  className={`relative h-2 rounded-full transition-all before:absolute before:-inset-2 before:content-[''] ${
                     idx === stepIndex
                       ? 'w-6 bg-blue-600'
                       : 'w-2 bg-slate-300 dark:bg-slate-600 hover:bg-slate-400'

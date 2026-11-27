@@ -702,7 +702,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const penActive = activeTool === 'pencil' || activeTool === 'fountain-pen';
     const eraserActive = activeTool === 'eraser' || activeTool === 'point-eraser';
     const shapeActive = (ALL_SHAPE_TYPES as readonly string[]).includes(activeTool);
-    const moreActive = ['pan', 'bucket', 'highlighter', 'arrow', 'line', 'sticky', 'folder', 'laser', 'ping'].includes(activeTool);
+    const moreActive = ['bucket', 'highlighter', 'arrow', 'line', 'sticky', 'folder', 'laser', 'ping'].includes(activeTool);
 
     const Tab: React.FC<{
       label: string;
@@ -1014,7 +1014,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <div
             className="grid gap-0.5 px-1.5"
             style={{
-              gridTemplateColumns: `repeat(${canEdit ? 7 : 4}, minmax(0, 1fr))`,
+              gridTemplateColumns: `repeat(${canEdit ? 8 : 4}, minmax(0, 1fr))`,
               paddingBottom: position ? '6px' : 'calc(env(safe-area-inset-bottom) + 6px)',
             }}
           >
@@ -1023,6 +1023,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </Tab>
             {canEdit ? (
               <>
+                <Tab label="Kaydır" active={activeTool === 'pan'} onClick={() => pick('pan')}>
+                  <Hand className="w-[22px] h-[22px]" />
+                </Tab>
                 <Tab
                   label="Kalem"
                   hasSheet

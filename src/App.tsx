@@ -430,6 +430,21 @@ export default function App() {
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
 
+  // First visit via QR / invite link (or a restored session): the join form never ran, so
+  // offer the walkthrough here once the workspace is on screen.
+  useEffect(() => {
+    if (!hasEnteredWorkspace || isUserSetupOpen) return;
+    let done = true;
+    try {
+      done = localStorage.getItem('collabboard_onboarding_v2_done') === 'true';
+    } catch {
+      /* storage blocked: skip the auto tour rather than nag on every load */
+    }
+    if (done) return;
+    const t = window.setTimeout(() => setIsOnboardingOpen(true), 700);
+    return () => window.clearTimeout(t);
+  }, [hasEnteredWorkspace, isUserSetupOpen]);
+
   // Workspace Widget Visibility & Layout States (Synced across TopNav Kutucuklar, Toolbar, StyleBar, VoiceBar, Minimap)
   const [showToolbar, setShowToolbar] = useState<boolean>(() => {
     try {
