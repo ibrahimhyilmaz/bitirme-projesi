@@ -833,12 +833,12 @@ const PHRASE_TABLE: Record<string, [string, string, string, string, string]> = {
     'Paso 1 / 5 · Bienvenida',
     'الخطوة 1 / 5 · مرحباً بك',
   ],
-  'JinkyBoard Ortak Çalışma Tahtasına Hoş Geldiniz!': [
-    'Welcome to the JinkyBoard Collaborative Whiteboard!',
-    'Willkommen auf dem JinkyBoard Kollaborations-Board!',
-    'Bienvenue sur le tableau collaboratif JinkyBoard !',
-    '¡Bienvenido a la pizarra colaborativa JinkyBoard!',
-    'مرحباً بك في لوحة العمل التشاركية JinkyBoard!',
+  'JinkBoard Ortak Çalışma Tahtasına Hoş Geldiniz!': [
+    'Welcome to the JinkBoard Collaborative Whiteboard!',
+    'Willkommen auf dem JinkBoard Kollaborations-Board!',
+    'Bienvenue sur le tableau collaboratif JinkBoard !',
+    '¡Bienvenido a la pizarra colaborativa JinkBoard!',
+    'مرحباً بك في لوحة العمل التشاركية JinkBoard!',
   ],
   'Yeni kaligrafik CB kimliğimiz ve geliştirilmiş gerçek zamanlı çalışma alanımızla ekip arkadaşlarınızla çizim yapabilir, diyagramlar kurabilir, ortak kod derleyebilir ve sesli görüşebilirsiniz.': [
     'With our calligraphic CB identity and enhanced real-time workspace, you can draw with teammates, build diagrams, compile collaborative code, and talk on the voice channel.',
@@ -1239,12 +1239,12 @@ const PHRASE_TABLE: Record<string, [string, string, string, string, string]> = {
     'Exportar / Importar: Descarga tu tablero como imagen PNG de alta resolución o guárdalo y restáuralo como archivo JSON.',
     'تصدير / استيراد: نزّل اللوحة كصورة PNG عالية الدقة أو احفظها واستعدها كملف احتياطي JSON.',
   ],
-  'JinkyBoard Hızlı Başlangıç Rehberi': [
-    'JinkyBoard Quick Start Guide',
-    'JinkyBoard Schnellstart-Anleitung',
-    'Guide de démarrage rapide JinkyBoard',
-    'Guía de inicio rápido de JinkyBoard',
-    'دليل البدء السريع لـ JinkyBoard',
+  'JinkBoard Hızlı Başlangıç Rehberi': [
+    'JinkBoard Quick Start Guide',
+    'JinkBoard Schnellstart-Anleitung',
+    'Guide de démarrage rapide JinkBoard',
+    'Guía de inicio rápido de JinkBoard',
+    'دليل البدء السريع لـ JinkBoard',
   ],
   'Buradan Erişebilirsiniz': [
     'Access It Right Here',
@@ -1434,11 +1434,11 @@ const PHRASE_TABLE: Record<string, [string, string, string, string, string]> = {
   'Yedekten Geri Yükle': ['Restore from Backup', 'Aus Backup wiederherstellen', 'Restaurer depuis une sauvegarde', 'Restaurar desde copia', 'الاستعادة من نسخة احتياطية'],
   'JSON Yükle': ['Upload JSON', 'JSON hochladen', 'Importer JSON', 'Subir JSON', 'رفع JSON'],
   'Yüklendi': ['Uploaded', 'Geladen', 'Importé', 'Cargado', 'تم الرفع'],
-  'Önceden indirdiğiniz bir JinkyBoard JSON dosyasını tahtaya aktarın.': [
-    'Import a previously downloaded JinkyBoard JSON file onto the board.',
-    'Importieren Sie eine zuvor heruntergeladene JinkyBoard-JSON-Datei aufs Board.',
-    'Importez un fichier JSON JinkyBoard précédemment téléchargé sur le tableau.',
-    'Importa un archivo JSON de JinkyBoard descargado previamente al tablero.',
+  'Önceden indirdiğiniz bir JinkBoard JSON dosyasını tahtaya aktarın.': [
+    'Import a previously downloaded JinkBoard JSON file onto the board.',
+    'Importieren Sie eine zuvor heruntergeladene JinkBoard-JSON-Datei aufs Board.',
+    'Importez un fichier JSON JinkBoard précédemment téléchargé sur le tableau.',
+    'Importa un archivo JSON de JinkBoard descargado previamente al tablero.',
     'استورد ملف JSON محفوظ مسبقاً إلى اللوحة.',
   ],
 
@@ -1567,6 +1567,33 @@ const PHRASE_TABLE: Record<string, [string, string, string, string, string]> = {
   'Dengeli & Net (10-18 Şekil Parçası)': ['Balanced & Clear (10-18 Shape Parts)', 'Ausgewogen & Klar (10-18 Formen)', 'Équilibré & Net (10-18 formes)', 'Equilibrado y Claro (10-18 formas)', 'متوازن وواضح (10-18 قطعة)'],
   'Gelişmiş & Ayrıntılı (20-32 Şekil Parçası)': ['Advanced & Detailed (20-32 Shape Parts)', 'Erweitert & Detailliert (20-32 Formen)', 'Avancé & Détaillé (20-32 formes)', 'Avanzado y Detallado (20-32 formas)', 'متقدم ومفصل (20-32 قطعة)'],
   'En Üst Düzey Başyapıt (35-50+ Şekil Parçası)': ['Ultimate Masterpiece (35-50+ Shape Parts)', 'Meisterwerk-Stufe (35-50+ Formen)', 'Chef-d’œuvre ultime (35-50+ formes)', 'Obra Maestra Suprema (35-50+ formas)', 'تحفة فنية متكاملة (35-50+ قطعة)'],
+
+  // UserProfileCardModal.tsx & 1 MB Avatar Upload
+  'Arkadaşlık İsteği Gönder': ['Send Friend Request', 'Freundschaftsanfrage senden', 'Envoyer une demande d’ami', 'Enviar solicitud de amistad', 'إرسال طلب صداقة'],
+  'İstek Gönderildi': ['Request Sent', 'Anfrage gesendet', 'Demande envoyée', 'Solicitud enviada', 'تم إرسال الطلب'],
+  'İsteği Kabul Et': ['Accept Request', 'Anfrage annehmen', 'Accepter la demande', 'Aceptar solicitud', 'قبول الطلب'],
+  'Arkadaşsınız': ['Friends', 'Befreundet', 'Amis', 'Amigos', 'أصدقاء'],
+  'Arkadaş eklemek için Google ile giriş yapın': [
+    'Sign in with Google to add friends',
+    'Mit Google anmelden, um Freunde hinzuzufügen',
+    'Connectez-vous avec Google pour ajouter des amis',
+    'Inicia sesión con Google para añadir amigos',
+    'سجّل الدخول عبر Google لإضافة الأصدقاء',
+  ],
+  'Henüz kazanılmış rozet yok.': [
+    'No badges earned yet.',
+    'Noch keine Abzeichen erhalten.',
+    'Aucun badge obtenu pour le moment.',
+    'Aún no hay insignias obtenidas.',
+    'لا توجد شارات مكتسبة بعد.',
+  ],
+  'PNG, JPEG, WebP veya hareketli GIF yükleyebilirsiniz (maks. 1 MB).': [
+    'You can upload PNG, JPEG, WebP, or animated GIF (max 1 MB).',
+    'Sie können PNG, JPEG, WebP oder animiertes GIF hochladen (max. 1 MB).',
+    'Vous pouvez importer un fichier PNG, JPEG, WebP ou GIF animé (max 1 Mo).',
+    'Puedes subir PNG, JPEG, WebP o GIF animado (máx. 1 MB).',
+    'يمكنك رفع صور PNG أو JPEG أو WebP أو GIF متحرك (بحد أقصى 1 ميجابايت).',
+  ],
 };
 
 Object.assign(PHRASE_TABLE, EXTRA_PHRASES, EXTRA_PHRASES_2, EXTRA_PHRASES_3, EXTRA_PHRASES_4);

@@ -43,7 +43,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     id: 'welcome',
     badge: 'Adım 1 / 5 · Hoş Geldiniz',
-    title: 'JinkyBoard Ortak Çalışma Tahtasına Hoş Geldiniz!',
+    title: 'JinkBoard Ortak Çalışma Tahtasına Hoş Geldiniz!',
     description:
       'Yeni kaligrafik CB kimliğimiz ve geliştirilmiş gerçek zamanlı çalışma alanımızla ekip arkadaşlarınızla çizim yapabilir, diyagramlar kurabilir, ortak kod derleyebilir ve sesli görüşebilirsiniz.',
     tips: [
@@ -111,7 +111,7 @@ const TOUCH_STEPS: TourStep[] = [
   {
     id: 'welcome',
     badge: 'Adım 1 / 5 · Hoş Geldiniz',
-    title: "JinkyBoard'a Hoş Geldiniz!",
+    title: "JinkBoard'a Hoş Geldiniz!",
     description: 'Parmağınızla çizin, ekip arkadaşlarınızla aynı tahtada canlı çalışın. Bu kısa rehber dokunmatik kullanımı gösterir.',
     tips: [
       'Tek parmak: seçili araçla çizer, seçer veya taşır.',
@@ -327,7 +327,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
                 {trPhrase(currentStep.badge)}
               </div>
               <div className="text-sm font-bold text-white flex items-center gap-1.5">
-                <span>{trPhrase('JinkyBoard Hızlı Başlangıç Rehberi')}</span>
+                <span>{trPhrase('JinkBoard Hızlı Başlangıç Rehberi')}</span>
               </div>
             </div>
           </div>

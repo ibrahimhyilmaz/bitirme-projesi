@@ -108,13 +108,22 @@ function formatDurationLabel(totalSec: number): string {
 }
 
 export const ClockWidget: React.FC<{
+  visible?: boolean;
   theme?: ThemeMode;
   isDark?: boolean;
   onHide: () => void;
   layoutResetCounter?: number;
   resetCounter?: number;
   zIndex?: number;
-}> = ({ theme = 'light', isDark: isDarkProp, onHide, layoutResetCounter, resetCounter, zIndex = 23 }) => {
+}> = ({
+  visible = true,
+  theme = 'light',
+  isDark: isDarkProp,
+  onHide,
+  layoutResetCounter,
+  resetCounter,
+  zIndex = 23,
+}) => {
   const isDark = isDarkProp !== undefined ? isDarkProp : theme === 'dark' || theme === 'midnight';
   const effectiveReset = layoutResetCounter ?? resetCounter ?? 0;
   const { rect, ref, startDrag, startResize, reset, updateRect } = useFloatingBox({
@@ -155,11 +164,13 @@ export const ClockWidget: React.FC<{
   const timerEndsAtRef = useRef<number>(0);
   const timerCompletedRef = useRef<boolean>(false);
 
-  // Clock tick
+  // Clock tick (paused when widget is hidden; immediately refreshed when shown again)
   useEffect(() => {
+    if (!visible) return;
+    setNow(new Date());
     const id = window.setInterval(() => setNow(new Date()), 500);
     return () => window.clearInterval(id);
-  }, []);
+  }, [visible]);
 
   // Persist prefs
   useEffect(() => {
@@ -329,6 +340,7 @@ export const ClockWidget: React.FC<{
 
   return (
     <>
+      {visible && (
       <div
         ref={ref}
         onPointerDown={(e) => e.stopPropagation()}
@@ -777,6 +789,7 @@ export const ClockWidget: React.FC<{
           </div>
         )}
       </div>
+      )}
 
       {/* Prominent Timer Completion Notification Banner (Portal so it is always visible above workspace) */}
       {timerFinishedBanner &&

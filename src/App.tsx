@@ -3141,6 +3141,13 @@ export default function App() {
         target={inspectedUserTarget}
         loadedProfile={inspectedUserProfile}
         isLoading={isInspectingUser}
+        currentUserUid={firebaseUser?.uid || null}
+        isCurrentUserGoogle={accountSocial.accountType === 'google'}
+        friends={accountSocial.friends}
+        incomingFriendRequests={accountSocial.incomingFriendRequests}
+        outgoingFriendRequests={accountSocial.outgoingFriendRequests}
+        onSendFriendRequest={accountSocial.sendFriendRequest}
+        onAcceptFriendRequest={accountSocial.acceptFriendRequest}
         onClose={() => {
           inspectSeqRef.current++;
           setInspectedUserTarget(null);
@@ -3366,15 +3373,14 @@ export default function App() {
         />
         )}
 
-        {/* Floating Clock (draggable + resizable) */}
-        {!hideAllBars && showClock && (
-          <ClockWidget
-            onHide={() => updateAppSettings({ showClock: false })}
-            layoutResetCounter={layoutResetCounter}
-            zIndex={23}
-            theme={settings.theme}
-          />
-        )}
+        {/* Floating Clock (always mounted so stopwatch & countdown timer keep running when hidden) */}
+        <ClockWidget
+          visible={!hideAllBars && showClock}
+          onHide={() => updateAppSettings({ showClock: false })}
+          layoutResetCounter={layoutResetCounter}
+          zIndex={23}
+          theme={settings.theme}
+        />
 
         {/* Contextual Style & Transform Bar (Draggable, Bottom Center by default) */}
         {/* Right-side vertical properties panel: appears as soon as something is selected */}

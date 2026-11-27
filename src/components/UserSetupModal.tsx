@@ -585,7 +585,7 @@ export const UserSetupModal: React.FC<UserSetupModalProps> = ({
           )}
           <BrandLogo size="lg" className="mb-2.5 shadow-lg" />
           <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
-            {isInitialSetup ? 'JinkyBoard Çalışma Alanı' : 'Profil ve Oda Geçişi'}
+            {isInitialSetup ? 'JinkBoard Çalışma Alanı' : 'Profil ve Oda Geçişi'}
           </h1>
           <p className="text-xs text-slate-300 mt-1 max-w-xs leading-relaxed">
             {isInitialSetup

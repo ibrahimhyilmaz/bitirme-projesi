@@ -951,7 +951,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                     quotaSource === 'app_default' ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'
                   }`}
                 >
-                  JinkyBoard varsayılan paylaşımlı anahtarını kullanır. Hızlı testler için saatlik 15 çizim hakkı sunar.
+                  JinkBoard varsayılan paylaşımlı anahtarını kullanır. Hızlı testler için saatlik 15 çizim hakkı sunar.
                 </p>
               </button>
 

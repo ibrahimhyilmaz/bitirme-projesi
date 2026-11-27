@@ -88,7 +88,7 @@ function runInNodeVm(
 
   try {
     const context = vm.createContext(sandbox);
-    const script = new vm.Script(jsCode, { filename: 'JinkyBoard-script.js' });
+    const script = new vm.Script(jsCode, { filename: 'JinkBoard-script.js' });
     const result = script.runInContext(context, { timeout: 4000 });
     if (result !== undefined && stdoutLines.length === 0 && stderrLines.length === 0) {
       stdoutLines.push(formatVal(result));
@@ -223,7 +223,7 @@ codeCompilerRouter.post('/api/code/execute', async (req, res) => {
       stderr: 'Çalıştırılacak kod boş.',
       exitCode: 1,
       executionTimeMs: 0,
-      engine: 'JinkyBoard Compiler',
+      engine: 'JinkBoard Compiler',
       language,
     });
     return;
@@ -329,7 +329,7 @@ codeCompilerRouter.post('/api/code/execute', async (req, res) => {
       stderr: `Derleyici Bağlantı Hatası: ${err instanceof Error ? err.message : String(err)}`,
       exitCode: 1,
       executionTimeMs,
-      engine: 'JinkyBoard Compiler',
+      engine: 'JinkBoard Compiler',
       language,
     });
   }

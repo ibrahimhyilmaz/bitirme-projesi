@@ -119,7 +119,7 @@ export async function callLLM(
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (cfg.apiKey?.trim()) headers.Authorization = `Bearer ${cfg.apiKey.trim()}`;
       if (cfg.provider === 'openrouter') {
-        headers['X-Title'] = 'JinkyBoard';
+        headers['X-Title'] = 'JinkBoard';
       }
       res = await fetch(`${base}/chat/completions`, {
         method: 'POST',

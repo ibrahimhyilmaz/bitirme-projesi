@@ -90,10 +90,10 @@ export const NotesPanel: React.FC<NotesPanelProps> = ({
 
   return (
     <div
-      className={`fixed bg-white dark:bg-slate-900 flex flex-col overflow-hidden select-none cb-anim-scale-in ${
+      className={`fixed left-auto bg-white dark:bg-slate-900 flex flex-col overflow-hidden select-none cb-anim-fade-in transition-[top,right,bottom,width,border-radius] duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
         isFullscreen
-          ? 'inset-0 z-[70] w-screen h-screen rounded-none border-0 shadow-none'
-          : 'inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[480px] md:max-w-[calc(100vw-32px)] z-40 border border-slate-200 dark:border-slate-800 md:rounded-2xl shadow-2xl'
+          ? 'top-0 right-0 bottom-0 w-[100vw] z-[70] rounded-none border-0 shadow-none'
+          : 'top-12 right-0 bottom-0 md:top-16 md:right-4 md:bottom-6 w-[100vw] md:w-[min(480px,calc(100vw-32px))] z-40 border border-slate-200 dark:border-slate-800 md:rounded-2xl shadow-2xl'
       }`}
     >
       {/* Header */}

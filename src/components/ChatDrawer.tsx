@@ -720,10 +720,10 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       onDragOver={handleDrawerDragOver}
       onDragLeave={handleDrawerDragLeave}
       onDrop={handleDrawerDrop}
-      className={`fixed flex flex-col overflow-hidden select-none cb-anim-scale-in transition-all duration-200 ${
+      className={`fixed left-auto flex flex-col overflow-hidden select-none cb-anim-fade-in transition-[top,right,bottom,width,border-radius] duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
         isFullscreen
-          ? 'inset-0 w-screen h-screen max-w-none z-[70] border-0 rounded-none shadow-none'
-          : 'inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[420px] md:max-w-[calc(100vw-32px)] z-[60] border md:rounded-2xl shadow-2xl'
+          ? 'top-0 right-0 bottom-0 w-[100vw] z-[70] border-0 rounded-none shadow-none'
+          : 'top-12 right-0 bottom-0 md:top-16 md:right-4 md:bottom-6 w-[100vw] md:w-[min(420px,calc(100vw-32px))] z-[60] border md:rounded-2xl shadow-2xl'
       } ${
         isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
       }`}

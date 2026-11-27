@@ -461,11 +461,18 @@ export const PROFILE_COLOR_PALETTE = [
   '#0f766e', // Teal
 ];
 
-const MAX_AVATAR_DATA_URL_CHARS = 320_000;
+export const MAX_AVATAR_FILE_BYTES = 1024 * 1024; // 1 MB
+export const DIRECT_AVATAR_MAX_CHARS = 700_000;
+export const AVATAR_CHUNK_SIZE = 420_000;
+export const AVATAR_CHUNK_PREFIX = 'chunked:';
+
+const MAX_STATIC_AVATAR_DATA_URL_CHARS = 320_000;
+const MAX_GIF_DATA_URL_CHARS = 1_450_000; // ~1 MB binary encoded in base64 + data URL header
 
 /**
- * Prepares an uploaded avatar image for Firestore storage:
- * - Animated GIFs are preserved intact (keeping animation!) when <= 230KB raw file size.
+ * Prepares an uploaded avatar image for storage:
+ * - Both static photos (PNG/JPEG/WebP) and animated GIFs are capped at 1 MB raw file size.
+ * - Animated GIFs are preserved intact (keeping animation!).
  * - PNG / JPEG / WebP images are center-cropped to a crisp 192x192 square and compressed.
  */
 export async function processAvatarFile(file: File): Promise<string> {
@@ -482,20 +489,21 @@ export async function processAvatarFile(file: File): Promise<string> {
     throw new Error('Yalnızca PNG, JPEG, WebP veya GIF formatında görseller yükleyebilirsiniz.');
   }
 
+  if (file.size > MAX_AVATAR_FILE_BYTES) {
+    throw new Error(
+      'Profil fotoğrafı veya hareketli GIF en fazla 1 MB olabilir. Lütfen daha küçük bir dosya seçin.'
+    );
+  }
+
   if (isGif) {
-    if (file.size > 235 * 1024) {
-      throw new Error(
-        'Hareketli GIF profil resmi en fazla 230 KB olabilir. Lütfen daha küçük bir GIF seçin.'
-      );
-    }
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ''));
       reader.onerror = () => reject(new Error('GIF dosyası okunamadı.'));
       reader.readAsDataURL(file);
     });
-    if (dataUrl.length > MAX_AVATAR_DATA_URL_CHARS) {
-      throw new Error('GIF dosyası profil sınırını aşıyor. Lütfen daha küçük bir GIF deneyin.');
+    if (dataUrl.length > MAX_GIF_DATA_URL_CHARS) {
+      throw new Error('GIF dosyası 1 MB profil sınırını aşıyor. Lütfen daha küçük bir GIF deneyin.');
     }
     return dataUrl;
   }
@@ -524,10 +532,10 @@ export async function processAvatarFile(file: File): Promise<string> {
 
     // Prefer WebP, fallback to JPEG
     let out = canvas.toDataURL('image/webp', 0.86);
-    if (!out.startsWith('data:image/webp') || out.length > MAX_AVATAR_DATA_URL_CHARS) {
+    if (!out.startsWith('data:image/webp') || out.length > MAX_STATIC_AVATAR_DATA_URL_CHARS) {
       out = canvas.toDataURL('image/jpeg', 0.84);
     }
-    if (out.length > MAX_AVATAR_DATA_URL_CHARS) {
+    if (out.length > MAX_STATIC_AVATAR_DATA_URL_CHARS) {
       out = canvas.toDataURL('image/jpeg', 0.65);
     }
     return out;

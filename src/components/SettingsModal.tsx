@@ -286,7 +286,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         {/* Mini theme preview bar */}
                         <div className={`h-8 rounded-lg border p-1.5 flex items-center justify-between ${t.previewBg}`}>
                           <div className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${t.previewCard}`}>
-                            JinkyBoard
+                            JinkBoard
                           </div>
                           <div className="flex items-center gap-1">
                             <span className={`w-3 h-3 rounded-full ${t.previewAccent}`} />

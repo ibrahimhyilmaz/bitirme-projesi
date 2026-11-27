@@ -50,7 +50,7 @@ const PUBLIC_WSS_BROKERS = [
 ];
 
 function getDefaultCodeForRoom(roomId: string, displayRoomName: string) {
-  return `// JinkyBoard Ortak Kod Editörü — ${displayRoomName} (#${roomId})
+  return `// JinkBoard Ortak Kod Editörü — ${displayRoomName} (#${roomId})
 // Bu odadaki kod alanı odadaki tüm kullanıcılarla gerçek zamanlı senkronize olur.
 
 function calculateSprintMetrics(tasks) {

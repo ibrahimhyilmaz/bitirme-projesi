@@ -152,7 +152,7 @@ int main() {
 class Prog {
     public static void main(String[] args) {
         List<String> moduller = Arrays.asList("WebSocket", "WebRTC", "Canvas2D", "AI-Generator", "Compiler");
-        System.out.println("JinkyBoard Aktif Modüller (" + moduller.size() + "):");
+        System.out.println("JinkBoard Aktif Modüller (" + moduller.size() + "):");
         for (int i = 0; i < moduller.size(); i++) {
             System.out.println("  " + (i + 1) + ". " + moduller.get(i));
         }
@@ -189,7 +189,7 @@ SELECT id || ' | ' || ad || ' | Katılımcı: ' || kullanici_sayisi || ' | Durum
 <body>
   <div class="card">
     <span class="badge">CANLI ÖNİZLEME</span>
-    <h2>JinkyBoard UI</h2>
+    <h2>JinkBoard UI</h2>
     <p>HTML, CSS ve JavaScript kodlarınızı gerçek zamanlı olarak bu alanda önizleyebilirsiniz.</p>
     <button onclick="this.textContent = '🎉 Tıklandı!'">Test Et</button>
   </div>
@@ -765,10 +765,10 @@ export const CodeEditorPanel: React.FC<CodeEditorPanelProps> = ({
   return (
     <div
       ref={panelRef}
-      className={`fixed bg-slate-900 flex flex-col overflow-hidden transition-all duration-200 ${
+      className={`fixed left-auto bg-slate-900 flex flex-col overflow-hidden transition-[top,right,bottom,width,border-radius] duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
         isFullscreen
-          ? 'inset-0 z-[120] w-screen h-screen rounded-none border-0 shadow-none'
-          : 'inset-x-0 bottom-0 top-12 md:top-16 md:right-4 md:bottom-6 md:left-auto w-full md:w-[680px] md:max-w-[calc(100vw-32px)] z-[110] border border-slate-700/80 md:rounded-2xl shadow-2xl'
+          ? 'top-0 right-0 bottom-0 w-[100vw] z-[120] rounded-none border-0 shadow-none'
+          : 'top-12 right-0 bottom-0 md:top-16 md:right-4 md:bottom-6 w-[100vw] md:w-[min(680px,calc(100vw-32px))] z-[110] border border-slate-700/80 md:rounded-2xl shadow-2xl'
       }`}
     >
       {/* Editor Header */}

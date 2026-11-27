@@ -95,7 +95,7 @@ export class RoomManager {
 
       const displayRoomName = roomName || `Oda #${roomId}`;
 
-      const defaultCode = `// JinkyBoard Ortak Kod Editörü — ${displayRoomName} (#${roomId})
+      const defaultCode = `// JinkBoard Ortak Kod Editörü — ${displayRoomName} (#${roomId})
 // Bu odadaki kod alanı yalnızca bu odaya özeldir ve odadaki üyelerle anlık senkronize olur.
 
 function calculateSprintMetrics(tasks) {
@@ -168,7 +168,7 @@ calculateSprintMetrics(sampleTasks);
           {
             id: `welcome-${Date.now()}`,
             userId: 'system',
-            userName: 'JinkyBoard',
+            userName: 'JinkBoard',
             userColor: '#2563eb',
             text: `${displayRoomName} odasına hoş geldiniz! Araç çubuğundaki AI Çizim butonuyla istediğiniz şekli/diyagramı üretebilir, ortak kod yazabilir ve oda ayarlarından yetkileri yönetebilirsiniz.`,
             timestamp: Date.now(),

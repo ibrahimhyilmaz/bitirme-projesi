@@ -281,8 +281,8 @@
         },
         "avatarUrl": {
           "type": "string",
-          "description": "Google avatar URL or optimized PNG/JPEG/WebP/GIF data URL.",
-          "maxLength": 350000
+          "description": "Google avatar URL, optimized PNG/JPEG/WebP/GIF data URL, or chunked avatar marker (chunked:N).",
+          "maxLength": 750000
         },
         "color": {
           "type": "string",
@@ -320,6 +320,30 @@
         "badges",
         "updatedAt"
       ]
+    },
+    "AvatarChunk": {
+      "title": "AvatarChunk",
+      "description": "Chunked animated GIF data URL segment for 1 MB profile avatars stored under publicProfiles/{userId}/avatarChunks/{chunkIndex}.",
+      "type": "object",
+      "properties": {
+        "chunkIndex": {
+          "type": "string",
+          "description": "Zero-based chunk index string (0 to 3).",
+          "enum": ["0", "1", "2", "3"]
+        },
+        "data": {
+          "type": "string",
+          "description": "Base64 data URL segment.",
+          "minLength": 1,
+          "maxLength": 450000
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp."
+        }
+      },
+      "required": ["chunkIndex", "data", "updatedAt"]
     },
     "PrivateBadgeStats": {
       "title": "PrivateBadgeStats",
@@ -532,6 +556,10 @@
     "/publicProfiles/{userId}": {
       "schema": "PublicProfile",
       "description": "PII-free social profile directory searchable by friendCode or displayName."
+    },
+    "/publicProfiles/{userId}/avatarChunks/{chunkIndex}": {
+      "schema": "AvatarChunk",
+      "description": "Publicly readable, owner-writable chunks for animated GIF avatars up to 1 MB."
     },
     "/users/{userId}/private/{docId}": {
       "schema": "PrivateBadgeStats",

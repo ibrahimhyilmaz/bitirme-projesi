@@ -436,7 +436,7 @@ export function renderMarkdownCard(
   ${p.rows.join('\n  ')}
   <line x1="${PAD_X - 6}" y1="${height - FOOTER_H + 10}" x2="${WIDTH - PAD_X + 6}" y2="${height - FOOTER_H + 10}" stroke="#f1f5f9" stroke-width="1.5"/>
   <text x="${PAD_X}" y="${height - 16}" font-family="${SANS}" font-size="11" font-weight="600" fill="#64748b">${escapeXml(tr('Ekleyen:'))} ${author}</text>
-  <text x="${WIDTH - PAD_X}" y="${height - 16}" font-family="${SANS}" font-size="11" font-weight="700" fill="#4f46e5" text-anchor="end">JinkyBoard Markdown</text>
+  <text x="${WIDTH - PAD_X}" y="${height - 16}" font-family="${SANS}" font-size="11" font-weight="700" fill="#4f46e5" text-anchor="end">JinkBoard Markdown</text>
 </g>`;
   });
 

@@ -484,7 +484,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
     if (!dataUrl) return;
     const link = document.createElement('a');
     link.href = dataUrl;
-    link.download = `JinkyBoard-oda-${currentRoomId}-qr.png`;
+    link.download = `JinkBoard-oda-${currentRoomId}-qr.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -494,7 +494,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `JinkyBoard — ${currentRoomName} (#${currentRoomId})`,
+          title: `JinkBoard — ${currentRoomName} (#${currentRoomId})`,
           text: `${currentRoomName} ortak çalışma odasına katılmak için tıklayın:`,
           url: shareUrl,
         });

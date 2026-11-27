@@ -531,7 +531,7 @@ export const LandingShowcase: React.FC<LandingShowcaseProps> = ({ theme, onScrol
 
   return (
     <section
-      id="JinkyBoard-intro"
+      id="JinkBoard-intro"
       className={`relative w-full overflow-hidden transition-colors duration-500 select-text ${pageBg}`}
       style={{ backgroundImage: `radial-gradient(${dots} 1.2px, transparent 1.2px)`, backgroundSize: '28px 28px' }}
     >
@@ -594,7 +594,7 @@ export const LandingShowcase: React.FC<LandingShowcaseProps> = ({ theme, onScrol
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-400" />
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                  <span className={`ml-3 text-[11px] font-mono ${muted}`}>JinkyBoard · #K7X9A</span>
+                  <span className={`ml-3 text-[11px] font-mono ${muted}`}>JinkBoard · #K7X9A</span>
                 </div>
                 <div
                   key={ch.id}
@@ -633,7 +633,7 @@ export const LandingShowcase: React.FC<LandingShowcaseProps> = ({ theme, onScrol
         <footer className={`pt-8 border-t flex flex-col sm:flex-row items-center justify-between gap-4 text-xs ${hairline} ${muted}`}>
           <div className="flex items-center gap-2.5">
             <BrandLogo size="sm" />
-            <span className={`font-bold ${heading}`}>JinkyBoard</span>
+            <span className={`font-bold ${heading}`}>JinkBoard</span>
             <span aria-hidden="true">·</span>
             <span>Gerçek Zamanlı Beyaz Tahta &amp; Ortak Kodlama</span>
           </div>

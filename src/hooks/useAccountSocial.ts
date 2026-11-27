@@ -20,9 +20,12 @@ import {
 } from '../firebase';
 import {
   AccountStats,
+  AVATAR_CHUNK_PREFIX,
+  AVATAR_CHUNK_SIZE,
   BADGE_DEFINITIONS,
   BadgeId,
   BadgeTier,
+  DIRECT_AVATAR_MAX_CHARS,
   UnlockedBadgeTier,
   EMPTY_ACCOUNT_STATS,
   evaluateBadgeTiers,
@@ -102,6 +105,9 @@ export type ActivityEventType =
 const GUEST_STORAGE_KEY = 'collab_guest_account_v1';
 const OWNER_STATS_CACHE_PREFIX = 'collab_owner_badge_stats_v2_';
 const OWNER_CURSOR_CACHE_PREFIX = 'collab_owner_cursor_color_v1_';
+const OWNER_AVATAR_CACHE_PREFIX = 'collab_owner_avatar_v1_';
+const LEGACY_AVATAR_MAX_CHARS = 350_000;
+const CHUNKED_AVATAR_CACHE = new Map<string, string>();
 
 export function buildFriendshipPairId(a: string, b: string): string {
   return a < b ? `${a}_${b}` : `${b}_${a}`;
@@ -145,6 +151,89 @@ function saveCachedOwnerCursorColor(uid: string, color: string): void {
   try {
     localStorage.setItem(`${OWNER_CURSOR_CACHE_PREFIX}${uid}`, color);
   } catch {}
+}
+
+function loadCachedOwnerAvatar(uid: string): string | null {
+  try {
+    const raw = localStorage.getItem(`${OWNER_AVATAR_CACHE_PREFIX}${uid}`);
+    if (raw && raw.length > 0) return raw;
+  } catch {}
+  return null;
+}
+
+function saveCachedOwnerAvatar(uid: string, avatarUrl: string): void {
+  try {
+    if (avatarUrl) {
+      localStorage.setItem(`${OWNER_AVATAR_CACHE_PREFIX}${uid}`, avatarUrl);
+    } else {
+      localStorage.removeItem(`${OWNER_AVATAR_CACHE_PREFIX}${uid}`);
+    }
+  } catch {}
+}
+
+async function resolveAvatarUrl(uid: string, rawAvatarUrl: string): Promise<string> {
+  if (!rawAvatarUrl || !rawAvatarUrl.startsWith(AVATAR_CHUNK_PREFIX)) {
+    return rawAvatarUrl;
+  }
+  const cacheKey = `${uid}:${rawAvatarUrl}`;
+  const cached = CHUNKED_AVATAR_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  const count = parseInt(rawAvatarUrl.slice(AVATAR_CHUNK_PREFIX.length), 10);
+  if (!Number.isFinite(count) || count < 1 || count > 4) {
+    return '';
+  }
+
+  try {
+    const parts = await Promise.all(
+      Array.from({ length: count }, (_, idx) =>
+        getDoc(doc(db, 'publicProfiles', uid, 'avatarChunks', String(idx)))
+      )
+    );
+    const assembled = parts
+      .map((snap) => (snap.exists() && typeof snap.data().data === 'string' ? snap.data().data : ''))
+      .join('');
+    if (assembled) {
+      CHUNKED_AVATAR_CACHE.set(cacheKey, assembled);
+    }
+    return assembled;
+  } catch {
+    return '';
+  }
+}
+
+async function writeChunkedAvatar(uid: string, fullAvatarUrl: string): Promise<string | null> {
+  const chunks: string[] = [];
+  for (let i = 0; i < fullAvatarUrl.length; i += AVATAR_CHUNK_SIZE) {
+    chunks.push(fullAvatarUrl.slice(i, i + AVATAR_CHUNK_SIZE));
+  }
+  if (chunks.length === 0 || chunks.length > 4) return null;
+
+  try {
+    await Promise.all(
+      chunks.map((data, idx) =>
+        setDoc(doc(db, 'publicProfiles', uid, 'avatarChunks', String(idx)), {
+          chunkIndex: String(idx),
+          data,
+          updatedAt: serverTimestamp(),
+        })
+      )
+    );
+    // Clean up unused trailing chunks best-effort
+    for (let staleIdx = chunks.length; staleIdx < 4; staleIdx++) {
+      try {
+        await deleteDoc(doc(db, 'publicProfiles', uid, 'avatarChunks', String(staleIdx)));
+      } catch {}
+    }
+    const marker = `${AVATAR_CHUNK_PREFIX}${chunks.length}`;
+    CHUNKED_AVATAR_CACHE.set(`${uid}:${marker}`, fullAvatarUrl);
+    return marker;
+  } catch (err) {
+    if (isPermissionDeniedError(err)) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 function loadGuestAccount(fallbackName: string, fallbackColor: string): GuestAccountData {
@@ -320,28 +409,43 @@ async function persistProfileAndStatsResilient(params: {
   const mustWritePublic = writePublicProfile || !privateWriteSucceeded;
   if (!mustWritePublic) return;
 
-  const basePayload = {
+  // Prepare avatar for Firestore (supports 1 MB animated GIFs via avatarChunks + legacy 350k fallback)
+  let storedAvatarField = avatarUrl || '';
+  if (storedAvatarField.length > DIRECT_AVATAR_MAX_CHARS) {
+    const marker = await writeChunkedAvatar(uid, storedAvatarField);
+    storedAvatarField = marker || '';
+  }
+
+  const buildBasePayload = (avatarValue: string) => ({
     uid,
     displayName: displayName || 'Kullanıcı',
     displayNameLower: (displayNameLower || displayName || 'kullanıcı').slice(0, 60),
     friendCode: /^CB-[A-Z0-9]{4,8}$/.test(friendCode) ? friendCode : generateFriendCode(),
-    avatarUrl: (avatarUrl || '').slice(0, 350000),
+    avatarUrl: avatarValue,
     color: color && color.length >= 4 ? color.slice(0, 32) : '#2563eb',
     badges: badges.slice(0, 20),
     updatedAt: serverTimestamp(),
+  });
+
+  const buildAttempts = (avatarValue: string): Array<Record<string, unknown>> => {
+    const basePayload = buildBasePayload(avatarValue);
+    return privateWriteSucceeded
+      ? [
+          { ...basePayload, cursorColor },
+          { ...basePayload, cursorColor, stats },
+          { ...basePayload, stats },
+        ]
+      : [
+          { ...basePayload, cursorColor, stats },
+          { ...basePayload, stats },
+        ];
   };
 
-  // Candidate payloads ordered from most modern/private to legacy-compatible
-  const attempts: Array<Record<string, unknown>> = privateWriteSucceeded
-    ? [
-        { ...basePayload, cursorColor },
-        { ...basePayload, cursorColor, stats },
-        { ...basePayload, stats },
-      ]
-    : [
-        { ...basePayload, cursorColor, stats },
-        { ...basePayload, stats },
-      ];
+  // Candidate payloads: first with full/chunked avatar, then legacy <=350k fallback if external rules haven't deployed yet
+  const attempts: Array<Record<string, unknown>> = [
+    ...buildAttempts(storedAvatarField),
+    ...(storedAvatarField.length > LEGACY_AVATAR_MAX_CHARS ? buildAttempts('') : []),
+  ];
 
   let lastErr: unknown = null;
   for (const payload of attempts) {
@@ -576,7 +680,23 @@ export function useAccountSocial({
             ownStatsRef.current,
             loadCachedOwnerCursorColor(uid)
           );
-          setRawCloudProfile(parsed);
+          const cachedAvatar = loadCachedOwnerAvatar(uid);
+          if (parsed.avatarUrl.startsWith(AVATAR_CHUNK_PREFIX)) {
+            setRawCloudProfile(
+              cachedAvatar ? { ...parsed, avatarUrl: cachedAvatar } : parsed
+            );
+            void resolveAvatarUrl(uid, parsed.avatarUrl).then((resolved) => {
+              if (!cancelled && resolved) {
+                saveCachedOwnerAvatar(uid, resolved);
+                setRawCloudProfile((prev) => (prev ? { ...prev, avatarUrl: resolved } : prev));
+              }
+            });
+          } else {
+            const effectiveAvatar =
+              parsed.avatarUrl ||
+              (cachedAvatar && cachedAvatar.length > LEGACY_AVATAR_MAX_CHARS ? cachedAvatar : '');
+            setRawCloudProfile({ ...parsed, avatarUrl: effectiveAvatar });
+          }
         }
         setIsProfileLoading(false);
       },
@@ -694,6 +814,9 @@ export function useAccountSocial({
           targetUid,
           snap.data() as Record<string, unknown>
         );
+        if (parsed.avatarUrl.startsWith(AVATAR_CHUNK_PREFIX)) {
+          parsed.avatarUrl = await resolveAvatarUrl(targetUid, parsed.avatarUrl);
+        }
         setProfileCache((prev) => ({ ...prev, [targetUid]: parsed }));
         return parsed;
       } catch (err) {
@@ -813,13 +936,16 @@ export function useAccountSocial({
       const nextCursorColor = cleanCursorColor || current?.cursorColor || nextColor;
       const nextAvatar =
         patch.avatarUrl !== undefined
-          ? patch.avatarUrl.slice(0, 350000)
+          ? patch.avatarUrl
           : current?.avatarUrl ?? firebaseUser.photoURL ?? '';
       const stats = ownStatsRef.current;
       const evaluated = evaluateBadgeTiers(stats, current?.badges || []);
       const friendCode = current?.friendCode || generateFriendCode();
 
       saveCachedOwnerCursorColor(uid, nextCursorColor);
+      if (patch.avatarUrl !== undefined) {
+        saveCachedOwnerAvatar(uid, nextAvatar);
+      }
 
       try {
         await persistProfileAndStatsResilient({
@@ -1165,11 +1291,16 @@ export function useAccountSocial({
       const inviteId = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const inviteRef = doc(db, 'roomInvites', inviteId);
       try {
+        const rawFromAvatar = profile?.avatarUrl || firebaseUser.photoURL || '';
+        const safeInviteAvatar =
+          rawFromAvatar.startsWith(AVATAR_CHUNK_PREFIX) || rawFromAvatar.length > 150_000
+            ? (firebaseUser.photoURL || '').slice(0, 2000)
+            : rawFromAvatar;
         await setDoc(inviteRef, {
           inviteId,
           fromUid: myUid,
           fromName: (profile?.displayName || firebaseUser.displayName || 'Arkadaş').slice(0, 60),
-          fromAvatar: (profile?.avatarUrl || firebaseUser.photoURL || '').slice(0, 350000),
+          fromAvatar: safeInviteAvatar,
           fromColor: profile?.color || '#2563eb',
           toUid: friendUid,
           roomId: cleanRoomId,

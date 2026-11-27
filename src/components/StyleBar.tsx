@@ -173,9 +173,6 @@ export const StyleBar: React.FC<StyleBarProps> = ({
   const sizeMenuRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
-  // Active color slot index (0 to 7)
-  const [activeSlotIndex, setActiveSlotIndex] = useState<number>(0);
-
   // Color slots state (persisted)
   const [colorSlots, setColorSlots] = useState<string[]>(() => {
     try {
@@ -188,12 +185,33 @@ export const StyleBar: React.FC<StyleBarProps> = ({
     return STROKE_COLORS;
   });
 
+  // Active color slot index (0 to 7), initialized to match current strokeColor when present
+  const [activeSlotIndex, setActiveSlotIndex] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('collab_color_slots');
+      const slots: string[] =
+        saved && Array.isArray(JSON.parse(saved)) && JSON.parse(saved).length === 8
+          ? JSON.parse(saved)
+          : STROKE_COLORS;
+      const idx = slots.findIndex(
+        (c) => c.trim().toLowerCase() === (strokeColor || '').trim().toLowerCase()
+      );
+      return idx !== -1 ? idx : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const lastInternalStrokeRef = useRef<string>('');
+
   const handleSelectSlot = (index: number, color: string) => {
     setActiveSlotIndex(index);
+    lastInternalStrokeRef.current = color;
     onChangeStrokeColor(color);
   };
 
   const handleCustomColorPickerChange = (newColor: string) => {
+    lastInternalStrokeRef.current = newColor;
     onChangeStrokeColor(newColor);
     setColorSlots((prev) => {
       const next = [...prev];
@@ -204,6 +222,30 @@ export const StyleBar: React.FC<StyleBarProps> = ({
       return next;
     });
   };
+
+  // Sync external strokeColor changes (e.g. from the Eyedropper tool) into StyleBar slots
+  useEffect(() => {
+    const normalized = (strokeColor || '').trim().toLowerCase();
+    if (!normalized || normalized === (lastInternalStrokeRef.current || '').trim().toLowerCase()) {
+      return;
+    }
+    lastInternalStrokeRef.current = strokeColor;
+
+    const existingIdx = colorSlots.findIndex((c) => c.trim().toLowerCase() === normalized);
+    if (existingIdx !== -1) {
+      setActiveSlotIndex(existingIdx);
+      return;
+    }
+
+    setColorSlots((prev) => {
+      const next = [...prev];
+      next[activeSlotIndex] = strokeColor;
+      try {
+        localStorage.setItem('collab_color_slots', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, [strokeColor, activeSlotIndex, colorSlots]);
 
   // Draggable position for StyleBar (persisted)
   const [storedPosition, setPosition] = useState<{ x: number; y: number } | null>(() => {

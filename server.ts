@@ -419,7 +419,7 @@ function getOrCreateRoom(
 
     const displayRoomName = sanitizeRoomDisplayName(roomName, roomId);
 
-    const defaultCode = `// JinkyBoard Ortak Kod Editörü — ${displayRoomName}
+    const defaultCode = `// JinkBoard Ortak Kod Editörü — ${displayRoomName}
 // Bu odadaki kod alanı yalnızca bu odaya özeldir ve odadaki üyelerle anlık senkronize olur.
 
 function calculateSprintMetrics(tasks) {
@@ -499,7 +499,7 @@ calculateSprintMetrics(sampleTasks);
         {
           id: `welcome-${Date.now()}`,
           userId: 'system',
-          userName: 'JinkyBoard',
+          userName: 'JinkBoard',
           userColor: '#2563eb',
           text: `${displayRoomName} odasına hoş geldiniz! Araç çubuğundaki AI Çizim butonuyla istediğiniz şekli/diyagramı üretebilir, ortak kod yazabilir ve oda ayarlarından yetkileri yönetebilirsiniz.`,
           timestamp: Date.now(),
@@ -2187,7 +2187,7 @@ function runInNodeVm(
 
   try {
     const context = vm.createContext(sandbox);
-    const script = new vm.Script(jsCode, { filename: 'JinkyBoard-script.js' });
+    const script = new vm.Script(jsCode, { filename: 'JinkBoard-script.js' });
     const result = script.runInContext(context, { timeout: 4000 });
     if (result !== undefined && stdoutLines.length === 0 && stderrLines.length === 0) {
       stdoutLines.push(formatVal(result));
@@ -2321,7 +2321,7 @@ app.post('/api/code/execute', async (req, res) => {
       stderr: 'Çalıştırılacak kod boş.',
       exitCode: 1,
       executionTimeMs: 0,
-      engine: 'JinkyBoard Compiler',
+      engine: 'JinkBoard Compiler',
       language,
     });
     return;
@@ -2430,7 +2430,7 @@ app.post('/api/code/execute', async (req, res) => {
       stderr: `Derleyici Bağlantı Hatası: ${err instanceof Error ? err.message : String(err)}`,
       exitCode: 1,
       executionTimeMs,
-      engine: 'JinkyBoard Compiler',
+      engine: 'JinkBoard Compiler',
       language,
     });
   }
@@ -2871,7 +2871,7 @@ async function startServer() {
   });
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`JinkyBoard Server running on port ${PORT}`);
+    console.log(`JinkBoard Server running on port ${PORT}`);
   });
 }
 
