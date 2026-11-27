@@ -43,6 +43,7 @@ import {
   User as UserIcon,
   Crown,
   Pencil,
+  Focus,
 } from 'lucide-react';
 import { RoomSettings, ThemeMode, UserPresence, UserRole } from '../types';
 import { getShareableRoomUrl } from './RoomsModal';
@@ -92,11 +93,14 @@ interface TopNavProps {
   onResetWidgetLayout?: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  focusMode?: boolean;
+  onToggleFocusMode?: () => void;
   onSwitchRoomByCode?: (roomCode: string) => void;
   onLeaveRoom?: () => void;
   currentUserAvatarUrl?: string;
   unreadSocialCount?: number;
   onOpenProfile?: (tab?: 'profile' | 'badges' | 'friends') => void;
+  onInspectUser?: (user: UserPresence) => void;
 }
 
 const ROLE_TEXT: Record<UserRole, string> = {
@@ -151,11 +155,14 @@ export const TopNav: React.FC<TopNavProps> = ({
   onResetWidgetLayout,
   isFullscreen = false,
   onToggleFullscreen,
+  focusMode = false,
+  onToggleFocusMode,
   onSwitchRoomByCode,
   onLeaveRoom,
   currentUserAvatarUrl = '',
   unreadSocialCount = 0,
   onOpenProfile,
+  onInspectUser,
 }) => {
   const [copied, setCopied] = useState(false);
   const [copiedRoomCode, setCopiedRoomCode] = useState(false);
@@ -858,6 +865,26 @@ export const TopNav: React.FC<TopNavProps> = ({
           )}
         </div>
 
+        {/* Focus (Odak) Mode Toggle Button (Icon Only) — completely hides all board bars */}
+        {onToggleFocusMode && (
+          <button
+            type="button"
+            onClick={onToggleFocusMode}
+            title={focusMode ? 'Odak Modundan Çık' : 'Odak Modu (Tüm barları kaldır)'}
+            aria-label={focusMode ? 'Odak Modundan Çık' : 'Odak Modu'}
+            aria-pressed={focusMode}
+            className={`p-1.5 rounded-lg border transition-all shrink-0 cursor-pointer flex items-center justify-center ${
+              focusMode
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm hover:bg-indigo-700'
+                : isDark
+                ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/70'
+            }`}
+          >
+            <Focus className="w-4 h-4 shrink-0" />
+          </button>
+        )}
+
         {/* Theme Switcher Button */}
         {onCycleTheme && (
           <button
@@ -957,20 +984,31 @@ export const TopNav: React.FC<TopNavProps> = ({
             return (
               <>
                 {otherUsers.length > 0 && (
-                  <div className="flex items-center -space-x-1.5 overflow-hidden mr-0.5">
+                  <div className="flex items-center -space-x-1.5 mr-0.5">
                     {otherUsers.slice(0, 2).map((u) => (
-                      <div
+                      <button
                         key={u.id}
-                        title={`${u.name} ${
-                          u.isSpeaking ? '· Konuşuyor' : u.isMuted ? '· Sessiz' : ''
-                        }`}
-                        className={`relative w-6.5 h-6.5 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-white text-[10px] font-bold shadow-xs ${
+                        type="button"
+                        onClick={() => onInspectUser?.(u)}
+                        title={`${u.name}${
+                          u.isSpeaking ? ' · Konuşuyor' : u.isMuted ? ' · Sessiz' : ''
+                        } · Rozetleri gör`}
+                        className={`relative w-6.5 h-6.5 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-white text-[10px] font-bold shadow-xs overflow-hidden transition-transform hover:scale-110 hover:z-10 cursor-pointer ${
                           u.isSpeaking ? 'speaking-active' : ''
                         }`}
-                        style={{ backgroundColor: u.color || '#2563eb' }}
+                        style={{ backgroundColor: u.avatarUrl ? 'transparent' : u.color || '#2563eb' }}
                       >
-                        {u.avatar || u.name.charAt(0).toUpperCase()}
-                      </div>
+                        {u.avatarUrl ? (
+                          <img
+                            src={u.avatarUrl}
+                            alt={u.name}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          u.avatar || u.name.charAt(0).toUpperCase()
+                        )}
+                      </button>
                     ))}
                     {otherUsers.length > 2 && (
                       <div className="w-6.5 h-6.5 rounded-full bg-slate-200 dark:bg-slate-700 border-2 border-white dark:border-slate-900 flex items-center justify-center text-[9px] font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-200">
@@ -1182,6 +1220,12 @@ export const TopNav: React.FC<TopNavProps> = ({
                         isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />,
                         'Tam Ekran',
                         onToggleFullscreen
+                      )}
+                    {onToggleFocusMode &&
+                      cell(
+                        <Focus className={`w-5 h-5 ${focusMode ? 'text-indigo-500' : ''}`} />,
+                        'Odak',
+                        onToggleFocusMode
                       )}
                     {onOpenSettings && cell(<Settings className="w-5 h-5" />, 'Ayarlar', () => onOpenSettings('appearance'))}
                     {onOpenProfile &&

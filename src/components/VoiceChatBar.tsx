@@ -39,6 +39,7 @@ interface VoiceChatBarProps {
   zIndex?: number;
   onFocus?: () => void;
   theme?: ThemeMode;
+  onInspectUser?: (user: UserPresence) => void;
 }
 
 export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
@@ -59,6 +60,7 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
   zIndex,
   onFocus,
   theme = 'light',
+  onInspectUser,
 }) => {
   const isDark = theme === 'dark' || theme === 'midnight';
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
@@ -509,6 +511,8 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
               {users.map((u) => {
                 const isSelf = u.id === currentUser.id;
                 const currentVol = getUserVolume(u.id);
+                const userMuted = isSelf ? isMuted : Boolean(u.isMuted);
+                const userDeafened = isSelf ? isDeafened : Boolean(u.isDeafened);
 
                 return (
                   <div
@@ -523,23 +527,44 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
                         : 'bg-slate-50/70 border-slate-200/60 hover:bg-slate-50'
                     } flex flex-col gap-1.5 text-xs`}
                   >
-                    {/* Top: Avatar, Name, Status, Mic State */}
+                    {/* Top: Avatar, Name, Status, Mic & Hearing State */}
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isSelf && onInspectUser) onInspectUser(u);
+                        }}
+                        disabled={isSelf || !onInspectUser}
+                        title={!isSelf && onInspectUser ? `${u.name} · Kazanılan rozetleri gör` : undefined}
+                        className={`flex items-center gap-2 min-w-0 text-left ${
+                          !isSelf && onInspectUser
+                            ? 'cursor-pointer hover:opacity-85 transition-opacity'
+                            : 'cursor-default'
+                        }`}
+                      >
                         <div
-                          className={`relative w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0 ${
+                          className={`relative w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0 overflow-hidden ${
                             u.isSpeaking ? 'ring-2 ring-emerald-500 ring-offset-1 animate-pulse' : ''
                           }`}
-                          style={{ backgroundColor: u.color || '#2563eb' }}
+                          style={{ backgroundColor: u.avatarUrl ? 'transparent' : u.color || '#2563eb' }}
                         >
-                          {u.avatar || u.name.charAt(0).toUpperCase()}
+                          {u.avatarUrl ? (
+                            <img
+                              src={u.avatarUrl}
+                              alt={u.name}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            u.avatar || u.name.charAt(0).toUpperCase()
+                          )}
                           {u.isSpeaking && (
                             <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white" />
                           )}
                         </div>
                         <div className="flex flex-col min-w-0">
                           <span
-                            className={`font-semibold text-xs truncate max-w-[140px] ${
+                            className={`font-semibold text-xs truncate max-w-[115px] ${
                               isDark ? 'text-slate-100' : 'text-slate-800'
                             }`}
                           >
@@ -551,14 +576,21 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
                             )}
                           </span>
                           <span className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
-                            {u.isSpeaking ? 'Konuşuyor' : u.isMuted ? 'Mikrofon kapalı' : 'Dinliyor'}
+                            {u.isSpeaking
+                              ? 'Konuşuyor'
+                              : userDeafened
+                              ? 'Sesi kapalı'
+                              : userMuted
+                              ? 'Mikrofon kapalı'
+                              : 'Dinliyor'}
                           </span>
                         </div>
-                      </div>
+                      </button>
 
                       <div className="flex items-center gap-1 shrink-0">
-                        {u.isMuted ? (
+                        {userMuted ? (
                           <span
+                            title="Mikrofon kapalı"
                             className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border ${
                               isDark
                                 ? 'bg-rose-950/40 text-rose-400 border-rose-800/60'
@@ -570,6 +602,7 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
                           </span>
                         ) : (
                           <span
+                            title="Mikrofon açık"
                             className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border ${
                               isDark
                                 ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/60'
@@ -577,6 +610,32 @@ export const VoiceChatBar: React.FC<VoiceChatBarProps> = ({
                             }`}
                           >
                             <Mic className="w-3 h-3" />
+                            <span>Açık</span>
+                          </span>
+                        )}
+
+                        {userDeafened ? (
+                          <span
+                            title="Ses çıkışı kapalı (sağırlaştırılmış)"
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border ${
+                              isDark
+                                ? 'bg-amber-950/40 text-amber-400 border-amber-800/60'
+                                : 'bg-amber-50 text-amber-700 border-amber-200/80'
+                            }`}
+                          >
+                            <VolumeX className="w-3 h-3" />
+                            <span>Kapalı</span>
+                          </span>
+                        ) : (
+                          <span
+                            title="Ses çıkışı açık"
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border ${
+                              isDark
+                                ? 'bg-sky-950/40 text-sky-400 border-sky-800/60'
+                                : 'bg-sky-50 text-sky-700 border-sky-200/80'
+                            }`}
+                          >
+                            <Volume2 className="w-3 h-3" />
                             <span>Açık</span>
                           </span>
                         )}

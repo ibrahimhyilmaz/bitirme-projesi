@@ -11,6 +11,8 @@ import {
   ThemeMode,
   EditorSettings,
   DEFAULT_EDITOR_SETTINGS,
+  UserPresence,
+  CodeFile,
 } from './types';
 import { TopNav } from './components/TopNav';
 import { Toolbar } from './components/Toolbar';
@@ -39,9 +41,10 @@ import { recordRoomVisit } from './utils/roomHistory';
 import { isMobileViewport, useIsMobile } from './hooks/useIsMobile';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { useCloudBoards, CloudBoardSummary } from './hooks/useCloudBoards';
-import { useAccountSocial, RoomInviteRecord } from './hooks/useAccountSocial';
+import { useAccountSocial, RoomInviteRecord, PublicProfileData } from './hooks/useAccountSocial';
 import { ProfileSocialModal, ProfileModalTab } from './components/ProfileSocialModal';
 import { RoomInviteToast } from './components/RoomInviteToast';
+import { UserProfileCardModal, UserProfileCardTarget } from './components/UserProfileCardModal';
 import type { BoardSnapshot } from './utils/cloudBoardCodec';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 import { getDocumentPageInfo, renderDocumentPage } from './utils/documentPageRenderer';
@@ -519,6 +522,8 @@ export default function App() {
   });
 
   const uiHidden = Boolean(settings.uiHidden);
+  const [focusMode, setFocusMode] = useState<boolean>(false);
+  const hideAllBars = uiHidden || focusMode;
   const showClock = settings.showClock === undefined ? !isMobile : settings.showClock !== false;
   const showFolder = settings.showFolder !== false;
 
@@ -693,6 +698,12 @@ export default function App() {
 
   // Canvas Tools and Styling
   const [activeTool, setActiveTool] = useState<ToolType>('select');
+  const previousToolRef = useRef<ToolType>('pencil');
+  useEffect(() => {
+    if (activeTool !== 'eyedropper') {
+      previousToolRef.current = activeTool;
+    }
+  }, [activeTool]);
   const [strokeColor, setStrokeColor] = useState<string>('#0f172a');
   const [fillColor, setFillColor] = useState<string>('transparent');
   const [strokeWidth, setStrokeWidth] = useState<number>(3);
@@ -1393,13 +1404,74 @@ export default function App() {
     accountSocial.activeCursorColor,
   ]);
 
-  // Badge tracker: Team Voice Collaboration (once per room when voice is active with >= 2 participants)
-  const voiceCollabRoomsRef = useRef<Set<string>>(new Set());
+  // Compact user profile card (shows ONLY earned badges & tiers, zero progress)
+  const [inspectedUserTarget, setInspectedUserTarget] = useState<UserProfileCardTarget | null>(null);
+  const [inspectedUserProfile, setInspectedUserProfile] = useState<PublicProfileData | null>(null);
+  const [isInspectingUser, setIsInspectingUser] = useState<boolean>(false);
+  const inspectSeqRef = useRef<number>(0);
+
+  const handleOpenUserProfileCard = useCallback(
+    (target: UserProfileCardTarget) => {
+      const seq = ++inspectSeqRef.current;
+      setInspectedUserTarget(target);
+      if (target.profile) {
+        setInspectedUserProfile(target.profile);
+        setIsInspectingUser(false);
+        return;
+      }
+      setInspectedUserProfile(null);
+      if (!target.uid) {
+        setIsInspectingUser(false);
+        return;
+      }
+      setIsInspectingUser(true);
+      void accountSocial.fetchPublicProfile(target.uid).then((prof) => {
+        if (inspectSeqRef.current !== seq) return;
+        setInspectedUserProfile(prof);
+        setIsInspectingUser(false);
+      });
+    },
+    [accountSocial.fetchPublicProfile]
+  );
+
+  const handleInspectPresenceUser = useCallback(
+    (u: UserPresence) => {
+      if (u.id === currentUser.id) {
+        setProfileModalTab('badges');
+        return;
+      }
+      const extractedUid =
+        u.identityKey && u.identityKey.startsWith('uid:')
+          ? u.identityKey.slice(4).trim() || null
+          : null;
+      handleOpenUserProfileCard({
+        uid: extractedUid,
+        displayName: u.name,
+        color: u.color || '#2563eb',
+        avatarUrl: u.avatarUrl,
+        role: u.role,
+      });
+    },
+    [currentUser.id, handleOpenUserProfileCard]
+  );
+
+  // Badge tracker: Team Voice Collaboration (counts each distinct unmuted multi-participant voice session, 60s cooldown)
+  const voiceCollabActiveRef = useRef<boolean>(false);
+  const lastVoiceCollabAtRef = useRef<number>(0);
   useEffect(() => {
-    if (!hasEnteredWorkspace || isMuted || users.length < 2) return;
-    if (voiceCollabRoomsRef.current.has(roomId)) return;
-    voiceCollabRoomsRef.current.add(roomId);
-    recordActivityRef.current('voice_collab', 1);
+    const isActive = hasEnteredWorkspace && !isMuted && users.length >= 2;
+    if (!isActive) {
+      voiceCollabActiveRef.current = false;
+      return;
+    }
+    if (!voiceCollabActiveRef.current) {
+      voiceCollabActiveRef.current = true;
+      const now = Date.now();
+      if (now - lastVoiceCollabAtRef.current >= 60 * 1000) {
+        lastVoiceCollabAtRef.current = now;
+        recordActivityRef.current('voice_collab', 1);
+      }
+    }
   }, [hasEnteredWorkspace, isMuted, users.length, roomId]);
 
   // Badge tracker: Active Studio Minutes (1 tick per active visible minute in a workspace)
@@ -1413,18 +1485,30 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [hasEnteredWorkspace, firebaseUser]);
 
-  // Throttled code-edit tracker for Code Architect badge
+  // Throttled code-edit tracker for Code Architect badge (covers both main editor & multi-file tabs)
   const lastCodeBadgeAtRef = useRef<number>(0);
+  const recordCodeContribution = useCallback(() => {
+    const now = Date.now();
+    if (now - lastCodeBadgeAtRef.current >= 4000) {
+      lastCodeBadgeAtRef.current = now;
+      recordActivityRef.current('code', 1);
+    }
+  }, []);
+
   const handleTrackedCodeUpdate = useCallback(
     (newContent: string, newLang?: string) => {
       updateCode(newContent, newLang);
-      const now = Date.now();
-      if (now - lastCodeBadgeAtRef.current >= 4000) {
-        lastCodeBadgeAtRef.current = now;
-        recordActivityRef.current('code', 1);
-      }
+      recordCodeContribution();
     },
-    [updateCode]
+    [updateCode, recordCodeContribution]
+  );
+
+  const handleTrackedUpsertCodeFile = useCallback(
+    (file: CodeFile) => {
+      upsertCodeFile(file);
+      recordCodeContribution();
+    },
+    [upsertCodeFile, recordCodeContribution]
   );
 
   // ---- Activity tracking: 1 hour without any interaction ends the session ----
@@ -2483,6 +2567,10 @@ export default function App() {
           setActiveTool('bucket');
           setSelectedElementIds([]);
           break;
+        case 'i':
+          setActiveTool('eyedropper');
+          setSelectedElementIds([]);
+          break;
         case 'e':
           if (e.shiftKey) {
             setActiveTool('point-eraser');
@@ -3044,9 +3132,22 @@ export default function App() {
             }
           }}
           onSignOutGoogle={signOutFirebase}
+          onOpenUserProfileCard={handleOpenUserProfileCard}
           onClose={() => setProfileModalTab(null)}
         />
       )}
+
+      <UserProfileCardModal
+        target={inspectedUserTarget}
+        loadedProfile={inspectedUserProfile}
+        isLoading={isInspectingUser}
+        onClose={() => {
+          inspectSeqRef.current++;
+          setInspectedUserTarget(null);
+          setInspectedUserProfile(null);
+          setIsInspectingUser(false);
+        }}
+      />
 
       <RoomInviteToast
         invites={accountSocial.activeToastInvites}
@@ -3163,10 +3264,13 @@ export default function App() {
         onResetWidgetLayout={handleResetWidgetLayout}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
+        focusMode={focusMode}
+        onToggleFocusMode={() => setFocusMode((prev) => !prev)}
         onSwitchRoomByCode={(codeStr) => handleSelectOrSwitchRoom(codeStr, undefined, undefined, false)}
         onLeaveRoom={handleLeaveRoom}
         theme={settings.theme}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onInspectUser={handleInspectPresenceUser}
       />
 
       {/* Room Error / Capacity / Lock Banner */}
@@ -3207,7 +3311,7 @@ export default function App() {
         className="relative flex-1 w-full h-full overflow-hidden"
       >
         {/* Main Floating Toolbar (Top Center by default, freely draggable anywhere) */}
-        {!uiHidden && (
+        {!hideAllBars && (
         <Toolbar
           activeTool={activeTool}
           onSelectTool={(tool) => {
@@ -3239,7 +3343,7 @@ export default function App() {
         )}
 
         {/* Voice Chat Floating Bar (Top Right by default, freely draggable anywhere) */}
-        {!uiHidden && !isMobile && (
+        {!hideAllBars && !isMobile && (
         <VoiceChatBar
           users={users}
           currentUser={currentUser}
@@ -3258,11 +3362,12 @@ export default function App() {
           zIndex={widgetZIndexes.voice}
           onFocus={() => bringWidgetToFront('voice')}
           theme={settings.theme}
+          onInspectUser={handleInspectPresenceUser}
         />
         )}
 
         {/* Floating Clock (draggable + resizable) */}
-        {!uiHidden && showClock && (
+        {!hideAllBars && showClock && (
           <ClockWidget
             onHide={() => updateAppSettings({ showClock: false })}
             layoutResetCounter={layoutResetCounter}
@@ -3273,7 +3378,7 @@ export default function App() {
 
         {/* Contextual Style & Transform Bar (Draggable, Bottom Center by default) */}
         {/* Right-side vertical properties panel: appears as soon as something is selected */}
-        {canEdit && !uiHidden && selectedElements.length > 0 && activeTool === 'select' && propsPanelVisible && (
+        {canEdit && !hideAllBars && selectedElements.length > 0 && activeTool === 'select' && propsPanelVisible && (
           <PropertiesPanel
             elements={selectedElements}
             theme={settings.theme}
@@ -3311,7 +3416,7 @@ export default function App() {
           />
         )}
 
-        {canEdit && !uiHidden && !(selectedElements.length > 0 && activeTool === 'select') && (
+        {canEdit && !hideAllBars && !(selectedElements.length > 0 && activeTool === 'select') && (
           <StyleBar
             selectedElement={selectedElement}
             selectedElements={selectedElements}
@@ -3505,7 +3610,12 @@ export default function App() {
           pan={pan}
           setPan={setPan}
           canEdit={canEdit}
-          showMinimap={showMinimap && !uiHidden}
+          showMinimap={showMinimap && !hideAllBars}
+          hideBottomDock={hideAllBars}
+          onColorPicked={(hexColor) => {
+            setStrokeColor(hexColor);
+            setActiveTool(previousToolRef.current || 'pencil');
+          }}
           onToggleMinimap={handleToggleMinimap}
           onResetWidgetLayout={handleResetWidgetLayout}
           theme={settings.theme}
@@ -3533,7 +3643,7 @@ export default function App() {
             currentUserId={currentUser.id}
             onUpdateCode={handleTrackedCodeUpdate}
             codeFiles={codeFiles}
-            onUpsertCodeFile={upsertCodeFile}
+            onUpsertCodeFile={handleTrackedUpsertCodeFile}
             onDeleteCodeFile={deleteCodeFile}
             editorSettings={editorSettings}
             onChangeEditorSettings={handleChangeEditorSettings}
@@ -3773,6 +3883,7 @@ export default function App() {
           onUpdateRoomSettings={updateRoomSettings}
           onUpdateUserRole={updateUserRole}
           onKickUser={kickUser}
+          onInspectUser={handleInspectPresenceUser}
           onDeleteRoom={async (targetRoomId) => {
             const ok = await deleteRoom(targetRoomId);
             return { ok, error: ok ? undefined : 'Oda silinemedi veya yetkiniz bulunmuyor.' };

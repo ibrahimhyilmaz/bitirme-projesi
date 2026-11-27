@@ -67,6 +67,7 @@ export type ToolType =
   | 'fountain-pen'
   | 'highlighter'
   | 'bucket'
+  | 'eyedropper'
   | 'eraser'
   | 'point-eraser'
   | 'ping'

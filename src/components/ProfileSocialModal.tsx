@@ -33,11 +33,17 @@ import type {
 } from '../hooks/useAccountSocial';
 import {
   BADGE_DEFINITIONS,
+  BADGE_TIER_META,
+  BadgeTier,
   EMPTY_ACCOUNT_STATS,
   PROFILE_COLOR_PALETTE,
+  countUnlockedBadges,
+  createEmptyBadgeTiers,
+  parseBadgeEntries,
   processAvatarFile,
 } from '../utils/badges';
 import { BadgeEmblem } from './BadgeEmblem';
+import type { UserProfileCardTarget } from './UserProfileCardModal';
 
 export type ProfileModalTab = 'profile' | 'badges' | 'friends';
 
@@ -79,6 +85,7 @@ interface ProfileSocialModalProps {
   onUnmuteInviter: (senderUid: string) => Promise<void>;
   onSignInGoogle?: (preferredName?: string) => Promise<void>;
   onSignOutGoogle?: () => Promise<void>;
+  onOpenUserProfileCard?: (target: UserProfileCardTarget) => void;
   onClose: () => void;
 }
 
@@ -139,6 +146,7 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
   onUnmuteInviter,
   onSignInGoogle,
   onSignOutGoogle,
+  onOpenUserProfileCard,
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileModalTab>(initialTab);
@@ -192,7 +200,10 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
 
   const isGoogle = accountType === 'google';
   const stats = cloudProfile?.stats || EMPTY_ACCOUNT_STATS;
-  const unlockedBadgeSet = new Set(cloudProfile?.badges || []);
+  const badgeTiers = isGoogle
+    ? cloudProfile?.badgeTiers || parseBadgeEntries(cloudProfile?.badges || [])
+    : createEmptyBadgeTiers();
+  const unlockedBadgeCount = isGoogle ? countUnlockedBadges(badgeTiers) : 0;
   const unreadFriendsTabCount = incomingFriendRequests.length + pendingRoomInvites.length;
 
   const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -478,7 +489,7 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
             <Award className="w-3.5 h-3.5" />
             <span>Rozetler</span>
             <span className="font-mono tabular-nums text-[10px] opacity-75">
-              {unlockedBadgeSet.size}/{BADGE_DEFINITIONS.length}
+              {unlockedBadgeCount}/{BADGE_DEFINITIONS.length}
             </span>
           </button>
 
@@ -758,7 +769,7 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
                       <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                         <span>Rozet Vitrini</span>
                         <span className="font-mono tabular-nums text-blue-600 dark:text-blue-400">
-                          {unlockedBadgeSet.size}/{BADGE_DEFINITIONS.length}
+                          {unlockedBadgeCount}/{BADGE_DEFINITIONS.length}
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -766,7 +777,7 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
                           <BadgeEmblem
                             key={b.id}
                             badgeId={b.id}
-                            unlocked={unlockedBadgeSet.has(b.id)}
+                            tier={badgeTiers[b.id]}
                             size="sm"
                           />
                         ))}
@@ -815,44 +826,45 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                    Başarım Rozetleri
+                    Başarım Rozetleri (4 Kademe)
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Çizim, kodlama, sesli işbirliği ve üretim eşiklerini tamamlayarak rozet kazanın.
+                    Bronz, Gümüş, Altın ve Elmas kademelerini birikimli ilerlemeyle açın. İlerleme yalnızca size görünür.
                   </p>
                 </div>
-                <div className="text-xs font-mono tabular-nums font-bold text-blue-600 dark:text-blue-400">
-                  {unlockedBadgeSet.size} / {BADGE_DEFINITIONS.length}
+                <div className="text-xs font-mono tabular-nums font-bold text-blue-600 dark:text-blue-400 shrink-0">
+                  {unlockedBadgeCount} / {BADGE_DEFINITIONS.length}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {BADGE_DEFINITIONS.map((def) => {
-                  const unlocked = isGoogle && unlockedBadgeSet.has(def.id);
-                  const prog = def.getProgress(isGoogle ? stats : EMPTY_ACCOUNT_STATS);
-                  const pct = Math.min(100, Math.round((prog.current / prog.target) * 100));
+                  const currentTier: BadgeTier = isGoogle ? badgeTiers[def.id] : 0;
+                  const prog = def.getProgress(
+                    isGoogle ? stats : EMPTY_ACCOUNT_STATS,
+                    currentTier
+                  );
+                  const tierMeta = BADGE_TIER_META[prog.tier];
+                  const nextMeta = prog.nextTier ? BADGE_TIER_META[prog.nextTier] : null;
+                  const tiersList: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4];
 
                   return (
                     <div
                       key={def.id}
-                      className={`p-3.5 rounded-xl border transition-colors flex flex-col gap-3 ${
-                        unlocked
-                          ? 'border-blue-200 dark:border-blue-800/70 bg-blue-50/40 dark:bg-blue-950/20'
-                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/35'
-                      }`}
+                      className={`p-3.5 rounded-xl border transition-colors flex flex-col gap-3 ${tierMeta.cardBorderClass}`}
                     >
                       <div className="flex items-start gap-3">
-                        <BadgeEmblem badgeId={def.id} unlocked={unlocked} size="md" />
+                        <BadgeEmblem badgeId={def.id} tier={prog.tier} size="md" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-1.5">
                             <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                               {def.title}
                             </span>
-                            {unlocked && (
-                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
-                                Kazanıldı
-                              </span>
-                            )}
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${tierMeta.pillClass}`}
+                            >
+                              {tierMeta.name}
+                            </span>
                           </div>
                           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mt-0.5">
                             {def.subtitle}
@@ -863,17 +875,42 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
                         </div>
                       </div>
 
+                      {/* 4-tier step indicator (Bronze / Silver / Gold / Diamond) */}
+                      <div className="grid grid-cols-4 gap-1">
+                        {tiersList.map((t) => {
+                          const reached = prog.tier >= t;
+                          const tm = BADGE_TIER_META[t];
+                          return (
+                            <div
+                              key={t}
+                              className={`px-1.5 py-0.5 rounded text-center text-[9px] font-bold border transition-colors ${
+                                reached
+                                  ? tm.pillClass
+                                  : 'bg-slate-100/70 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 border-slate-200/70 dark:border-slate-700/60'
+                              }`}
+                            >
+                              {tm.name}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Owner-only cumulative progress bar toward next tier */}
                       <div className="space-y-1">
-                        <div className="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                        <div className="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-600 dark:text-slate-300">
                           <span>{prog.label}</span>
-                          <span>%{pct}</span>
+                          <span>
+                            {prog.isMaxTier
+                              ? 'Elmas ✓'
+                              : `${nextMeta?.name || ''} · %${prog.percent}`}
+                          </span>
                         </div>
                         <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700/80 overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all duration-300"
                             style={{
-                              width: `${pct}%`,
-                              backgroundColor: unlocked ? def.accentFrom : '#64748b',
+                              width: `${prog.percent}%`,
+                              backgroundColor: nextMeta ? nextMeta.barColor : tierMeta.barColor,
                             }}
                           />
                         </div>
@@ -975,7 +1012,21 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
                                 key={u.uid}
                                 className="flex items-center justify-between gap-2.5 p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80"
                               >
-                                <div className="flex items-center gap-2.5 min-w-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onOpenUserProfileCard?.({
+                                      uid: u.uid,
+                                      displayName: u.displayName,
+                                      color: u.color,
+                                      avatarUrl: u.avatarUrl,
+                                      friendCode: u.friendCode,
+                                      profile: u,
+                                    })
+                                  }
+                                  title={`${u.displayName} · Kazanılan rozetleri gör`}
+                                  className="flex items-center gap-2.5 min-w-0 text-left cursor-pointer hover:opacity-85 transition-opacity"
+                                >
                                   <AvatarCircle
                                     avatarUrl={u.avatarUrl}
                                     name={u.displayName}
@@ -988,10 +1039,10 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
                                       {u.displayName}
                                     </div>
                                     <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                                      #{u.friendCode} · {u.badges.length} rozet
+                                      #{u.friendCode} · {countUnlockedBadges(u.badgeTiers)} rozet
                                     </div>
                                   </div>
-                                </div>
+                                </button>
                                 {rel === 'friend' ? (
                                   <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0">
                                     <UserCheck className="w-3.5 h-3.5" />
@@ -1184,7 +1235,21 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
                               key={f.pairId}
                               className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 flex items-center justify-between gap-2.5"
                             >
-                              <div className="flex items-center gap-2.5 min-w-0">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenUserProfileCard?.({
+                                    uid: f.otherUid,
+                                    displayName: name,
+                                    color: p?.color || '#2563eb',
+                                    avatarUrl: p?.avatarUrl,
+                                    friendCode: p?.friendCode,
+                                    profile: p || null,
+                                  })
+                                }
+                                title={`${name} · Kazanılan rozetleri gör`}
+                                className="flex items-center gap-2.5 min-w-0 text-left cursor-pointer hover:opacity-85 transition-opacity"
+                              >
                                 <AvatarCircle
                                   avatarUrl={p?.avatarUrl}
                                   name={name}
@@ -1195,10 +1260,11 @@ export const ProfileSocialModal: React.FC<ProfileSocialModalProps> = ({
                                 <div className="min-w-0">
                                   <div className="text-xs font-bold truncate">{name}</div>
                                   <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                                    #{p?.friendCode || 'CB-....'} · {p?.badges.length || 0} rozet
+                                    #{p?.friendCode || 'CB-....'} ·{' '}
+                                    {p ? countUnlockedBadges(p.badgeTiers) : 0} rozet
                                   </div>
                                 </div>
-                              </div>
+                              </button>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <button
                                   type="button"

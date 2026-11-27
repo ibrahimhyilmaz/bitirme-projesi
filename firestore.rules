@@ -91,6 +91,37 @@ service cloud.firestore {
         stats.acceptedInvites is int && stats.acceptedInvites >= 0 && stats.acceptedInvites <= 1000000;
     }
 
+    function isValidPrivateBadgeStats(data) {
+      return data.keys().hasAll([
+          'drawCount',
+          'codeEditCount',
+          'voiceCollabs',
+          'roomsCreated',
+          'pdfOrAiCount',
+          'activeMinutes',
+          'acceptedInvites',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'drawCount',
+          'codeEditCount',
+          'voiceCollabs',
+          'roomsCreated',
+          'pdfOrAiCount',
+          'activeMinutes',
+          'acceptedInvites',
+          'updatedAt'
+        ]) &&
+        data.drawCount is int && data.drawCount >= 0 && data.drawCount <= 1000000 &&
+        data.codeEditCount is int && data.codeEditCount >= 0 && data.codeEditCount <= 1000000 &&
+        data.voiceCollabs is int && data.voiceCollabs >= 0 && data.voiceCollabs <= 1000000 &&
+        data.roomsCreated is int && data.roomsCreated >= 0 && data.roomsCreated <= 1000000 &&
+        data.pdfOrAiCount is int && data.pdfOrAiCount >= 0 && data.pdfOrAiCount <= 1000000 &&
+        data.activeMinutes is int && data.activeMinutes >= 0 && data.activeMinutes <= 1000000 &&
+        data.acceptedInvites is int && data.acceptedInvites >= 0 && data.acceptedInvites <= 1000000 &&
+        data.updatedAt is timestamp;
+    }
+
     function isValidPublicProfile(data) {
       return data.keys().hasAll([
           'uid',
@@ -100,7 +131,6 @@ service cloud.firestore {
           'avatarUrl',
           'color',
           'badges',
-          'stats',
           'updatedAt'
         ]) &&
         data.keys().hasOnly([
@@ -122,8 +152,8 @@ service cloud.firestore {
         data.avatarUrl is string && data.avatarUrl.size() <= 350000 &&
         data.color is string && data.color.size() >= 4 && data.color.size() <= 32 &&
         (!('cursorColor' in data) || (data.cursorColor is string && data.cursorColor.size() >= 4 && data.cursorColor.size() <= 32)) &&
-        data.badges is list && data.badges.size() <= 20 && (data.badges.size() == 0 || data.badges[0] is string) &&
-        isValidStatsMap(data.stats) &&
+        data.badges is list && data.badges.size() <= 24 && (data.badges.size() == 0 || data.badges[0] is string) &&
+        (!('stats' in data) || isValidStatsMap(data.stats)) &&
         data.updatedAt is timestamp;
     }
 
@@ -384,6 +414,19 @@ service cloud.firestore {
         incoming().uid == existing().uid &&
         incoming().createdAt == existing().createdAt &&
         incoming().lastLoginAt == request.time;
+      allow delete: if false;
+    }
+
+    // Owner-only private badge progress counters (never readable by other users)
+    match /users/{userId}/private/{docId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && request.auth.uid == userId && docId == 'badgeStats';
+      allow list: if false;
+      allow create, update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        docId == 'badgeStats' &&
+        isValidPrivateBadgeStats(incoming()) &&
+        incoming().updatedAt == request.time;
       allow delete: if false;
     }
 

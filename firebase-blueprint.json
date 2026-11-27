@@ -298,11 +298,11 @@
         },
         "badges": {
           "type": "array",
-          "description": "Unlocked achievement badge IDs (max 20)."
+          "description": "Unlocked achievement badge tokens with tier (e.g. master_sketcher:2, max 24)."
         },
         "stats": {
           "type": "object",
-          "description": "Activity counters powering badge unlocks."
+          "description": "Legacy optional activity counters kept only for backward compatibility during migration."
         },
         "updatedAt": {
           "type": "string",
@@ -318,7 +318,56 @@
         "avatarUrl",
         "color",
         "badges",
-        "stats",
+        "updatedAt"
+      ]
+    },
+    "PrivateBadgeStats": {
+      "title": "PrivateBadgeStats",
+      "description": "Owner-only private activity counters driving 4-tier badge progression (Bronze, Silver, Gold, Diamond).",
+      "type": "object",
+      "properties": {
+        "drawCount": {
+          "type": "number",
+          "description": "Total drawings, shapes, or notes created."
+        },
+        "codeEditCount": {
+          "type": "number",
+          "description": "Total meaningful collaborative code contributions."
+        },
+        "voiceCollabs": {
+          "type": "number",
+          "description": "Total multi-participant voice sessions joined."
+        },
+        "roomsCreated": {
+          "type": "number",
+          "description": "Total study/work rooms created."
+        },
+        "pdfOrAiCount": {
+          "type": "number",
+          "description": "Total PDF, template, or AI drawing uses."
+        },
+        "activeMinutes": {
+          "type": "number",
+          "description": "Total active minutes spent inside workspaces."
+        },
+        "acceptedInvites": {
+          "type": "number",
+          "description": "Total friend room invitations accepted."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp."
+        }
+      },
+      "required": [
+        "drawCount",
+        "codeEditCount",
+        "voiceCollabs",
+        "roomsCreated",
+        "pdfOrAiCount",
+        "activeMinutes",
+        "acceptedInvites",
         "updatedAt"
       ]
     },
@@ -483,6 +532,10 @@
     "/publicProfiles/{userId}": {
       "schema": "PublicProfile",
       "description": "PII-free social profile directory searchable by friendCode or displayName."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": "PrivateBadgeStats",
+      "description": "Owner-only private badge progress counters (docId = badgeStats)."
     },
     "/users/{userId}/mutedInviters/{senderId}": {
       "schema": "MutedInviter",

@@ -36,6 +36,7 @@ import {
   Eye,
   EyeOff,
   PaintBucket,
+  Pipette,
   Folder,
   MoreHorizontal,
 } from 'lucide-react';
@@ -702,7 +703,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const penActive = activeTool === 'pencil' || activeTool === 'fountain-pen';
     const eraserActive = activeTool === 'eraser' || activeTool === 'point-eraser';
     const shapeActive = (ALL_SHAPE_TYPES as readonly string[]).includes(activeTool);
-    const moreActive = ['bucket', 'highlighter', 'arrow', 'line', 'sticky', 'folder', 'laser', 'ping'].includes(activeTool);
+    const moreActive = ['bucket', 'eyedropper', 'highlighter', 'arrow', 'line', 'sticky', 'folder', 'laser', 'ping'].includes(activeTool);
 
     const Tab: React.FC<{
       label: string;
@@ -861,6 +862,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         <>
                           <Tile label="Boya Kovası" active={activeTool === 'bucket'} onClick={() => pick('bucket')}>
                             <PaintBucket className="w-5 h-5" />
+                          </Tile>
+                          <Tile label="Renk Seçici" active={activeTool === 'eyedropper'} onClick={() => pick('eyedropper')}>
+                            <Pipette className="w-5 h-5" />
                           </Tile>
                           <Tile label="Ok" active={activeTool === 'arrow'} onClick={() => pick('arrow')}>
                             <ArrowRight className="w-5 h-5" />
@@ -1418,6 +1422,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               title="Boya Kovası - Kapalı Alanların ve Şekillerin İçini Doldur (B)"
             >
               <PaintBucket className="w-4 h-4" />
+            </button>
+
+            {/* Color Picker / Eyedropper Tool */}
+            <button
+              onClick={() => onSelectTool('eyedropper')}
+              className={`p-2 rounded-lg transition-all flex items-center justify-center ${
+                isVertical ? 'w-full' : ''
+              } ${
+                activeTool === 'eyedropper'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+              title="Renk Seçici - Tahtadan Renk Al (I)"
+            >
+              <Pipette className="w-4 h-4" />
             </button>
 
             {/* Dual Eraser Dropdown (Object Eraser & Precision Point Eraser) */}

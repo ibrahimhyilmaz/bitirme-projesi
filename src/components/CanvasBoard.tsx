@@ -81,6 +81,8 @@ const HIGHLIGHTER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.
 
 const BUCKET_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z'/><path d='m5 2 5 5'/><path d='M2 13h15'/><path d='M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z'/></g><g stroke='%232563eb' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z' fill='%23dbeafe'/><path d='m5 2 5 5'/><path d='M2 13h15'/><path d='M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z' fill='%233b82f6'/></g></svg>") 20 20, crosshair`;
 
+const EYEDROPPER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m2 22 1-1h3l9-9'/><path d='M3 21v-3l9-9'/><path d='m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'/></g><g stroke='%230f172a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m2 22 1-1h3l9-9' fill='%23e0f2fe'/><path d='M3 21v-3l9-9'/><path d='m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z' fill='%233b82f6'/></g></svg>") 2 22, crosshair`;
+
 const ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g><g stroke='%23e11d48' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21' fill='%23ffe4e6'/><path d='M22 21H7'/><path d='m5 11 9 9'/></g></svg>") 7 20, crosshair`;
 
 const POINT_ERASER_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3'/><circle cx='6' cy='18' r='3'/><line x1='20' y1='4' x2='8.12' y2='15.88'/><line x1='14.47' y1='14.47' x2='20' y2='20'/><line x1='8.12' y1='8.12' x2='12' y2='12'/></g><g stroke='%23d97706' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3' fill='%23fef3c7'/><circle cx='6' cy='18' r='3' fill='%23fef3c7'/><line x1='20' y1='4' x2='8.12' y2='15.88'/><line x1='14.47' y1='14.47' x2='20' y2='20'/><line x1='8.12' y1='8.12' x2='12' y2='12'/></g></svg>") 6 6, crosshair`;
@@ -204,6 +206,8 @@ interface CanvasBoardProps {
   setPan: React.Dispatch<React.SetStateAction<Point>>;
   canEdit?: boolean;
   showMinimap?: boolean;
+  hideBottomDock?: boolean;
+  onColorPicked?: (hexColor: string) => void;
   onToggleMinimap?: () => void;
   onResetWidgetLayout?: () => void;
   theme?: ThemeMode;
@@ -533,6 +537,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   setPan,
   canEdit = true,
   showMinimap = true,
+  hideBottomDock = false,
+  onColorPicked,
   onToggleMinimap,
   onResetWidgetLayout,
   theme = 'light',
@@ -543,6 +549,67 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [eyedropperPreview, setEyedropperPreview] = useState<{
+    x: number;
+    y: number;
+    color: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (activeTool !== 'eyedropper') {
+      setEyedropperPreview(null);
+    }
+  }, [activeTool]);
+
+  const sampleColorAtPoint = useCallback(
+    (screenPt: Point, canvasPt: Point): string => {
+      const themeBgRgb: [number, number, number] =
+        theme === 'dark'
+          ? [15, 23, 42]
+          : theme === 'midnight'
+          ? [9, 13, 22]
+          : theme === 'sepia'
+          ? [254, 249, 195]
+          : [248, 250, 252];
+
+      const rgbToHex = (r: number, g: number, b: number) =>
+        `#${[r, g, b]
+          .map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0'))
+          .join('')}`;
+
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const dpr = window.devicePixelRatio || 1;
+          const px = Math.max(0, Math.min(canvas.width - 1, Math.round(screenPt.x * dpr)));
+          const py = Math.max(0, Math.min(canvas.height - 1, Math.round(screenPt.y * dpr)));
+          try {
+            const pixel = ctx.getImageData(px, py, 1, 1).data;
+            const alpha = pixel[3] / 255;
+            if (alpha > 0.05) {
+              const r = pixel[0] * alpha + themeBgRgb[0] * (1 - alpha);
+              const g = pixel[1] * alpha + themeBgRgb[1] * (1 - alpha);
+              const b = pixel[2] * alpha + themeBgRgb[2] * (1 - alpha);
+              return rgbToHex(r, g, b);
+            }
+          } catch {
+            // Tainted cross-origin image fallback below
+          }
+        }
+      }
+
+      // Fallback: inspect topmost element at world coordinate
+      const hitEl = [...elements].reverse().find((el) => isPointInsideElement(canvasPt, el));
+      if (hitEl) {
+        if (hitEl.fillColor && hitEl.fillColor !== 'transparent') return hitEl.fillColor;
+        if (hitEl.color && hitEl.color !== 'transparent') return hitEl.color;
+      }
+
+      return rgbToHex(themeBgRgb[0], themeBgRgb[1], themeBgRgb[2]);
+    },
+    [elements, theme]
+  );
 
   // Interaction states
   const isPointerDownRef = useRef<boolean>(false);
@@ -2027,6 +2094,19 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
+    // Handle Eyedropper / Color Picker Tool (samples pixel color, updates stroke color, returns to previous tool)
+    if (activeTool === 'eyedropper') {
+      isPointerDownRef.current = false;
+      const picked = sampleColorAtPoint(screenPt, canvasPt);
+      setEyedropperPreview(null);
+      if (onColorPicked) {
+        onColorPicked(picked);
+      } else if (onChangeStrokeColor) {
+        onChangeStrokeColor(picked);
+      }
+      return;
+    }
+
     // Handle Paint Bucket / Fill Tool
     if (activeTool === 'bucket') {
       isPointerDownRef.current = false;
@@ -2244,6 +2324,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         lastCursorEmitRef.current = now;
         onCursorMove(cursorPt, isPointerDownRef.current, activeTool);
       }
+    }
+
+    // Live color swatch preview when hovering with Eyedropper tool
+    if (activeTool === 'eyedropper' && !isPanningRef.current && !isSpacePressedRef.current) {
+      const liveHex = sampleColorAtPoint(screenPt, canvasPt);
+      setEyedropperPreview({ x: screenPt.x, y: screenPt.y, color: liveHex });
+      return;
     }
 
     // Handle Marquee Box dragging (with live selection preview & Ctrl/Shift additive support)
@@ -3639,6 +3726,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     if (activeTool === 'fountain-pen') return FOUNTAIN_PEN_CURSOR;
     if (activeTool === 'highlighter') return HIGHLIGHTER_CURSOR;
     if (activeTool === 'bucket') return BUCKET_CURSOR;
+    if (activeTool === 'eyedropper') return EYEDROPPER_CURSOR;
     if (activeTool === 'eraser') return ERASER_CURSOR;
     if (activeTool === 'point-eraser') return POINT_ERASER_CURSOR;
     if (activeTool === 'laser') return laserCursorFor(laserColor);
@@ -5553,9 +5641,30 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         );
       })()}
 
+      {/* Live Eyedropper Color Swatch Preview */}
+      {activeTool === 'eyedropper' && eyedropperPreview && (
+        <div
+          style={{
+            transform: `translate3d(${eyedropperPreview.x + 18}px, ${eyedropperPreview.y - 34}px, 0)`,
+          }}
+          className="pointer-events-none absolute top-0 left-0 z-[40] flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-900/90 text-white border border-white/20 shadow-lg select-none"
+        >
+          <span
+            style={{ backgroundColor: eyedropperPreview.color }}
+            className="w-4 h-4 rounded-full border-2 border-white shadow-xs shrink-0"
+          />
+          <span className="text-[11px] font-mono font-semibold uppercase tracking-wide">
+            {eyedropperPreview.color}
+          </span>
+        </div>
+      )}
+
       {/* Interactive Bottom-Left Flex Dock (Minimap + Grid Selector + Layout Reset) & Right-Click Radial Menu */}
       <CanvasQuickAccess
         elements={elements}
+        users={users}
+        currentUserId={currentUser.id}
+        currentUserIdentityKey={currentUser.identityKey}
         camera={{ x: pan.x, y: pan.y, zoom }}
         setCamera={(updater) => {
           const current = { x: pan.x, y: pan.y, zoom };
@@ -5581,6 +5690,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         gridStyle={gridStyle}
         onChangeGridStyle={handleGridStyleChange}
         showMinimap={showMinimap}
+        hideBottomDock={hideBottomDock}
         onToggleMinimap={onToggleMinimap}
         onResetWidgetLayout={onResetWidgetLayout}
         theme={theme}

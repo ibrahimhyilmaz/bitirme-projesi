@@ -18,11 +18,14 @@ import {
   Maximize2,
   RotateCcw,
 } from 'lucide-react';
-import { CanvasElement, ToolType, ThemeMode } from '../types';
+import { CanvasElement, ToolType, ThemeMode, UserPresence } from '../types';
 import { getElementBounds } from '../utils/canvasRenderer';
 
 interface CanvasQuickAccessProps {
   elements: CanvasElement[];
+  users?: UserPresence[];
+  currentUserId?: string;
+  currentUserIdentityKey?: string;
   camera: { x: number; y: number; zoom: number };
   setCamera: React.Dispatch<React.SetStateAction<{ x: number; y: number; zoom: number }>>;
   activeTool: ToolType;
@@ -38,6 +41,7 @@ interface CanvasQuickAccessProps {
   gridStyle?: 'dots' | 'grid' | 'none';
   onChangeGridStyle?: (style: 'dots' | 'grid' | 'none') => void;
   showMinimap?: boolean;
+  hideBottomDock?: boolean;
   onToggleMinimap?: () => void;
   onResetWidgetLayout?: () => void;
   theme?: ThemeMode;
@@ -73,6 +77,9 @@ export function getRadialToolAtAngle(dx: number, dy: number): ToolType | null {
 
 export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
   elements,
+  users = [],
+  currentUserId,
+  currentUserIdentityKey,
   camera,
   setCamera,
   activeTool,
@@ -88,6 +95,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
   gridStyle = 'dots',
   onChangeGridStyle,
   showMinimap = true,
+  hideBottomDock = false,
   onToggleMinimap,
   onResetWidgetLayout,
   theme = 'light',
@@ -96,12 +104,20 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
   const [isMinimapOpen, setIsMinimapOpen] = useState<boolean>(true);
   const [showLivePreview, setShowLivePreview] = useState<boolean>(false);
   const [isDraggingMinimap, setIsDraggingMinimap] = useState<boolean>(false);
+  const [hoveredMinimapUserId, setHoveredMinimapUserId] = useState<string | null>(null);
 
   const isDark = theme === 'dark' || theme === 'midnight';
   const MINIMAP_W = 260;
   const MINIMAP_H = 152;
 
-  // Compute world bounds encompassing all elements and current viewport
+  const remoteCursorUsers = users.filter((u) => {
+    if (!u.cursor) return false;
+    if (currentUserId && u.id === currentUserId) return false;
+    if (currentUserIdentityKey && u.identityKey && u.identityKey === currentUserIdentityKey) return false;
+    return Number.isFinite(u.cursor.x) && Number.isFinite(u.cursor.y);
+  });
+
+  // Compute world bounds encompassing all elements, current viewport, and remote user cursors
   const getWorldBounds = () => {
     const viewW = window.innerWidth / camera.zoom;
     const viewH = window.innerHeight / camera.zoom;
@@ -119,6 +135,15 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
       if (b.minY < minY) minY = b.minY - 150;
       if (b.maxX > maxX) maxX = b.maxX + 150;
       if (b.maxY > maxY) maxY = b.maxY + 150;
+    }
+
+    for (const u of remoteCursorUsers) {
+      if (!u.cursor) continue;
+      if (Math.abs(u.cursor.x) > 50000 || Math.abs(u.cursor.y) > 50000) continue;
+      if (u.cursor.x < minX) minX = u.cursor.x - 150;
+      if (u.cursor.y < minY) minY = u.cursor.y - 150;
+      if (u.cursor.x > maxX) maxX = u.cursor.x + 150;
+      if (u.cursor.y > maxY) maxY = u.cursor.y + 150;
     }
 
     return {
@@ -203,7 +228,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
     ctx.strokeStyle = isDark ? '#60a5fa' : '#2563eb';
     ctx.lineWidth = 2;
     ctx.strokeRect(vx, vy, vw, vh);
-  }, [elements, camera, isMinimapOpen, showMinimap, isDark, theme]);
+  }, [elements, users, camera, isMinimapOpen, showMinimap, hideBottomDock, isDark, theme]);
 
   const navigateFromMinimapEvent = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = minimapCanvasRef.current;
@@ -262,9 +287,18 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
     ? RADIAL_TOOLS.find((t) => t.id === hoveredRadialTool)
     : null;
 
+  const minimapProjection = (() => {
+    const bounds = getWorldBounds();
+    const scale = Math.min(MINIMAP_W / bounds.width, MINIMAP_H / bounds.height);
+    const offsetX = (MINIMAP_W - bounds.width * scale) / 2;
+    const offsetY = (MINIMAP_H - bounds.height * scale) / 2;
+    return { bounds, scale, offsetX, offsetY };
+  })();
+
   return (
     <>
-      {/* 1. Unified Bottom-Left Flex Dock (Minimap stacked above Grid Selector & Layout Reset — Zero Overlap) */}
+      {/* 1. Unified Bottom-Left Flex Dock (Minimap stacked above Grid Selector & Layout Reset — Completely hidden in Focus Mode) */}
+      {!hideBottomDock && (
       <div
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
@@ -418,23 +452,85 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
             {/* Minimap Interactive Canvas — fills container edge-to-edge */}
             {isMinimapOpen && (
               <div className={`p-2 ${isDark ? 'bg-slate-900' : 'bg-white'}`}>
-                <canvas
-                  ref={minimapCanvasRef}
-                  width={MINIMAP_W}
-                  height={MINIMAP_H}
-                  onMouseDown={(e) => {
-                    setIsDraggingMinimap(true);
-                    navigateFromMinimapEvent(e);
-                  }}
-                  onMouseMove={(e) => {
-                    if (isDraggingMinimap) navigateFromMinimapEvent(e);
-                  }}
-                  onMouseUp={() => setIsDraggingMinimap(false)}
-                  onMouseLeave={() => setIsDraggingMinimap(false)}
-                  className={`w-full h-auto aspect-[260/152] rounded-xl border cursor-crosshair block shadow-2xs ${
-                    isDark ? 'border-slate-700/80' : 'border-slate-200'
-                  }`}
-                />
+                <div className="relative w-full aspect-[260/152]">
+                  <canvas
+                    ref={minimapCanvasRef}
+                    width={MINIMAP_W}
+                    height={MINIMAP_H}
+                    onMouseDown={(e) => {
+                      setIsDraggingMinimap(true);
+                      navigateFromMinimapEvent(e);
+                    }}
+                    onMouseMove={(e) => {
+                      if (isDraggingMinimap) navigateFromMinimapEvent(e);
+                    }}
+                    onMouseUp={() => setIsDraggingMinimap(false)}
+                    onMouseLeave={() => setIsDraggingMinimap(false)}
+                    className={`w-full h-full rounded-xl border cursor-crosshair block shadow-2xs ${
+                      isDark ? 'border-slate-700/80' : 'border-slate-200'
+                    }`}
+                  />
+
+                  {/* Remote User Cursor Dots on Minimap (colored by cursorColor, hover reveals name label, click jumps camera) */}
+                  {remoteCursorUsers.map((u) => {
+                    if (!u.cursor) return null;
+                    const rawX =
+                      minimapProjection.offsetX +
+                      (u.cursor.x - minimapProjection.bounds.minX) * minimapProjection.scale;
+                    const rawY =
+                      minimapProjection.offsetY +
+                      (u.cursor.y - minimapProjection.bounds.minY) * minimapProjection.scale;
+                    const clampedX = Math.max(5, Math.min(MINIMAP_W - 5, rawX));
+                    const clampedY = Math.max(5, Math.min(MINIMAP_H - 5, rawY));
+                    const leftPct = (clampedX / MINIMAP_W) * 100;
+                    const topPct = (clampedY / MINIMAP_H) * 100;
+                    const dotColor = u.cursorColor || u.color || '#2563eb';
+                    const isHovered = hoveredMinimapUserId === u.id;
+                    const showLabelBelow = topPct < 24;
+
+                    return (
+                      <div
+                        key={`minimap-user-${u.id}`}
+                        style={{
+                          left: `${leftPct}%`,
+                          top: `${topPct}%`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                        onMouseEnter={() => setHoveredMinimapUserId(u.id)}
+                        onMouseLeave={() =>
+                          setHoveredMinimapUserId((prev) => (prev === u.id ? null : prev))
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!u.cursor) return;
+                          setCamera((prev) => ({
+                            ...prev,
+                            x: window.innerWidth / 2 - u.cursor!.x * prev.zoom,
+                            y: window.innerHeight / 2 - u.cursor!.y * prev.zoom,
+                          }));
+                        }}
+                        className="absolute z-10 cursor-pointer p-1 group"
+                      >
+                        <span
+                          style={{ backgroundColor: dotColor }}
+                          className={`block w-2.5 h-2.5 rounded-full ring-2 ring-white shadow-sm transition-transform ${
+                            isHovered ? 'scale-125' : ''
+                          } ${u.isDrawing ? 'animate-pulse' : ''}`}
+                        />
+                        {isHovered && (
+                          <div
+                            style={{ backgroundColor: dotColor }}
+                            className={`pointer-events-none absolute left-1/2 -translate-x-1/2 ${
+                              showLabelBelow ? 'top-full mt-0.5' : 'bottom-full mb-0.5'
+                            } px-1.5 py-0.5 rounded-md text-[10px] font-semibold text-white shadow-md whitespace-nowrap leading-tight z-20`}
+                          >
+                            {u.name}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
                 <div
                   className={`mt-1.5 flex items-center justify-between text-[10px] px-0.5 ${
                     isDark ? 'text-slate-400' : 'text-slate-500'
@@ -538,6 +634,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* 2. Middle-Mouse Wheel Button (Hold & Drag or Click) Radial Quick Tool Menu */}
       {radialMenuPos && (

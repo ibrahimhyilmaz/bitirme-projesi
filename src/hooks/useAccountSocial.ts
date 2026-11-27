@@ -20,13 +20,22 @@ import {
 } from '../firebase';
 import {
   AccountStats,
+  BADGE_DEFINITIONS,
   BadgeId,
+  BadgeTier,
+  UnlockedBadgeTier,
   EMPTY_ACCOUNT_STATS,
-  evaluateUnlockedBadges,
+  evaluateBadgeTiers,
+  parseBadgeEntries,
   generateFriendCode,
 } from '../utils/badges';
 
 export type AccountType = 'google' | 'guest';
+
+export interface UnlockedBadgeNotification {
+  badgeId: BadgeId;
+  tier: UnlockedBadgeTier;
+}
 
 export interface PublicProfileData {
   uid: string;
@@ -36,7 +45,10 @@ export interface PublicProfileData {
   avatarUrl: string;
   color: string;
   cursorColor: string;
-  badges: BadgeId[];
+  /** Encoded public earned badge tokens (e.g. ["master_sketcher:2"]), never includes private counters */
+  badges: string[];
+  badgeTiers: Record<BadgeId, BadgeTier>;
+  /** Populated ONLY for the signed-in owner; always empty for other users */
   stats: AccountStats;
 }
 
@@ -88,9 +100,51 @@ export type ActivityEventType =
   | 'invite_accepted';
 
 const GUEST_STORAGE_KEY = 'collab_guest_account_v1';
+const OWNER_STATS_CACHE_PREFIX = 'collab_owner_badge_stats_v2_';
+const OWNER_CURSOR_CACHE_PREFIX = 'collab_owner_cursor_color_v1_';
 
 export function buildFriendshipPairId(a: string, b: string): string {
   return a < b ? `${a}_${b}` : `${b}_${a}`;
+}
+
+function isPermissionDeniedError(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code || '';
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return (
+    code.includes('permission-denied') ||
+    msg.toLowerCase().includes('permission') ||
+    msg.toLowerCase().includes('insufficient')
+  );
+}
+
+function loadCachedOwnerStats(uid: string): AccountStats {
+  try {
+    const raw = localStorage.getItem(`${OWNER_STATS_CACHE_PREFIX}${uid}`);
+    if (raw) {
+      return sanitizeStats(JSON.parse(raw));
+    }
+  } catch {}
+  return { ...EMPTY_ACCOUNT_STATS };
+}
+
+function saveCachedOwnerStats(uid: string, stats: AccountStats): void {
+  try {
+    localStorage.setItem(`${OWNER_STATS_CACHE_PREFIX}${uid}`, JSON.stringify(stats));
+  } catch {}
+}
+
+function loadCachedOwnerCursorColor(uid: string): string | null {
+  try {
+    const raw = localStorage.getItem(`${OWNER_CURSOR_CACHE_PREFIX}${uid}`);
+    if (raw && raw.length >= 4 && raw.length <= 32) return raw;
+  } catch {}
+  return null;
+}
+
+function saveCachedOwnerCursorColor(uid: string, color: string): void {
+  try {
+    localStorage.setItem(`${OWNER_CURSOR_CACHE_PREFIX}${uid}`, color);
+  } catch {}
 }
 
 function loadGuestAccount(fallbackName: string, fallbackColor: string): GuestAccountData {
@@ -147,16 +201,53 @@ function sanitizeStats(raw: unknown): AccountStats {
   };
 }
 
-function parsePublicProfileDoc(uid: string, raw: Record<string, unknown>): PublicProfileData {
-  const stats = sanitizeStats(raw.stats);
+function mergeStatsMax(a: AccountStats, b: AccountStats): AccountStats {
+  return {
+    drawCount: Math.max(a.drawCount, b.drawCount),
+    codeEditCount: Math.max(a.codeEditCount, b.codeEditCount),
+    voiceCollabs: Math.max(a.voiceCollabs, b.voiceCollabs),
+    roomsCreated: Math.max(a.roomsCreated, b.roomsCreated),
+    pdfOrAiCount: Math.max(a.pdfOrAiCount, b.pdfOrAiCount),
+    activeMinutes: Math.max(a.activeMinutes, b.activeMinutes),
+    acceptedInvites: Math.max(a.acceptedInvites, b.acceptedInvites),
+  };
+}
+
+function parsePublicProfileDoc(
+  uid: string,
+  raw: Record<string, unknown>,
+  ownerStats?: AccountStats,
+  ownerFallbackCursorColor?: string | null
+): PublicProfileData {
   const rawBadges = Array.isArray(raw.badges)
     ? raw.badges.filter((b): b is string => typeof b === 'string')
     : [];
-  const badges = evaluateUnlockedBadges(stats, rawBadges);
+
+  let badgeTiers: Record<BadgeId, BadgeTier>;
+  let badges: string[];
+  let stats: AccountStats;
+
+  if (ownerStats) {
+    const evaluated = evaluateBadgeTiers(ownerStats, rawBadges);
+    badgeTiers = evaluated.tiers;
+    badges = evaluated.badgeTokens;
+    stats = ownerStats;
+  } else {
+    // Strictly public view for other users: NEVER expose stats counters
+    badgeTiers = parseBadgeEntries(rawBadges);
+    badges = BADGE_DEFINITIONS.filter((d) => badgeTiers[d.id] >= 1).map(
+      (d) => `${d.id}:${badgeTiers[d.id]}`
+    );
+    stats = { ...EMPTY_ACCOUNT_STATS };
+  }
+
   const displayName = String(raw.displayName || 'Kullanıcı').slice(0, 60);
   const color = typeof raw.color === 'string' && raw.color.length >= 4 ? raw.color : '#2563eb';
   const cursorColor =
-    typeof raw.cursorColor === 'string' && raw.cursorColor.length >= 4 ? raw.cursorColor : color;
+    typeof raw.cursorColor === 'string' && raw.cursorColor.length >= 4
+      ? raw.cursorColor
+      : ownerFallbackCursorColor || color;
+
   return {
     uid: String(raw.uid || uid),
     displayName,
@@ -166,8 +257,105 @@ function parsePublicProfileDoc(uid: string, raw: Record<string, unknown>): Publi
     color,
     cursorColor,
     badges,
+    badgeTiers,
     stats,
   };
+}
+
+/**
+ * Resiliently writes publicProfiles/{uid} + owner-only private/badgeStats.
+ * Automatically handles both:
+ * 1) Latest hardened Firestore rules (private/badgeStats + optional cursorColor, no public stats)
+ * 2) Legacy live Firestore rules (requires stats on publicProfiles and/or disallows cursorColor)
+ * so badges & profiles NEVER fail silently due to rule schema skew.
+ */
+async function persistProfileAndStatsResilient(params: {
+  uid: string;
+  displayName: string;
+  displayNameLower: string;
+  friendCode: string;
+  avatarUrl: string;
+  color: string;
+  cursorColor: string;
+  badges: string[];
+  stats: AccountStats;
+  writePublicProfile: boolean;
+  privateStatsAllowedRef: React.MutableRefObject<boolean>;
+}): Promise<void> {
+  const {
+    uid,
+    displayName,
+    displayNameLower,
+    friendCode,
+    avatarUrl,
+    color,
+    cursorColor,
+    badges,
+    stats,
+    writePublicProfile,
+    privateStatsAllowedRef,
+  } = params;
+
+  const profileRef = doc(db, 'publicProfiles', uid);
+  const privateStatsRef = doc(db, 'users', uid, 'private', 'badgeStats');
+  let privateWriteSucceeded = false;
+
+  if (privateStatsAllowedRef.current) {
+    try {
+      await setDoc(privateStatsRef, {
+        ...stats,
+        updatedAt: serverTimestamp(),
+      });
+      privateWriteSucceeded = true;
+    } catch (err) {
+      if (isPermissionDeniedError(err)) {
+        privateStatsAllowedRef.current = false;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // If private stats collection is unavailable on current live rules, we must persist stats on publicProfiles
+  const mustWritePublic = writePublicProfile || !privateWriteSucceeded;
+  if (!mustWritePublic) return;
+
+  const basePayload = {
+    uid,
+    displayName: displayName || 'Kullanıcı',
+    displayNameLower: (displayNameLower || displayName || 'kullanıcı').slice(0, 60),
+    friendCode: /^CB-[A-Z0-9]{4,8}$/.test(friendCode) ? friendCode : generateFriendCode(),
+    avatarUrl: (avatarUrl || '').slice(0, 350000),
+    color: color && color.length >= 4 ? color.slice(0, 32) : '#2563eb',
+    badges: badges.slice(0, 20),
+    updatedAt: serverTimestamp(),
+  };
+
+  // Candidate payloads ordered from most modern/private to legacy-compatible
+  const attempts: Array<Record<string, unknown>> = privateWriteSucceeded
+    ? [
+        { ...basePayload, cursorColor },
+        { ...basePayload, cursorColor, stats },
+        { ...basePayload, stats },
+      ]
+    : [
+        { ...basePayload, cursorColor, stats },
+        { ...basePayload, stats },
+      ];
+
+  let lastErr: unknown = null;
+  for (const payload of attempts) {
+    try {
+      await setDoc(profileRef, payload);
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (!isPermissionDeniedError(err)) {
+        throw err;
+      }
+    }
+  }
+  if (lastErr) throw lastErr;
 }
 
 interface UseAccountSocialOptions {
@@ -186,46 +374,113 @@ export function useAccountSocial({
   const [guestAccount, setGuestAccount] = useState<GuestAccountData>(() =>
     loadGuestAccount(fallbackName, fallbackColor)
   );
-  const [cloudProfile, setCloudProfile] = useState<PublicProfileData | null>(null);
+  const [rawCloudProfile, setRawCloudProfile] = useState<PublicProfileData | null>(null);
+  const [ownStats, setOwnStats] = useState<AccountStats>({ ...EMPTY_ACCOUNT_STATS });
+  const [isStatsLoaded, setIsStatsLoaded] = useState<boolean>(false);
   const [isProfileLoading, setIsProfileLoading] = useState<boolean>(false);
 
   const [friendshipsRaw, setFriendshipsRaw] = useState<FriendshipRecord[]>([]);
   const [profileCache, setProfileCache] = useState<Record<string, PublicProfileData>>({});
   const [incomingInvites, setIncomingInvites] = useState<RoomInviteRecord[]>([]);
   const [mutedInviters, setMutedInviters] = useState<MutedInviterRecord[]>([]);
-  const [newlyUnlockedBadge, setNewlyUnlockedBadge] = useState<BadgeId | null>(null);
+  const [newlyUnlockedBadge, setNewlyUnlockedBadge] = useState<UnlockedBadgeNotification | null>(
+    null
+  );
   const [dismissedInviteIds, setDismissedInviteIds] = useState<Set<string>>(() => new Set());
+
+  const cloudProfile = useMemo<PublicProfileData | null>(() => {
+    if (!rawCloudProfile) return null;
+    const evaluated = evaluateBadgeTiers(ownStats, rawCloudProfile.badges);
+    return {
+      ...rawCloudProfile,
+      badges: evaluated.badgeTokens,
+      badgeTiers: evaluated.tiers,
+      stats: ownStats,
+    };
+  }, [rawCloudProfile, ownStats]);
 
   const cloudProfileRef = useRef<PublicProfileData | null>(null);
   cloudProfileRef.current = cloudProfile;
+  const ownStatsRef = useRef<AccountStats>(ownStats);
+  ownStatsRef.current = ownStats;
+  const isStatsLoadedRef = useRef<boolean>(isStatsLoaded);
+  isStatsLoadedRef.current = isStatsLoaded;
+  const privateStatsAllowedRef = useRef<boolean>(true);
+
   const statsFlushTimerRef = useRef<number | null>(null);
+  const isFlushingRef = useRef<boolean>(false);
   const pendingStatsRef = useRef<Partial<Record<keyof AccountStats, number>>>({});
   const fetchedUidsRef = useRef<Set<string>>(new Set());
+  const profileCacheRef = useRef<Record<string, PublicProfileData>>(profileCache);
+  profileCacheRef.current = profileCache;
 
   const accountType: AccountType = firebaseUser ? 'google' : 'guest';
 
-  // Ensure and live-subscribe to /publicProfiles/{uid} when signed in with Google
+  // Ensure and live-subscribe to /publicProfiles/{uid} AND owner-only /users/{uid}/private/badgeStats
   useEffect(() => {
     if (!firebaseUser || !isAuthReady) {
-      setCloudProfile(null);
+      setRawCloudProfile(null);
+      setOwnStats({ ...EMPTY_ACCOUNT_STATS });
+      setIsStatsLoaded(false);
       setFriendshipsRaw([]);
       setIncomingInvites([]);
       setMutedInviters([]);
       setIsProfileLoading(false);
+      pendingStatsRef.current = {};
+      privateStatsAllowedRef.current = true;
       return;
     }
 
     const uid = firebaseUser.uid;
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(uid)) return;
     setIsProfileLoading(true);
-    const profileRef = doc(db, 'publicProfiles', uid);
-    let cancelled = false;
+    setIsStatsLoaded(false);
+    privateStatsAllowedRef.current = true;
 
-    const ensureProfileExists = async () => {
+    const cachedStats = loadCachedOwnerStats(uid);
+    const cachedCursorColor = loadCachedOwnerCursorColor(uid);
+    ownStatsRef.current = cachedStats;
+    setOwnStats(cachedStats);
+
+    const profileRef = doc(db, 'publicProfiles', uid);
+    const privateStatsRef = doc(db, 'users', uid, 'private', 'badgeStats');
+    let cancelled = false;
+    let unsubPrivateStats: (() => void) | null = null;
+
+    const ensureProfileAndStats = async () => {
       try {
-        const snap = await getDoc(profileRef);
+        const profileSnap = await getDoc(profileRef);
         if (cancelled) return;
-        if (!snap.exists()) {
+
+        let privateStatsSnap: Awaited<ReturnType<typeof getDoc>> | null = null;
+        try {
+          privateStatsSnap = await getDoc(privateStatsRef);
+        } catch (err) {
+          if (isPermissionDeniedError(err)) {
+            privateStatsAllowedRef.current = false;
+          }
+        }
+        if (cancelled) return;
+
+        let resolvedStats = mergeStatsMax(cachedStats, ownStatsRef.current);
+
+        if (privateStatsSnap && privateStatsSnap.exists()) {
+          resolvedStats = mergeStatsMax(resolvedStats, sanitizeStats(privateStatsSnap.data()));
+        }
+
+        if (profileSnap.exists()) {
+          const rawProfile = profileSnap.data() as Record<string, unknown>;
+          if (rawProfile.stats) {
+            resolvedStats = mergeStatsMax(resolvedStats, sanitizeStats(rawProfile.stats));
+          }
+        }
+
+        ownStatsRef.current = resolvedStats;
+        setOwnStats(resolvedStats);
+        saveCachedOwnerStats(uid, resolvedStats);
+        setIsStatsLoaded(true);
+
+        if (!profileSnap.exists()) {
           const initialName = (
             firebaseUser.displayName ||
             guestAccount.displayName ||
@@ -235,34 +490,93 @@ export function useAccountSocial({
             .trim()
             .slice(0, 60);
           const baseColor = guestAccount.color || fallbackColor || '#2563eb';
-          const initialPayload = {
+          const resolvedCursor = cachedCursorColor || guestAccount.cursorColor || baseColor;
+          const evaluated = evaluateBadgeTiers(resolvedStats, []);
+          const friendCode = generateFriendCode();
+
+          await persistProfileAndStatsResilient({
             uid,
             displayName: initialName || 'Kullanıcı',
             displayNameLower: (initialName || 'Kullanıcı').toLocaleLowerCase('tr-TR'),
-            friendCode: generateFriendCode(),
+            friendCode,
             avatarUrl: (firebaseUser.photoURL || '').slice(0, 350000),
             color: baseColor,
-            cursorColor: guestAccount.cursorColor || baseColor,
-            badges: [] as string[],
-            stats: { ...EMPTY_ACCOUNT_STATS },
-            updatedAt: serverTimestamp(),
-          };
-          await setDoc(profileRef, initialPayload);
+            cursorColor: resolvedCursor,
+            badges: evaluated.badgeTokens,
+            stats: resolvedStats,
+            writePublicProfile: true,
+            privateStatsAllowedRef,
+          });
+        } else if (privateStatsAllowedRef.current && (!privateStatsSnap || !privateStatsSnap.exists())) {
+          // One-time transparent migration into owner-only private/badgeStats
+          const rawData = profileSnap.data() as Record<string, unknown>;
+          const parsed = parsePublicProfileDoc(uid, rawData, resolvedStats, cachedCursorColor);
+          try {
+            await persistProfileAndStatsResilient({
+              uid,
+              displayName: parsed.displayName,
+              displayNameLower: parsed.displayNameLower,
+              friendCode: parsed.friendCode,
+              avatarUrl: parsed.avatarUrl,
+              color: parsed.color,
+              cursorColor: parsed.cursorColor,
+              badges: parsed.badges,
+              stats: resolvedStats,
+              writePublicProfile: Boolean(rawData.stats),
+              privateStatsAllowedRef,
+            });
+          } catch {}
+        }
+
+        if (!cancelled && privateStatsAllowedRef.current) {
+          unsubPrivateStats = onSnapshot(
+            privateStatsRef,
+            (snap) => {
+              if (snap.exists()) {
+                const remoteStats = sanitizeStats(snap.data());
+                const merged = mergeStatsMax(remoteStats, ownStatsRef.current);
+                ownStatsRef.current = merged;
+                setOwnStats(merged);
+                saveCachedOwnerStats(uid, merged);
+              }
+            },
+            (err) => {
+              if (isPermissionDeniedError(err)) {
+                privateStatsAllowedRef.current = false;
+              }
+            }
+          );
         }
       } catch (err) {
+        if (!cancelled) {
+          setIsStatsLoaded(true);
+        }
         try {
           handleFirestoreError(err, OperationType.WRITE, `publicProfiles/${uid}`);
         } catch {}
       }
     };
 
-    void ensureProfileExists();
+    void ensureProfileAndStats();
 
-    const unsub = onSnapshot(
+    const unsubProfile = onSnapshot(
       profileRef,
       (snap) => {
         if (snap.exists()) {
-          setCloudProfile(parsePublicProfileDoc(uid, snap.data() as Record<string, unknown>));
+          const data = snap.data() as Record<string, unknown>;
+          if (data.stats) {
+            const merged = mergeStatsMax(sanitizeStats(data.stats), ownStatsRef.current);
+            ownStatsRef.current = merged;
+            setOwnStats(merged);
+            saveCachedOwnerStats(uid, merged);
+          }
+          const parsed = parsePublicProfileDoc(
+            uid,
+            data,
+            ownStatsRef.current,
+            loadCachedOwnerCursorColor(uid)
+          );
+          setRawCloudProfile(parsed);
         }
         setIsProfileLoading(false);
       },
@@ -276,7 +590,8 @@ export function useAccountSocial({
 
     return () => {
       cancelled = true;
-      unsub();
+      unsubProfile();
+      if (unsubPrivateStats) unsubPrivateStats();
     };
   }, [firebaseUser, isAuthReady]);
 
@@ -360,6 +675,36 @@ export function useAccountSocial({
       cancelled = true;
     };
   }, [firebaseUser, friendshipsRaw, profileCache]);
+
+  // On-demand public profile lookup (for clicking a room participant / friend / searched user)
+  const fetchPublicProfile = useCallback(
+    async (targetUid: string): Promise<PublicProfileData | null> => {
+      if (!targetUid || !/^[a-zA-Z0-9_-]{1,128}$/.test(targetUid)) return null;
+      if (firebaseUser && targetUid === firebaseUser.uid && cloudProfileRef.current) {
+        return cloudProfileRef.current;
+      }
+      if (profileCacheRef.current[targetUid]) {
+        return profileCacheRef.current[targetUid];
+      }
+      if (!firebaseUser) return null;
+      try {
+        const snap = await getDoc(doc(db, 'publicProfiles', targetUid));
+        if (!snap.exists()) return null;
+        const parsed = parsePublicProfileDoc(
+          targetUid,
+          snap.data() as Record<string, unknown>
+        );
+        setProfileCache((prev) => ({ ...prev, [targetUid]: parsed }));
+        return parsed;
+      } catch (err) {
+        try {
+          handleFirestoreError(err, OperationType.GET, `publicProfiles/${targetUid}`);
+        } catch {}
+        return null;
+      }
+    },
+    [firebaseUser]
+  );
 
   // Live-subscribe to incoming room invites
   useEffect(() => {
@@ -470,13 +815,14 @@ export function useAccountSocial({
         patch.avatarUrl !== undefined
           ? patch.avatarUrl.slice(0, 350000)
           : current?.avatarUrl ?? firebaseUser.photoURL ?? '';
-      const stats = current?.stats || { ...EMPTY_ACCOUNT_STATS };
-      const badges = evaluateUnlockedBadges(stats, current?.badges || []);
+      const stats = ownStatsRef.current;
+      const evaluated = evaluateBadgeTiers(stats, current?.badges || []);
       const friendCode = current?.friendCode || generateFriendCode();
 
-      const profileRef = doc(db, 'publicProfiles', uid);
+      saveCachedOwnerCursorColor(uid, nextCursorColor);
+
       try {
-        await setDoc(profileRef, {
+        await persistProfileAndStatsResilient({
           uid,
           displayName: nextName,
           displayNameLower: nextName.toLocaleLowerCase('tr-TR'),
@@ -484,10 +830,24 @@ export function useAccountSocial({
           avatarUrl: nextAvatar,
           color: nextColor,
           cursorColor: nextCursorColor,
-          badges,
+          badges: evaluated.badgeTokens,
           stats,
-          updatedAt: serverTimestamp(),
+          writePublicProfile: true,
+          privateStatsAllowedRef,
         });
+        setRawCloudProfile((prev) => ({
+          uid,
+          displayName: nextName,
+          displayNameLower: nextName.toLocaleLowerCase('tr-TR'),
+          friendCode,
+          avatarUrl: nextAvatar,
+          color: nextColor,
+          cursorColor: nextCursorColor,
+          badges: evaluated.badgeTokens,
+          badgeTiers: evaluated.tiers,
+          stats,
+          ...(prev ? {} : {}),
+        }));
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, `publicProfiles/${uid}`);
       }
@@ -495,32 +855,33 @@ export function useAccountSocial({
     [firebaseUser]
   );
 
-  // Debounced activity tracker that evaluates and unlocks badges in Firestore
+  // Reliable debounced activity flush writing private stats & public tiered badges to Firestore
   const flushStats = useCallback(async () => {
     if (!firebaseUser) return;
+    if (!isStatsLoadedRef.current) return;
     const current = cloudProfileRef.current;
     if (!current) return;
+    if (isFlushingRef.current) return;
+
     const deltas = { ...pendingStatsRef.current };
-    pendingStatsRef.current = {};
     const keys = Object.keys(deltas) as Array<keyof AccountStats>;
     if (keys.length === 0) return;
 
-    const nextStats: AccountStats = { ...current.stats };
-    for (const k of keys) {
-      const add = Math.max(0, Math.floor(deltas[k] || 0));
-      nextStats[k] = Math.min(1_000_000, (nextStats[k] || 0) + add);
-    }
-
-    const prevBadges = new Set(current.badges);
-    const nextBadges = evaluateUnlockedBadges(nextStats, current.badges);
-    const freshBadge = nextBadges.find((b) => !prevBadges.has(b));
-    if (freshBadge) {
-      setNewlyUnlockedBadge(freshBadge);
-    }
+    pendingStatsRef.current = {};
+    isFlushingRef.current = true;
 
     const uid = firebaseUser.uid;
+    const nextStats: AccountStats = { ...ownStatsRef.current };
+    const prevTiers = parseBadgeEntries(current.badges);
+    const evaluated = evaluateBadgeTiers(nextStats, current.badges);
+    const nextBadges = evaluated.badgeTokens;
+
+    const badgesChanged =
+      nextBadges.length !== current.badges.length ||
+      nextBadges.some((tok, idx) => current.badges[idx] !== tok);
+
     try {
-      await updateDoc(doc(db, 'publicProfiles', uid), {
+      await persistProfileAndStatsResilient({
         uid,
         displayName: current.displayName,
         displayNameLower: current.displayNameLower,
@@ -530,18 +891,53 @@ export function useAccountSocial({
         cursorColor: current.cursorColor || current.color,
         badges: nextBadges,
         stats: nextStats,
-        updatedAt: serverTimestamp(),
+        writePublicProfile: badgesChanged,
+        privateStatsAllowedRef,
       });
+
+      for (const def of BADGE_DEFINITIONS) {
+        if (evaluated.tiers[def.id] > prevTiers[def.id] && evaluated.tiers[def.id] >= 1) {
+          setNewlyUnlockedBadge({
+            badgeId: def.id,
+            tier: evaluated.tiers[def.id] as UnlockedBadgeTier,
+          });
+          break;
+        }
+      }
     } catch (err) {
+      // Restore deltas so transient errors never drop badge progress
+      for (const k of keys) {
+        pendingStatsRef.current[k] = (pendingStatsRef.current[k] || 0) + (deltas[k] || 0);
+      }
       try {
-        handleFirestoreError(err, OperationType.UPDATE, `publicProfiles/${uid}`);
+        handleFirestoreError(err, OperationType.WRITE, `users/${uid}/private/badgeStats`);
       } catch {}
+    } finally {
+      isFlushingRef.current = false;
+      if (Object.keys(pendingStatsRef.current).length > 0 && statsFlushTimerRef.current === null) {
+        statsFlushTimerRef.current = window.setTimeout(() => {
+          statsFlushTimerRef.current = null;
+          void flushStats();
+        }, 1200);
+      }
     }
   }, [firebaseUser]);
 
+  // Automatically flush queued stats as soon as cloudProfile & stats finish loading
+  useEffect(() => {
+    if (!firebaseUser || !isStatsLoaded || !rawCloudProfile) return;
+    if (Object.keys(pendingStatsRef.current).length > 0) {
+      void flushStats();
+    }
+  }, [firebaseUser, isStatsLoaded, rawCloudProfile, flushStats]);
+
   const recordActivity = useCallback(
     (event: ActivityEventType, amount = 1) => {
+      // Confirmed product rule: Badges & activity tracking apply strictly to Google accounts
       if (!firebaseUser) return;
+      const safeAmount = Math.max(0, Math.floor(amount));
+      if (safeAmount <= 0) return;
+
       const keyMap: Record<ActivityEventType, keyof AccountStats> = {
         draw: 'drawCount',
         code: 'codeEditCount',
@@ -552,7 +948,36 @@ export function useAccountSocial({
         invite_accepted: 'acceptedInvites',
       };
       const statKey = keyMap[event];
-      pendingStatsRef.current[statKey] = (pendingStatsRef.current[statKey] || 0) + amount;
+      pendingStatsRef.current[statKey] = (pendingStatsRef.current[statKey] || 0) + safeAmount;
+
+      // Optimistic local update + immediate local cache mirror so progress is visible right away
+      const prevStats = ownStatsRef.current;
+      const prevTiers = evaluateBadgeTiers(
+        prevStats,
+        cloudProfileRef.current?.badges || []
+      ).tiers;
+
+      const nextStats: AccountStats = {
+        ...prevStats,
+        [statKey]: Math.min(1_000_000, (prevStats[statKey] || 0) + safeAmount),
+      };
+      ownStatsRef.current = nextStats;
+      setOwnStats(nextStats);
+      saveCachedOwnerStats(firebaseUser.uid, nextStats);
+
+      const nextEval = evaluateBadgeTiers(
+        nextStats,
+        cloudProfileRef.current?.badges || []
+      );
+      for (const def of BADGE_DEFINITIONS) {
+        if (nextEval.tiers[def.id] > prevTiers[def.id] && nextEval.tiers[def.id] >= 1) {
+          setNewlyUnlockedBadge({
+            badgeId: def.id,
+            tier: nextEval.tiers[def.id] as UnlockedBadgeTier,
+          });
+          break;
+        }
+      }
 
       if (statsFlushTimerRef.current !== null) {
         window.clearTimeout(statsFlushTimerRef.current);
@@ -560,7 +985,7 @@ export function useAccountSocial({
       statsFlushTimerRef.current = window.setTimeout(() => {
         statsFlushTimerRef.current = null;
         void flushStats();
-      }, 1500);
+      }, 1200);
     },
     [firebaseUser, flushStats]
   );
@@ -711,7 +1136,6 @@ export function useAccountSocial({
       const myUid = firebaseUser.uid;
       const profile = cloudProfileRef.current;
 
-      // Client-side pre-check of recipient's mute cooldown for crisp error feedback
       try {
         const muteSnap = await getDoc(doc(db, 'users', friendUid, 'mutedInviters', myUid));
         if (muteSnap.exists()) {
@@ -726,7 +1150,7 @@ export function useAccountSocial({
           }
         }
       } catch {
-        // Server Firestore rules will still strictly enforce mute cooldown
+        // Server Firestore rules still strictly enforce mute cooldown
       }
 
       const cleanRoomId = roomId
@@ -910,6 +1334,7 @@ export function useAccountSocial({
     dismissBadgeToast: () => setNewlyUnlockedBadge(null),
     updateProfile,
     recordActivity,
+    fetchPublicProfile,
     searchUsers,
     sendFriendRequest,
     acceptFriendRequest,

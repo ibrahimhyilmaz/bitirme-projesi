@@ -204,25 +204,28 @@ const CodeDemo: React.FC<DemoProps> = ({ active, reduced }) => {
       </div>
       <div className="leading-6">
         {shown.map((l, i) => {
-          const isKaanLine = (!finished && i === caretLine) || (finished && i === CODE_LINES.length - 1);
-          const isElifLine = i === 1 && typed > 16;
+          const isElifTyping = !finished && caretLine <= 1;
+          const isElifLine = (isElifTyping && i === caretLine) || (!isElifTyping && i === 1);
+          const isKaanLine =
+            (!finished && caretLine >= 2 && i === caretLine) ||
+            (finished && i === CODE_LINES.length - 1);
           return (
             <div key={i} className="flex items-center">
               <span className="w-6 shrink-0 text-slate-600 select-none">{i + 1}</span>
               <span className={`${l.c} whitespace-pre`}>{l.text}</span>
-              {isKaanLine && (
+              {isElifLine && (
+                <span className="inline-flex items-center ml-0.5 align-middle">
+                  <span className="inline-block w-[2px] h-4 bg-rose-400 animate-pulse" />
+                  <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-500 text-white leading-none shadow-xs">
+                    Elif
+                  </span>
+                </span>
+              )}
+              {isKaanLine && !isElifLine && (
                 <span className="inline-flex items-center ml-0.5 align-middle">
                   <span className="inline-block w-[2px] h-4 bg-amber-400 animate-pulse" />
                   <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500 text-slate-950 leading-none shadow-xs">
                     Kaan
-                  </span>
-                </span>
-              )}
-              {isElifLine && !isKaanLine && (
-                <span className="inline-flex items-center ml-1.5 align-middle">
-                  <span className="inline-block w-[2px] h-4 bg-rose-400 animate-pulse" />
-                  <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-500 text-white leading-none shadow-xs">
-                    Elif
                   </span>
                 </span>
               )}
@@ -554,7 +557,7 @@ export const LandingShowcase: React.FC<LandingShowcaseProps> = ({ theme, onScrol
           ref={stageRef}
           className="space-y-5"
         >
-          <div className="flex gap-2 overflow-x-auto pb-1 sm:justify-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{tabs}</div>
+          <div className="flex gap-2 overflow-x-auto pt-1.5 pb-2 px-1 sm:justify-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{tabs}</div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
             {/* Copy */}

@@ -221,6 +221,7 @@ interface RoomsModalProps {
   }) => void;
   onUpdateUserRole: (targetUserId: string, newRole: UserRole) => void;
   onKickUser: (targetUserId: string) => void;
+  onInspectUser?: (user: UserPresence) => void;
   onRefreshRooms: () => void;
   onClose: () => void;
 }
@@ -261,6 +262,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
   onUpdateRoomSettings,
   onUpdateUserRole,
   onKickUser,
+  onInspectUser,
   onRefreshRooms,
   onClose,
 }) => {
@@ -1166,12 +1168,33 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                       key={u.id}
                       className="p-3 flex items-center justify-between text-xs bg-white dark:bg-slate-900/70 hover:bg-slate-50/80 dark:hover:bg-slate-800/70"
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isSelf && onInspectUser) onInspectUser(u);
+                        }}
+                        disabled={isSelf || !onInspectUser}
+                        title={!isSelf && onInspectUser ? `${u.name} · Kazanılan rozetleri gör` : undefined}
+                        className={`flex items-center gap-2.5 min-w-0 text-left ${
+                          !isSelf && onInspectUser
+                            ? 'cursor-pointer hover:opacity-85 transition-opacity'
+                            : 'cursor-default'
+                        }`}
+                      >
                         <div
-                          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
-                          style={{ backgroundColor: u.color || '#2563eb' }}
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0 overflow-hidden"
+                          style={{ backgroundColor: u.avatarUrl ? 'transparent' : u.color || '#2563eb' }}
                         >
-                          {u.avatar || u.name.charAt(0).toUpperCase()}
+                          {u.avatarUrl ? (
+                            <img
+                              src={u.avatarUrl}
+                              alt={u.name}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            u.avatar || u.name.charAt(0).toUpperCase()
+                          )}
                         </div>
                         <div className="min-w-0">
                           <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
@@ -1182,7 +1205,7 @@ export const RoomsModal: React.FC<RoomsModalProps> = ({
                             <span>{getRoleLabel(u.role)}</span>
                           </div>
                         </div>
-                      </div>
+                      </button>
 
                       <div className="flex items-center gap-2 shrink-0">
                         {canManage && !isTargetOwner && !isSelf ? (

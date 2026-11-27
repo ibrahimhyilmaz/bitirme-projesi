@@ -1,13 +1,13 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRight, BellOff, DoorOpen, X } from 'lucide-react';
-import type { RoomInviteRecord } from '../hooks/useAccountSocial';
-import { BadgeId, getBadgeById } from '../utils/badges';
+import type { RoomInviteRecord, UnlockedBadgeNotification } from '../hooks/useAccountSocial';
+import { BADGE_TIER_META, getBadgeById } from '../utils/badges';
 import { BadgeEmblem } from './BadgeEmblem';
 
 interface RoomInviteToastProps {
   invites: RoomInviteRecord[];
-  newlyUnlockedBadge: BadgeId | null;
+  newlyUnlockedBadge: UnlockedBadgeNotification | null;
   onAcceptInvite: (invite: RoomInviteRecord) => void;
   onDeclineInvite: (invite: RoomInviteRecord) => void;
   onMuteInvite: (invite: RoomInviteRecord) => void;
@@ -27,17 +27,25 @@ export const RoomInviteToast: React.FC<RoomInviteToastProps> = ({
   if (typeof document === 'undefined') return null;
   if (invites.length === 0 && !newlyUnlockedBadge) return null;
 
-  const badgeDef = newlyUnlockedBadge ? getBadgeById(newlyUnlockedBadge) : undefined;
+  const badgeDef = newlyUnlockedBadge ? getBadgeById(newlyUnlockedBadge.badgeId) : undefined;
+  const badgeTierMeta = newlyUnlockedBadge ? BADGE_TIER_META[newlyUnlockedBadge.tier] : undefined;
 
   return createPortal(
     <div className="fixed bottom-4 right-4 z-[95] flex flex-col gap-2.5 w-[356px] max-w-[calc(100vw-24px)] pointer-events-none select-none">
-      {/* Newly Unlocked Badge Toast */}
-      {badgeDef && (
+      {/* Newly Unlocked / Upgraded Badge Toast */}
+      {badgeDef && newlyUnlockedBadge && badgeTierMeta && (
         <div className="pointer-events-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-3.5 flex items-center gap-3 cb-anim-slide-up">
-          <BadgeEmblem badgeId={badgeDef.id} unlocked size="md" />
+          <BadgeEmblem badgeId={badgeDef.id} tier={newlyUnlockedBadge.tier} size="md" />
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
-              Yeni Rozet Kazanıldı
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                {newlyUnlockedBadge.tier > 1 ? 'Rozet Kademesi Yükseldi' : 'Yeni Rozet Kazanıldı'}
+              </span>
+              <span
+                className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${badgeTierMeta.pillClass}`}
+              >
+                {badgeTierMeta.name}
+              </span>
             </div>
             <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
               {badgeDef.title}
