@@ -7,7 +7,7 @@ export interface FolderFile {
   addedAt: number;
 }
 
-const DB_NAME = 'collabboard_folder';
+const DB_NAME = 'JinkyBoard_folder';
 const STORE = 'files';
 
 function openDb(): Promise<IDBDatabase> {

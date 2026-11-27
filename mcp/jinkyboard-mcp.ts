@@ -1,23 +1,23 @@
 /**
- * CollabBoard MCP server (stdio).
+ * JinkyBoard MCP server (stdio).
  *
- * Lets any MCP client (Claude Desktop, Claude Code, Cursor, ...) draw on a CollabBoard whiteboard:
+ * Lets any MCP client (Claude Desktop, Claude Code, Cursor, ...) draw on a JinkyBoard whiteboard:
  *   list_shapes     - every shape type the board can render
  *   create_diagram  - nodes + links  -> auto-laid-out flow chart / architecture / mind map (no AI call, no tokens)
  *   create_drawing  - shapes on a 100x100 grid -> scaled illustration (no AI call)
  *   ai_generate     - natural-language prompt -> shapes via the configured AI provider (OpenAI, Claude,
  *                     OpenRouter, Groq, DeepSeek, Mistral, Together, Ollama, custom). Falls back to the free,
  *                     key-less engine when no provider is configured.
- *   push_to_room    - send elements into a LIVE room of a running CollabBoard server (appear instantly)
+ *   push_to_room    - send elements into a LIVE room of a running JinkyBoard server (appear instantly)
  *
  * Configuration (environment variables, set in the MCP client config):
- *   COLLAB_SERVER_URL   default http://localhost:3000   (the CollabBoard server started with `npm run dev`)
+ *   COLLAB_SERVER_URL   default http://localhost:3000   (the JinkyBoard server started with `npm run dev`)
  *   AI_PROVIDER         openai | anthropic | openrouter | groq | deepseek | mistral | together | ollama | custom
  *   AI_API_KEY          provider API key
  *   AI_MODEL            optional model override
  *   AI_BASE_URL         optional (custom / ollama)
  *
- * Run:  npx tsx mcp/collabboard-mcp.ts
+ * Run:  npx tsx mcp/JinkyBoard-mcp.ts
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -57,7 +57,7 @@ async function pushToRoom(roomCode: string, elements: CanvasElement[], serverUrl
       try {
         ws.close();
       } catch {}
-      reject(new Error(`Sunucudan yanıt alınamadı (${wsUrl}). CollabBoard sunucusu çalışıyor mu?`));
+      reject(new Error(`Sunucudan yanıt alınamadı (${wsUrl}). JinkyBoard sunucusu çalışıyor mu?`));
     }, 10_000);
     ws.on('error', (e) => {
       clearTimeout(timer);
@@ -98,13 +98,13 @@ async function pushToRoom(roomCode: string, elements: CanvasElement[], serverUrl
 
 const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/).optional();
 
-const server = new McpServer({ name: 'collabboard', version: '1.0.0' });
+const server = new McpServer({ name: 'JinkyBoard', version: '1.0.0' });
 
 const placement = {
   centerX: z.number().optional().describe('Canvas centre X (default 500)'),
   centerY: z.number().optional().describe('Canvas centre Y (default 350)'),
   roomCode: z.string().length(5).optional().describe('If set, the result is pushed into this live room'),
-  serverUrl: z.string().url().optional().describe('CollabBoard server URL (default COLLAB_SERVER_URL)'),
+  serverUrl: z.string().url().optional().describe('JinkyBoard server URL (default COLLAB_SERVER_URL)'),
 };
 
 async function finish(elements: CanvasElement[], roomCode?: string, serverUrl?: string) {
@@ -231,7 +231,7 @@ server.registerTool(
   'push_to_room',
   {
     title: 'Odaya gönder',
-    description: 'Send previously generated elements (JSON array) into a live CollabBoard room.',
+    description: 'Send previously generated elements (JSON array) into a live JinkyBoard room.',
     inputSchema: {
       roomCode: z.string().length(5),
       elements: z.array(z.record(z.string(), z.unknown())).min(1).max(300),

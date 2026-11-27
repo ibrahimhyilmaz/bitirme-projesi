@@ -1,6 +1,6 @@
-# CollabBoard MCP sunucusu
+# JinkyBoard MCP sunucusu
 
-Claude Desktop, Claude Code, Cursor gibi herhangi bir MCP istemcisinin CollabBoard tahtasına şekil, diyagram ve çizim eklemesini sağlar.
+Claude Desktop, Claude Code, Cursor gibi herhangi bir MCP istemcisinin JinkyBoard tahtasına şekil, diyagram ve çizim eklemesini sağlar.
 
 ## Araçlar
 
@@ -17,7 +17,7 @@ Claude Desktop, Claude Code, Cursor gibi herhangi bir MCP istemcisinin CollabBoa
 ## Çalıştırma
 
 ```powershell
-npm run dev      # CollabBoard sunucusu (http://localhost:3000)
+npm run dev      # JinkyBoard sunucusu (http://localhost:3000)
 npm run mcp      # MCP sunucusu (stdio)
 ```
 
@@ -28,9 +28,9 @@ npm run mcp      # MCP sunucusu (stdio)
 ```json
 {
   "mcpServers": {
-    "collabboard": {
+    "JinkyBoard": {
       "command": "npx",
-      "args": ["tsx", "D:/SoftwareTechs/bitirme-projesi/bitirme-projesi/mcp/collabboard-mcp.ts"],
+      "args": ["tsx", "D:/SoftwareTechs/bitirme-projesi/bitirme-projesi/mcp/JinkyBoard-mcp.ts"],
       "env": {
         "COLLAB_SERVER_URL": "http://localhost:3000",
         "AI_PROVIDER": "openrouter",
@@ -42,11 +42,11 @@ npm run mcp      # MCP sunucusu (stdio)
 }
 ```
 
-Claude Code için: `claude mcp add collabboard -- npx tsx mcp/collabboard-mcp.ts`
+Claude Code için: `claude mcp add JinkyBoard -- npx tsx mcp/JinkyBoard-mcp.ts`
 
 ## Ortam değişkenleri
 
-- `COLLAB_SERVER_URL` — çalışan CollabBoard sunucusu (varsayılan `http://localhost:3000`)
+- `COLLAB_SERVER_URL` — çalışan JinkyBoard sunucusu (varsayılan `http://localhost:3000`)
 - `AI_PROVIDER` — `openai`, `anthropic`, `openrouter`, `groq`, `deepseek`, `mistral`, `together`, `ollama`, `custom`
 - `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` — sağlayıcı anahtarı, model, (özel/yerel için) adres
 

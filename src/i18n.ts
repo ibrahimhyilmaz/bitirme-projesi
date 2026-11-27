@@ -755,12 +755,12 @@ const PHRASE_TABLE: Record<string, [string, string, string, string, string]> = {
     'Paso 1 / 5 · Bienvenida',
     'الخطوة 1 / 5 · مرحباً بك',
   ],
-  'CollabBoard Ortak Çalışma Tahtasına Hoş Geldiniz!': [
-    'Welcome to the CollabBoard Collaborative Whiteboard!',
-    'Willkommen auf dem CollabBoard Kollaborations-Board!',
-    'Bienvenue sur le tableau collaboratif CollabBoard !',
-    '¡Bienvenido a la pizarra colaborativa CollabBoard!',
-    'مرحباً بك في لوحة العمل التشاركية CollabBoard!',
+  'JinkyBoard Ortak Çalışma Tahtasına Hoş Geldiniz!': [
+    'Welcome to the JinkyBoard Collaborative Whiteboard!',
+    'Willkommen auf dem JinkyBoard Kollaborations-Board!',
+    'Bienvenue sur le tableau collaboratif JinkyBoard !',
+    '¡Bienvenido a la pizarra colaborativa JinkyBoard!',
+    'مرحباً بك في لوحة العمل التشاركية JinkyBoard!',
   ],
   'Yeni kaligrafik CB kimliğimiz ve geliştirilmiş gerçek zamanlı çalışma alanımızla ekip arkadaşlarınızla çizim yapabilir, diyagramlar kurabilir, ortak kod derleyebilir ve sesli görüşebilirsiniz.': [
     'With our calligraphic CB identity and enhanced real-time workspace, you can draw with teammates, build diagrams, compile collaborative code, and talk on the voice channel.',
@@ -1161,12 +1161,12 @@ const PHRASE_TABLE: Record<string, [string, string, string, string, string]> = {
     'Exportar / Importar: Descarga tu tablero como imagen PNG de alta resolución o guárdalo y restáuralo como archivo JSON.',
     'تصدير / استيراد: نزّل اللوحة كصورة PNG عالية الدقة أو احفظها واستعدها كملف احتياطي JSON.',
   ],
-  'CollabBoard Hızlı Başlangıç Rehberi': [
-    'CollabBoard Quick Start Guide',
-    'CollabBoard Schnellstart-Anleitung',
-    'Guide de démarrage rapide CollabBoard',
-    'Guía de inicio rápido de CollabBoard',
-    'دليل البدء السريع لـ CollabBoard',
+  'JinkyBoard Hızlı Başlangıç Rehberi': [
+    'JinkyBoard Quick Start Guide',
+    'JinkyBoard Schnellstart-Anleitung',
+    'Guide de démarrage rapide JinkyBoard',
+    'Guía de inicio rápido de JinkyBoard',
+    'دليل البدء السريع لـ JinkyBoard',
   ],
   'Buradan Erişebilirsiniz': [
     'Access It Right Here',
@@ -1356,11 +1356,11 @@ const PHRASE_TABLE: Record<string, [string, string, string, string, string]> = {
   'Yedekten Geri Yükle': ['Restore from Backup', 'Aus Backup wiederherstellen', 'Restaurer depuis une sauvegarde', 'Restaurar desde copia', 'الاستعادة من نسخة احتياطية'],
   'JSON Yükle': ['Upload JSON', 'JSON hochladen', 'Importer JSON', 'Subir JSON', 'رفع JSON'],
   'Yüklendi': ['Uploaded', 'Geladen', 'Importé', 'Cargado', 'تم الرفع'],
-  'Önceden indirdiğiniz bir CollabBoard JSON dosyasını tahtaya aktarın.': [
-    'Import a previously downloaded CollabBoard JSON file onto the board.',
-    'Importieren Sie eine zuvor heruntergeladene CollabBoard-JSON-Datei aufs Board.',
-    'Importez un fichier JSON CollabBoard précédemment téléchargé sur le tableau.',
-    'Importa un archivo JSON de CollabBoard descargado previamente al tablero.',
+  'Önceden indirdiğiniz bir JinkyBoard JSON dosyasını tahtaya aktarın.': [
+    'Import a previously downloaded JinkyBoard JSON file onto the board.',
+    'Importieren Sie eine zuvor heruntergeladene JinkyBoard-JSON-Datei aufs Board.',
+    'Importez un fichier JSON JinkyBoard précédemment téléchargé sur le tableau.',
+    'Importa un archivo JSON de JinkyBoard descargado previamente al tablero.',
     'استورد ملف JSON محفوظ مسبقاً إلى اللوحة.',
   ],
 

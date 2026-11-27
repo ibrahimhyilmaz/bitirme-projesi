@@ -436,7 +436,7 @@ export default function App() {
     if (!hasEnteredWorkspace || isUserSetupOpen) return;
     let done = true;
     try {
-      done = localStorage.getItem('collabboard_onboarding_v2_done') === 'true';
+      done = localStorage.getItem('JinkyBoard_onboarding_v2_done') === 'true';
     } catch {
       /* storage blocked: skip the auto tour rather than nag on every load */
     }
@@ -2839,7 +2839,7 @@ export default function App() {
       setHasEnteredWorkspace(true);
       setIsUserSetupOpen(false);
       setIsInitialSetup(false);
-      if (localStorage.getItem('collabboard_onboarding_v2_done') !== 'true') {
+      if (localStorage.getItem('JinkyBoard_onboarding_v2_done') !== 'true') {
         setIsOnboardingOpen(true);
       }
     },
@@ -3879,7 +3879,7 @@ export default function App() {
       <OnboardingTour
         isOpen={isOnboardingOpen}
         onClose={() => {
-          localStorage.setItem('collabboard_onboarding_v2_done', 'true');
+          localStorage.setItem('JinkyBoard_onboarding_v2_done', 'true');
           setIsOnboardingOpen(false);
         }}
         onSelectTool={(t) => {

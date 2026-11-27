@@ -233,9 +233,9 @@ const QUICK_PROMPTS: QuickPrompt[] = [
   },
 ];
 
-const CLIENT_ID_STORAGE_KEY = 'collabboard_ai_client_id';
-const QUOTA_SOURCE_STORAGE_KEY = 'collabboard_ai_quota_source';
-const QUOTA_CONFIRMED_STORAGE_KEY = 'collabboard_ai_quota_confirmed';
+const CLIENT_ID_STORAGE_KEY = 'JinkyBoard_ai_client_id';
+const QUOTA_SOURCE_STORAGE_KEY = 'JinkyBoard_ai_quota_source';
+const QUOTA_CONFIRMED_STORAGE_KEY = 'JinkyBoard_ai_quota_confirmed';
 
 function getOrCreateClientId(): string {
   try {
@@ -951,7 +951,7 @@ export const AIPromptModal: React.FC<AIPromptModalProps> = ({
                     quotaSource === 'app_default' ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'
                   }`}
                 >
-                  CollabBoard varsayılan paylaşımlı anahtarını kullanır. Hızlı testler için saatlik 15 çizim hakkı sunar.
+                  JinkyBoard varsayılan paylaşımlı anahtarını kullanır. Hızlı testler için saatlik 15 çizim hakkı sunar.
                 </p>
               </button>
 

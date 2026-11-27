@@ -27,8 +27,8 @@ async function requestRoomPreviewViaMesh(
   const safeId = room.id.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'oda';
   const requesterId = `preview-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  const peerTopic = `collabboard/v3/room/${safeId}/peer/${requesterId}`;
-  const eventsTopic = `collabboard/v3/room/${safeId}/events`;
+  const peerTopic = `JinkyBoard/v3/room/${safeId}/peer/${requesterId}`;
+  const eventsTopic = `JinkyBoard/v3/room/${safeId}/events`;
 
   return new Promise((resolve) => {
     let settled = false;
@@ -124,7 +124,7 @@ async function requestRoomPreviewViaMesh(
     // 1. Same-browser BroadcastChannel (instant if room is open in this browser)
     try {
       if (typeof BroadcastChannel !== 'undefined') {
-        bc = new BroadcastChannel(`collabboard_room_${safeId}`);
+        bc = new BroadcastChannel(`JinkyBoard_room_${safeId}`);
         bc.onmessage = (ev) => {
           if (typeof ev.data === 'string') handleRaw(ev.data);
         };

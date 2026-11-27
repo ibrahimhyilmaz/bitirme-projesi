@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "mcp": "tsx mcp/collabboard-mcp.ts"
+    "mcp": "tsx mcp/jinkyboard-mcp.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",

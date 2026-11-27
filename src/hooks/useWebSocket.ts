@@ -50,7 +50,7 @@ const PUBLIC_WSS_BROKERS = [
 ];
 
 function getDefaultCodeForRoom(roomId: string, displayRoomName: string) {
-  return `// CollabBoard Ortak Kod Editörü — ${displayRoomName} (#${roomId})
+  return `// JinkyBoard Ortak Kod Editörü — ${displayRoomName} (#${roomId})
 // Bu odadaki kod alanı odadaki tüm kullanıcılarla gerçek zamanlı senkronize olur.
 
 function calculateSprintMetrics(tasks) {
@@ -276,8 +276,8 @@ export function useWebSocket({
       // 2. Publish to all connected WSS MQTT brokers
       const safeTarget = targetUserId ? targetUserId.replace(/[^a-zA-Z0-9_-]/g, '_') : undefined;
       const topic = safeTarget
-        ? `collabboard/v3/room/${safeTopicRoomId}/peer/${safeTarget}`
-        : `collabboard/v3/room/${safeTopicRoomId}/events`;
+        ? `JinkyBoard/v3/room/${safeTopicRoomId}/peer/${safeTarget}`
+        : `JinkyBoard/v3/room/${safeTopicRoomId}/events`;
 
       const sendRaw = (payload: string, qos: 0 | 1) => {
         for (const client of mqttClientsRef.current) {
@@ -1466,7 +1466,7 @@ export function useWebSocket({
     }));
 
     // Setup BroadcastChannel for instant local cross-tab/window sync
-    const bcChannelName = `collabboard_room_${roomId.trim().toLowerCase()}`;
+    const bcChannelName = `JinkyBoard_room_${roomId.trim().toLowerCase()}`;
     if (typeof BroadcastChannel !== 'undefined') {
       try {
         const bc = new BroadcastChannel(bcChannelName);
@@ -1591,8 +1591,8 @@ export function useWebSocket({
 
       const safeRoom = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'oda';
       const safeUid = userRef.current.id.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const eventsTopic = `collabboard/v3/room/${safeRoom}/events`;
-      const directPeerTopic = `collabboard/v3/room/${safeRoom}/peer/${safeUid}`;
+      const eventsTopic = `JinkyBoard/v3/room/${safeRoom}/events`;
+      const directPeerTopic = `JinkyBoard/v3/room/${safeRoom}/peer/${safeUid}`;
 
       // Serverless rooms have no server to confirm the join: report it ourselves (once), so room history
       // and Google cloud boards work on static hosting too. The "creating" flag is frozen at start so the

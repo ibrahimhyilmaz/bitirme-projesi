@@ -13,17 +13,17 @@ const SIZE_MAP = {
 };
 
 /**
- * Custom CollabBoard Logo with animated character drawing on whiteboard (white face, hand, marker).
+ * Custom JinkyBoard Logo with animated character drawing on whiteboard (white face, hand, marker).
  */
 export const BrandLogo: React.FC<BrandLogoProps> = ({ size = 'md', className = '' }) => {
   return (
     <div
       className={`relative inline-flex items-center justify-center shrink-0 select-none ${SIZE_MAP[size]} ${className}`}
-      title="CollabBoard — Gerçek Zamanlı Ortak Çalışma Tahtası"
+      title="JinkyBoard — Gerçek Zamanlı Ortak Çalışma Tahtası"
     >
       <img
         src={`${import.meta.env.BASE_URL}assets/aistudio/logo_smooth.png?v=2`}
-        alt="CollabBoard Logo"
+        alt="JinkyBoard Logo"
         className="w-full h-full object-contain drop-shadow-xs select-none"
         draggable={false}
       />

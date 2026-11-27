@@ -152,7 +152,7 @@ int main() {
 class Prog {
     public static void main(String[] args) {
         List<String> moduller = Arrays.asList("WebSocket", "WebRTC", "Canvas2D", "AI-Generator", "Compiler");
-        System.out.println("CollabBoard Aktif Modüller (" + moduller.size() + "):");
+        System.out.println("JinkyBoard Aktif Modüller (" + moduller.size() + "):");
         for (int i = 0; i < moduller.size(); i++) {
             System.out.println("  " + (i + 1) + ". " + moduller.get(i));
         }
@@ -189,7 +189,7 @@ SELECT id || ' | ' || ad || ' | Katılımcı: ' || kullanici_sayisi || ' | Durum
 <body>
   <div class="card">
     <span class="badge">CANLI ÖNİZLEME</span>
-    <h2>CollabBoard UI</h2>
+    <h2>JinkyBoard UI</h2>
     <p>HTML, CSS ve JavaScript kodlarınızı gerçek zamanlı olarak bu alanda önizleyebilirsiniz.</p>
     <button onclick="this.textContent = '🎉 Tıklandı!'">Test Et</button>
   </div>

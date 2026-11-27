@@ -27,8 +27,9 @@ function getPort(): number {
     const p = Number(process.argv[portArgIndex + 1]);
     if (!isNaN(p)) return p;
   }
-  if (process.env.NODE_ENV === 'production' && process.env.PORT) {
-    return Number(process.env.PORT);
+  if (process.env.PORT) {
+    const p = Number(process.env.PORT);
+    if (!isNaN(p)) return p;
   }
   return 3000;
 }
@@ -418,7 +419,7 @@ function getOrCreateRoom(
 
     const displayRoomName = sanitizeRoomDisplayName(roomName, roomId);
 
-    const defaultCode = `// CollabBoard Ortak Kod Editörü — ${displayRoomName}
+    const defaultCode = `// JinkyBoard Ortak Kod Editörü — ${displayRoomName}
 // Bu odadaki kod alanı yalnızca bu odaya özeldir ve odadaki üyelerle anlık senkronize olur.
 
 function calculateSprintMetrics(tasks) {
@@ -498,7 +499,7 @@ calculateSprintMetrics(sampleTasks);
         {
           id: `welcome-${Date.now()}`,
           userId: 'system',
-          userName: 'CollabBoard',
+          userName: 'JinkyBoard',
           userColor: '#2563eb',
           text: `${displayRoomName} odasına hoş geldiniz! Araç çubuğundaki AI Çizim butonuyla istediğiniz şekli/diyagramı üretebilir, ortak kod yazabilir ve oda ayarlarından yetkileri yönetebilirsiniz.`,
           timestamp: Date.now(),
@@ -546,7 +547,7 @@ const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
 // Silent no-op WebSocket handler for Vite's /@vite/client dev socket when HMR is disabled.
 // Prevents "[vite] failed to connect to websocket (Error: WebSocket closed without opened.)" console errors
-// without triggering any HMR reloads or interfering with CollabBoard's real-time WebSocket traffic.
+// without triggering any HMR reloads or interfering with JinkyBoard's real-time WebSocket traffic.
 const viteHmrNoopWss = new WebSocketServer({
   noServer: true,
   handleProtocols: (protocols) => (protocols.has('vite-hmr') ? 'vite-hmr' : false),
@@ -2186,7 +2187,7 @@ function runInNodeVm(
 
   try {
     const context = vm.createContext(sandbox);
-    const script = new vm.Script(jsCode, { filename: 'collabboard-script.js' });
+    const script = new vm.Script(jsCode, { filename: 'JinkyBoard-script.js' });
     const result = script.runInContext(context, { timeout: 4000 });
     if (result !== undefined && stdoutLines.length === 0 && stderrLines.length === 0) {
       stdoutLines.push(formatVal(result));
@@ -2320,7 +2321,7 @@ app.post('/api/code/execute', async (req, res) => {
       stderr: 'Çalıştırılacak kod boş.',
       exitCode: 1,
       executionTimeMs: 0,
-      engine: 'CollabBoard Compiler',
+      engine: 'JinkyBoard Compiler',
       language,
     });
     return;
@@ -2429,7 +2430,7 @@ app.post('/api/code/execute', async (req, res) => {
       stderr: `Derleyici Bağlantı Hatası: ${err instanceof Error ? err.message : String(err)}`,
       exitCode: 1,
       executionTimeMs,
-      engine: 'CollabBoard Compiler',
+      engine: 'JinkyBoard Compiler',
       language,
     });
   }
@@ -2870,7 +2871,7 @@ async function startServer() {
   });
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`CollabBoard Server running on port ${PORT}`);
+    console.log(`JinkyBoard Server running on port ${PORT}`);
   });
 }
 

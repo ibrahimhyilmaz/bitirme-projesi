@@ -1,5 +1,5 @@
 {
-  "name": "Remix CollabBoard - Gerçek Zamanlı Beyaz Tahta \u0026 Ortak Çalışma Alanı",
+  "name": "Remix JinkyBoard - Gerçek Zamanlı Beyaz Tahta \u0026 Ortak Çalışma Alanı",
   "description": "Çok kullanıcılı gerçek zamanlı beyaz tahta, kod editörü, dosya paylaşımı ve entegre WebRTC sesli sohbet platformu.",
   "requestFramePermissions": [
     "microphone"

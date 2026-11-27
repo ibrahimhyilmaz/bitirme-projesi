@@ -334,7 +334,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               </button>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Önceden indirdiğiniz bir CollabBoard JSON dosyasını tahtaya aktarın.
+              Önceden indirdiğiniz bir JinkyBoard JSON dosyasını tahtaya aktarın.
             </p>
           </div>
         </div>

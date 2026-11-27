@@ -242,7 +242,7 @@ export const TopNav: React.FC<TopNavProps> = ({
               isDark ? 'text-white' : 'text-slate-900'
             }`}
           >
-            CollabBoard
+            JinkyBoard
           </span>
         </div>
 

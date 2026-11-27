@@ -54,7 +54,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           <div className="w-16 h-16 rounded-2xl bg-blue-600/20 text-blue-400 flex items-center justify-center text-3xl mb-4 font-bold">
             !
           </div>
-          <h1 className="text-xl font-bold mb-2">CollabBoard Bir Hata ile Karşılaştı</h1>
+          <h1 className="text-xl font-bold mb-2">JinkyBoard Bir Hata ile Karşılaştı</h1>
           <p className="text-sm text-slate-400 max-w-md mb-6">
             Uygulama çalışırken beklenmeyen bir durum oluştu. Sayfayı yenileyerek veya oturumu sıfırlayarak devam edebilirsiniz.
           </p>

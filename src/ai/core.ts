@@ -1,6 +1,6 @@
 /**
  * Provider-agnostic AI drawing core. No DOM, no React: used by the browser (AIPromptModal) AND by the
- * MCP server (mcp/collabboard-mcp.ts), so both produce exactly the same elements.
+ * MCP server (mcp/JinkyBoard-mcp.ts), so both produce exactly the same elements.
  *
  * Providers: anything OpenAI-compatible (OpenAI, OpenRouter, Groq, DeepSeek, Mistral, Together, Ollama,
  * LM Studio, custom base URL) plus Anthropic Claude. Output is plain JSON (shapes / polygons / diagrams)
@@ -119,7 +119,7 @@ export async function callLLM(
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (cfg.apiKey?.trim()) headers.Authorization = `Bearer ${cfg.apiKey.trim()}`;
       if (cfg.provider === 'openrouter') {
-        headers['X-Title'] = 'CollabBoard';
+        headers['X-Title'] = 'JinkyBoard';
       }
       res = await fetch(`${base}/chat/completions`, {
         method: 'POST',

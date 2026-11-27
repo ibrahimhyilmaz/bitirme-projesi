@@ -8,7 +8,7 @@ interface LoadingScreenProps {
 }
 
 /**
- * Animated Loading Screen component utilizing the custom CollabBoard logo drawing loop video.
+ * Animated Loading Screen component utilizing the custom JinkyBoard logo drawing loop video.
  * Reference: /public/assets/aistudio/logo_loading_dd599067.mp4
  */
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({

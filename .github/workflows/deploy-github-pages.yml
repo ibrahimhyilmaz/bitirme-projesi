@@ -1,4 +1,4 @@
-name: Deploy CollabBoard to GitHub Pages
+name: Deploy JinkyBoard to GitHub Pages
 
 on:
   push:

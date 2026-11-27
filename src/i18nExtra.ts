@@ -106,12 +106,12 @@ export const EXTRA_PHRASES: Record<string, [string, string, string, string, stri
   '1. API Anahtarı Kaynağı & Kullanım Sınırı (Kota) Seçimi': ['1. API Key Source & Usage Limit (Quota)', '1. API-Schlüsselquelle & Nutzungslimit (Kontingent)', '1. Source de la clé API & limite d’utilisation (quota)', '1. Origen de la clave API y límite de uso (cuota)', '1. مصدر مفتاح API وحد الاستخدام (الحصة)'],
   'Uygulamanın API Anahtarı': ['App’s API Key', 'API-Schlüssel der App', 'Clé API de l’application', 'Clave API de la aplicación', 'مفتاح API الخاص بالتطبيق'],
   'Uygulamanın Varsayılan API Anahtarı': ['App’s Default API Key', 'Standard-API-Schlüssel der App', 'Clé API par défaut de l’application', 'Clave API predeterminada de la aplicación', 'مفتاح API الافتراضي للتطبيق'],
-  'CollabBoard varsayılan paylaşımlı anahtarını kullanır. Hızlı testler için saatlik 15 çizim hakkı sunar.': [
-    'Uses CollabBoard’s default shared key. Offers 15 drawings per hour for quick tests.',
-    'Verwendet den gemeinsamen Standardschlüssel von CollabBoard. Bietet 15 Zeichnungen pro Stunde für schnelle Tests.',
-    'Utilise la clé partagée par défaut de CollabBoard. Offre 15 dessins par heure pour des tests rapides.',
-    'Usa la clave compartida predeterminada de CollabBoard. Ofrece 15 dibujos por hora para pruebas rápidas.',
-    'يستخدم مفتاح CollabBoard المشترك الافتراضي. يتيح 15 رسمة في الساعة للاختبارات السريعة.',
+  'JinkyBoard varsayılan paylaşımlı anahtarını kullanır. Hızlı testler için saatlik 15 çizim hakkı sunar.': [
+    'Uses JinkyBoard’s default shared key. Offers 15 drawings per hour for quick tests.',
+    'Verwendet den gemeinsamen Standardschlüssel von JinkyBoard. Bietet 15 Zeichnungen pro Stunde für schnelle Tests.',
+    'Utilise la clé partagée par défaut de JinkyBoard. Offre 15 dessins par heure pour des tests rapides.',
+    'Usa la clave compartida predeterminada de JinkyBoard. Ofrece 15 dibujos por hora para pruebas rápidas.',
+    'يستخدم مفتاح JinkyBoard المشترك الافتراضي. يتيح 15 رسمة في الساعة للاختبارات السريعة.',
   ],
   'Kendi Google AI Studio API Anahtarım': ['My Own Google AI Studio API Key', 'Mein eigener Google-AI-Studio-API-Schlüssel', 'Ma propre clé API Google AI Studio', 'Mi propia clave API de Google AI Studio', 'مفتاح Google AI Studio API الخاص بي'],
   'Kendi Google AI Studio Anahtarım': ['My Own Google AI Studio Key', 'Mein eigener Google-AI-Studio-Schlüssel', 'Ma propre clé Google AI Studio', 'Mi propia clave de Google AI Studio', 'مفتاح Google AI Studio الخاص بي'],

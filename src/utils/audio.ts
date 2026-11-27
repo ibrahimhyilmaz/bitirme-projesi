@@ -565,7 +565,7 @@ export class VoiceManager {
       // Setup P2P DataChannel for ultra-fast drawing/cursor/presence sync
       if (isInitiator) {
         try {
-          const dc = pc.createDataChannel('collabboard-sync', { ordered: false });
+          const dc = pc.createDataChannel('JinkyBoard-sync', { ordered: false });
           this.setupDataChannel(remoteUserId, dc);
         } catch {
           // Ignore DataChannel error

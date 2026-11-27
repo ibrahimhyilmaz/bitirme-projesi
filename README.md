@@ -1,6 +1,6 @@
 <div align="center">
 
-# CollabBoard
+# JinkyBoard
 
 **Gerçek zamanlı ortak beyaz tahta · ortak kod editörü · sesli/yazılı sohbet · yapay zekâ ile çizim**
 
@@ -8,7 +8,7 @@ Bir odaya 5 haneli kodla (ya da QR ile) girin; aynı sonsuz tuvalde çizin, birl
 
 **Canlı demo:** <https://ibrahimhyilmaz.github.io/bitirme-projesi/>
 
-<img src="docs/screenshots/landing.png" alt="CollabBoard giriş ekranı" width="820" />
+<img src="docs/screenshots/landing.png" alt="JinkyBoard giriş ekranı" width="820" />
 
 </div>
 
@@ -142,7 +142,7 @@ Sağlayıcı ayarı yalnızca tarayıcınızın `localStorage`'ında tutulur. Mo
 
 ## MCP sunucusu
 
-`mcp/collabboard-mcp.ts`, MCP destekli istemcilerin çalışan bir odaya şekil, diyagram ve çizim göndermesini sağlar (`list_shapes`, `create_diagram`, `create_drawing`, `ai_generate`, `push_to_room`). Kurulum, Claude Desktop yapılandırması ve örnekler: [`mcp/README.md`](mcp/README.md).
+`mcp/JinkyBoard-mcp.ts`, MCP destekli istemcilerin çalışan bir odaya şekil, diyagram ve çizim göndermesini sağlar (`list_shapes`, `create_diagram`, `create_drawing`, `ai_generate`, `push_to_room`). Kurulum, Claude Desktop yapılandırması ve örnekler: [`mcp/README.md`](mcp/README.md).
 
 ## Firebase
 
@@ -159,7 +159,7 @@ Kuralları değiştirdikten sonra emülatörde denemek için `npx firebase emula
 
 ## Yayınlama (GitHub Pages)
 
-`main` dalına her push, [`.github/workflows/deploy-github-pages.yml`](.github/workflows/deploy-github-pages.yml) ile Pages'e yayınlanır. Pages'te Node sunucusu çalışmaz; uygulama **sunucusuz ağ modunda** çalışır: oda iletişimi genel MQTT aracılarıyla, aynı tarayıcıdaki sekmeler `BroadcastChannel` ile, kalıcılık IndexedDB (`collabboard-mesh`) ile sağlanır. Tam özellik (oda listesi, sunucu AI, kalıcı odalar) için `npm run build && npm start` ile kendi sunucunuzda çalıştırın.
+`main` dalına her push, [`.github/workflows/deploy-github-pages.yml`](.github/workflows/deploy-github-pages.yml) ile Pages'e yayınlanır. Pages'te Node sunucusu çalışmaz; uygulama **sunucusuz ağ modunda** çalışır: oda iletişimi genel MQTT aracılarıyla, aynı tarayıcıdaki sekmeler `BroadcastChannel` ile, kalıcılık IndexedDB (`JinkyBoard-mesh`) ile sağlanır. Tam özellik (oda listesi, sunucu AI, kalıcı odalar) için `npm run build && npm start` ile kendi sunucunuzda çalıştırın.
 
 ## Mimari ve dizin yapısı
 
