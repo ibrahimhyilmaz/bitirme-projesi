@@ -46,10 +46,15 @@ import { ProfileSocialModal, ProfileModalTab } from './components/ProfileSocialM
 import { RoomInviteToast } from './components/RoomInviteToast';
 import { UserProfileCardModal, UserProfileCardTarget } from './components/UserProfileCardModal';
 import type { BoardSnapshot } from './utils/cloudBoardCodec';
-import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
+import { aliasPdfCache, ensurePdfPageRendered, getPdfInfo } from './utils/pdfRenderer';
 import { getDocumentPageInfo, renderDocumentPage } from './utils/documentPageRenderer';
 import { normalizeImageDataUrl, extractTextFromDataUrl } from './utils/fileValidation';
-import { storeAssetFromDataUrl } from './utils/assetStore';
+import {
+  getAssetUploadErrorMessage,
+  resolveAssetText,
+  storeAssetFromDataUrl,
+  storeAssetFromFile,
+} from './utils/assetStore';
 import { buildIdentityKey } from './utils/userIdentity';
 
 interface ElementDelta {
@@ -750,6 +755,7 @@ export default function App() {
     sendCursor,
     sendLaserPoint,
     createElement: rawCreateElement,
+    broadcastElementCreate: rawBroadcastElementCreate,
     updateElement: rawUpdateElement,
     batchUpdateElements: rawBatchUpdateElements,
     deleteElements: rawDeleteElements,
@@ -971,6 +977,65 @@ export default function App() {
     [commitTx]
   );
 
+  // Track optimistic local-only media previews (blob: URLs) so they never broadcast or pollute Undo until Cloudinary finishes
+  const pendingLocalElementIdsRef = useRef<Set<string>>(new Set());
+
+  const createLocalPreviewElement = useCallback(
+    (el: CanvasElement, insertBeforeId?: string) => {
+      if (!canEdit) return;
+      pendingLocalElementIdsRef.current.add(el.id);
+      if (!elementsRef.current.some((e) => e.id === el.id)) {
+        if (insertBeforeId) {
+          const idx = elementsRef.current.findIndex((e) => e.id === insertBeforeId);
+          if (idx >= 0) {
+            const next = [...elementsRef.current];
+            next.splice(idx, 0, el);
+            elementsRef.current = next;
+          } else {
+            elementsRef.current = [...elementsRef.current, el];
+          }
+        } else {
+          elementsRef.current = [...elementsRef.current, el];
+        }
+      }
+      rawCreateElement(el, insertBeforeId, { localOnly: true });
+    },
+    [canEdit, rawCreateElement]
+  );
+
+  const finalizeLocalPreviewElement = useCallback(
+    (id: string, changes: Partial<CanvasElement>, insertBeforeId?: string): boolean => {
+      pendingLocalElementIdsRef.current.delete(id);
+      if (!canEdit) return false;
+      const currentEl = elementsRef.current.find((e) => e.id === id);
+      if (!currentEl) return false; // User deleted the preview while uploading
+
+      const finalEl: CanvasElement = { ...currentEl, ...changes, updatedAt: Date.now() };
+      const tx = getOrOpenTx();
+      recordElementDelta(tx, id, null, finalEl);
+      elementsRef.current = elementsRef.current.map((e) => (e.id === id ? finalEl : e));
+      recordActivityRef.current('draw', 1);
+      if (finalEl.type === 'pdf') {
+        recordActivityRef.current('pdf_or_ai', 1);
+      }
+
+      rawUpdateElement(id, changes, { localOnly: true });
+      rawBroadcastElementCreate(finalEl, insertBeforeId);
+      return true;
+    },
+    [canEdit, getOrOpenTx, recordElementDelta, rawUpdateElement, rawBroadcastElementCreate]
+  );
+
+  const discardLocalPreviewElement = useCallback(
+    (id: string) => {
+      pendingLocalElementIdsRef.current.delete(id);
+      elementsRef.current = elementsRef.current.filter((e) => e.id !== id);
+      rawDeleteElements([id], { localOnly: true });
+      setSelectedElementIds((prev) => prev.filter((sid) => sid !== id));
+    },
+    [rawDeleteElements]
+  );
+
   // Tracked local element mutators (remote WS/MQTT packets bypass these and never enter local undo)
   const createElement = useCallback(
     (el: CanvasElement, insertBeforeId?: string) => {
@@ -1004,6 +1069,15 @@ export default function App() {
   const updateElement = useCallback(
     (id: string, changes: Partial<CanvasElement>) => {
       if (!canEdit) return;
+      if (pendingLocalElementIdsRef.current.has(id)) {
+        const prevEl = elementsRef.current.find((e) => e.id === id);
+        if (prevEl) {
+          const nextEl: CanvasElement = { ...prevEl, ...changes, updatedAt: Date.now() };
+          elementsRef.current = elementsRef.current.map((e) => (e.id === id ? nextEl : e));
+        }
+        rawUpdateElement(id, changes, { localOnly: true });
+        return;
+      }
       const prevEl = elementsRef.current.find((e) => e.id === id);
       if (prevEl) {
         const tx = getOrOpenTx();
@@ -1019,9 +1093,22 @@ export default function App() {
   const batchUpdateElements = useCallback(
     (updates: { id: string; changes: Partial<CanvasElement> }[]) => {
       if (!canEdit || updates.length === 0) return;
+      const localOnlyUpdates = updates.filter((u) => pendingLocalElementIdsRef.current.has(u.id));
+      const syncedUpdates = updates.filter((u) => !pendingLocalElementIdsRef.current.has(u.id));
+
+      for (const u of localOnlyUpdates) {
+        const prevEl = elementsRef.current.find((e) => e.id === u.id);
+        if (prevEl) {
+          const nextEl: CanvasElement = { ...prevEl, ...u.changes, updatedAt: Date.now() };
+          elementsRef.current = elementsRef.current.map((e) => (e.id === u.id ? nextEl : e));
+        }
+        rawUpdateElement(u.id, u.changes, { localOnly: true });
+      }
+
+      if (syncedUpdates.length === 0) return;
       const tx = getOrOpenTx();
       const changeMap = new Map<string, CanvasElement>();
-      for (const u of updates) {
+      for (const u of syncedUpdates) {
         const prevEl = elementsRef.current.find((e) => e.id === u.id);
         if (!prevEl) continue;
         const nextEl: CanvasElement = { ...prevEl, ...u.changes, updatedAt: Date.now() };
@@ -1031,15 +1118,26 @@ export default function App() {
       if (changeMap.size > 0) {
         elementsRef.current = elementsRef.current.map((e) => changeMap.get(e.id) ?? e);
       }
-      rawBatchUpdateElements(updates);
+      rawBatchUpdateElements(syncedUpdates);
     },
-    [canEdit, getOrOpenTx, recordElementDelta, rawBatchUpdateElements]
+    [canEdit, getOrOpenTx, recordElementDelta, rawUpdateElement, rawBatchUpdateElements]
   );
 
   const deleteElements = useCallback(
     (ids: string[]) => {
       if (!canEdit || ids.length === 0) return;
-      const idSet = new Set(ids);
+      const localIds = ids.filter((id) => pendingLocalElementIdsRef.current.has(id));
+      const syncedIds = ids.filter((id) => !pendingLocalElementIdsRef.current.has(id));
+
+      if (localIds.length > 0) {
+        const localSet = new Set(localIds);
+        localIds.forEach((id) => pendingLocalElementIdsRef.current.delete(id));
+        elementsRef.current = elementsRef.current.filter((e) => !localSet.has(e.id));
+        rawDeleteElements(localIds, { localOnly: true });
+      }
+
+      if (syncedIds.length === 0) return;
+      const idSet = new Set(syncedIds);
       const existing = elementsRef.current.filter((e) => idSet.has(e.id));
       if (existing.length > 0) {
         const tx = getOrOpenTx();
@@ -1048,7 +1146,7 @@ export default function App() {
         }
         elementsRef.current = elementsRef.current.filter((e) => !idSet.has(e.id));
       }
-      rawDeleteElements(ids);
+      rawDeleteElements(syncedIds);
     },
     [canEdit, getOrOpenTx, recordElementDelta, rawDeleteElements]
   );
@@ -2698,7 +2796,7 @@ export default function App() {
 
   // Add Image or Document/Markdown Card from File vault or Toolbar directly to canvas center
   const handleAddImageToCanvas = async (
-    dataUrl: string,
+    fileOrDataUrl: File | string,
     widthOrName?: number | string,
     heightOrWidth = 240,
     explicitHeight?: number
@@ -2715,62 +2813,135 @@ export default function App() {
         : typeof explicitHeight === 'number'
         ? explicitHeight
         : 240;
-    const fileName = typeof widthOrName === 'string' ? widthOrName : undefined;
+    const fileName =
+      typeof widthOrName === 'string'
+        ? widthOrName
+        : fileOrDataUrl instanceof File
+        ? fileOrDataUrl.name
+        : undefined;
 
     const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - width / 2;
     const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - height / 2;
 
-    const normalizedDataUrl = normalizeImageDataUrl(dataUrl, fileName);
-    const stored = await storeAssetFromDataUrl(normalizedDataUrl, {
-      fileName,
-      roomId,
-    });
+    // Instant local ObjectURL preview when a raw File is picked from Toolbar
+    if (fileOrDataUrl instanceof File) {
+      const file = fileOrDataUrl;
+      const localUrl = URL.createObjectURL(file);
+      const imgId = `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const optimisticImg: CanvasElement = {
+        id: imgId,
+        type: 'image',
+        x: canvasCenterX,
+        y: canvasCenterY,
+        width,
+        height,
+        imageUrl: localUrl,
+        fileName: file.name,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
+      createLocalPreviewElement(optimisticImg);
+      setSelectedElementIds([imgId]);
+      setActiveTool('select');
+      if (activePanel === 'files') {
+        setActivePanel('none');
+      }
 
-    recordUndo();
-    const imgEl: CanvasElement = {
-      id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      type: 'image',
-      x: canvasCenterX,
-      y: canvasCenterY,
-      width,
-      height,
-      imageUrl: stored.url,
-      ...(stored.assetId ? { assetId: stored.assetId } : {}),
-      fileName,
-      rotation: 0,
-      flipX: false,
-      flipY: false,
-      createdBy: currentUser.name,
-      updatedAt: Date.now(),
-    };
+      void storeAssetFromFile(file, {
+        fileName: file.name,
+        mimeType: file.type || undefined,
+        roomId,
+        resourceType: 'auto',
+      })
+        .then((stored) => {
+          const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
+          const finalize = () => {
+            finalizeLocalPreviewElement(imgId, {
+              imageUrl: stored.url,
+              ...(stored.assetId ? { assetId: stored.assetId } : {}),
+            });
+            window.setTimeout(() => URL.revokeObjectURL(localUrl), 200);
+          };
+          if (isGif) {
+            finalize();
+          } else {
+            const preload = new Image();
+            preload.crossOrigin = 'anonymous';
+            const fallbackTimer = window.setTimeout(finalize, 2500);
+            const done = () => {
+              window.clearTimeout(fallbackTimer);
+              finalize();
+            };
+            preload.onload = done;
+            preload.onerror = done;
+            preload.src = stored.url;
+          }
+        })
+        .catch((err) => {
+          discardLocalPreviewElement(imgId);
+          URL.revokeObjectURL(localUrl);
+          showCloudToast(getAssetUploadErrorMessage(err, file.name));
+        });
+      return;
+    }
 
-    createElement(imgEl);
-    setSelectedElementIds([imgEl.id]);
-    setActiveTool('select');
-    if (activePanel === 'files') {
-      setActivePanel('none');
+    try {
+      const normalizedDataUrl = normalizeImageDataUrl(fileOrDataUrl, fileName);
+      const stored = await storeAssetFromDataUrl(normalizedDataUrl, {
+        fileName,
+        roomId,
+        allowTinySvgFallback: true,
+      });
+
+      recordUndo();
+      const imgEl: CanvasElement = {
+        id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'image',
+        x: canvasCenterX,
+        y: canvasCenterY,
+        width,
+        height,
+        imageUrl: stored.url,
+        ...(stored.assetId ? { assetId: stored.assetId } : {}),
+        fileName,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
+
+      createElement(imgEl);
+      setSelectedElementIds([imgEl.id]);
+      setActiveTool('select');
+      if (activePanel === 'files') {
+        setActivePanel('none');
+      }
+    } catch (err) {
+      showCloudToast(getAssetUploadErrorMessage(err, fileName || 'Görsel'));
     }
   };
 
   // Add PDF from File vault or drop directly to canvas center
   const handleAddPdfToCanvas = async (pdfUrl: string, name?: string) => {
     try {
-      const [storedPdf, pdfMeta, page1ImageUrl] = await Promise.all([
+      const [storedPdf, pdfMeta] = await Promise.all([
         storeAssetFromDataUrl(pdfUrl, {
           fileName: name || 'Belge.pdf',
           mimeType: 'application/pdf',
           roomId,
-          minBytesToOffload: 0,
+          resourceType: 'auto',
         }),
         getPdfInfo(pdfUrl),
-        renderPdfPage(pdfUrl, 1),
       ]);
       const { totalPages, defaultWidth, defaultHeight } = pdfMeta;
-      const storedPage1 = await storeAssetFromDataUrl(page1ImageUrl, {
-        fileName: `${name || 'Belge.pdf'}-p1.png`,
-        mimeType: 'image/png',
-        roomId,
-      });
+      if (pdfUrl !== storedPdf.url) {
+        aliasPdfCache(pdfUrl, storedPdf.url);
+      }
+      void ensurePdfPageRendered(storedPdf.url, 1);
 
       const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - defaultWidth / 2;
       const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - defaultHeight / 2;
@@ -2783,8 +2954,6 @@ export default function App() {
         y: canvasCenterY,
         width: defaultWidth,
         height: defaultHeight,
-        imageUrl: storedPage1.url,
-        ...(storedPage1.assetId ? { assetId: storedPage1.assetId } : {}),
         pdfUrl: storedPdf.url,
         ...(storedPdf.assetId ? { pdfAssetId: storedPdf.assetId } : {}),
         currentPage: 1,
@@ -2805,6 +2974,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to add PDF to canvas:', err);
+      showCloudToast(getAssetUploadErrorMessage(err, name || 'Belge.pdf'));
     }
   };
 
@@ -2815,35 +2985,39 @@ export default function App() {
     const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - defaultW / 2;
     const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - defaultH / 2;
 
-    const stored = await storeAssetFromDataUrl(videoUrl, {
-      fileName: name || 'Video.mp4',
-      roomId,
-      minBytesToOffload: 0,
-    });
+    try {
+      const stored = await storeAssetFromDataUrl(videoUrl, {
+        fileName: name || 'Video.mp4',
+        roomId,
+        resourceType: 'auto',
+      });
 
-    recordUndo();
-    const videoEl: CanvasElement = {
-      id: `vid-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      type: 'video',
-      x: canvasCenterX,
-      y: canvasCenterY,
-      width: defaultW,
-      height: defaultH,
-      videoUrl: stored.url,
-      ...(stored.assetId ? { assetId: stored.assetId } : {}),
-      fileName: name || 'Video.mp4',
-      rotation: 0,
-      flipX: false,
-      flipY: false,
-      createdBy: currentUser.name,
-      updatedAt: Date.now(),
-    };
+      recordUndo();
+      const videoEl: CanvasElement = {
+        id: `vid-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'video',
+        x: canvasCenterX,
+        y: canvasCenterY,
+        width: defaultW,
+        height: defaultH,
+        videoUrl: stored.url,
+        ...(stored.assetId ? { assetId: stored.assetId } : {}),
+        fileName: name || 'Video.mp4',
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
 
-    createElement(videoEl);
-    setSelectedElementIds([videoEl.id]);
-    setActiveTool('select');
-    if (activePanel === 'files') {
-      setActivePanel('none');
+      createElement(videoEl);
+      setSelectedElementIds([videoEl.id]);
+      setActiveTool('select');
+      if (activePanel === 'files') {
+        setActivePanel('none');
+      }
+    } catch (err) {
+      showCloudToast(getAssetUploadErrorMessage(err, name || 'Video.mp4'));
     }
   };
 
@@ -2925,15 +3099,15 @@ export default function App() {
       return;
     }
     if (isMarkdown || isText) {
-      const decodedText = extractTextFromDataUrl(fileUrl) ?? '';
+      const decodedText = (await resolveAssetText(fileUrl, extractTextFromDataUrl)) ?? '';
       handleAddDocumentToCanvas(decodedText, isMarkdown ? 'markdown' : 'text', file.name);
       return;
     }
     if (isVideo) {
-      handleAddVideoToCanvas(fileUrl, file.name);
+      await handleAddVideoToCanvas(fileUrl, file.name);
       return;
     }
-    handleAddImageToCanvas(fileUrl, file.name);
+    await handleAddImageToCanvas(fileUrl, file.name);
   };
 
   const handleWelcomeOrProfileJoin = useCallback(
@@ -3628,6 +3802,9 @@ export default function App() {
           onPing={(pt) => sendPing(pt.x, pt.y)}
           onSaveHistorySnapshot={recordUndo}
           onCreateElement={handleCreateElement}
+          onCreateLocalPreviewElement={createLocalPreviewElement}
+          onFinalizeLocalPreviewElement={finalizeLocalPreviewElement}
+          onDiscardLocalPreviewElement={discardLocalPreviewElement}
           onUpdateElement={handleUpdateElement}
           onBatchUpdateElements={batchUpdateElements}
           onDeleteElements={handleDeleteElements}

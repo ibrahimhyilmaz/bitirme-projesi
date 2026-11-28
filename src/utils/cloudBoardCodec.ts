@@ -116,8 +116,25 @@ export interface EncodedSnapshot {
   compressed: number;
 }
 
+function isTransientBlobElement(el: CanvasElement): boolean {
+  return (
+    (typeof el.imageUrl === 'string' && el.imageUrl.startsWith('blob:')) ||
+    (typeof el.videoUrl === 'string' && el.videoUrl.startsWith('blob:')) ||
+    (typeof el.pdfUrl === 'string' && el.pdfUrl.startsWith('blob:'))
+  );
+}
+
 export async function encodeSnapshot(snap: BoardSnapshot): Promise<EncodedSnapshot | null> {
-  let elements = snap.elements;
+  // Never persist temporary local ObjectURLs (they are still uploading to Cloudinary)
+  let elements = snap.elements
+    .filter((el) => !isTransientBlobElement(el))
+    .map((el) => {
+      if (!Array.isArray(el.folderFiles) || el.folderFiles.length === 0) return el;
+      const cleanFiles = el.folderFiles.filter(
+        (f) => !(typeof f.dataUrl === 'string' && f.dataUrl.startsWith('blob:'))
+      );
+      return cleanFiles.length === el.folderFiles.length ? el : { ...el, folderFiles: cleanFiles };
+    });
   let skipped = 0;
   const fits = async (els: CanvasElement[]) => {
     const data = await encodeText(JSON.stringify({ ...snap, elements: els }));

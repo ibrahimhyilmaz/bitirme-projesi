@@ -27,7 +27,12 @@ import {
   normalizeImageDataUrl,
   FILE_INPUT_ACCEPT,
 } from '../utils/fileValidation';
-import { resolveAssetDataUrl, resolveAssetText, storeAssetFromFile } from '../utils/assetStore';
+import {
+  getAssetUploadErrorMessage,
+  resolveAssetDataUrl,
+  resolveAssetText,
+  storeAssetFromFile,
+} from '../utils/assetStore';
 
 interface FileShareModalProps {
   roomId?: string;
@@ -177,18 +182,6 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const readFileAsDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const res = e.target?.result as string;
-        if (res) resolve(res);
-        else reject(new Error('Dosya okunamadı.'));
-      };
-      reader.onerror = () => reject(new Error('Dosya okunurken bir hata oluştu.'));
-      reader.readAsDataURL(file);
-    });
-
   const processSingleFile = async (file: File): Promise<string | null> => {
     const validation = validateFile(file.name, file.type, file.size);
     if (!validation.valid) {
@@ -196,12 +189,16 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
     }
 
     try {
-      const videoCheck = await validateVideoFileMetadata(file);
-      if (!videoCheck.valid) {
-        return `${file.name}: ${videoCheck.error || 'Video süre veya boyut sınırını aşıyor.'}`;
+      const lower = file.name.toLowerCase();
+      const isVideoFile =
+        file.type.startsWith('video/') || /\.(mp4|webm|mov|ogg|ogv|mkv|avi)$/i.test(lower);
+      if (isVideoFile) {
+        const videoCheck = await validateVideoFileMetadata(file);
+        if (!videoCheck.valid) {
+          return `${file.name}: ${videoCheck.error || 'Video süre veya boyut sınırını aşıyor.'}`;
+        }
       }
 
-      const lower = file.name.toLowerCase();
       const resolvedMime =
         file.type ||
         (lower.endsWith('.pdf')
@@ -218,37 +215,29 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
           ? 'video/quicktime'
           : 'application/octet-stream');
 
-      const isBinaryMedia =
+      const isMediaOrPdf =
         resolvedMime.startsWith('image/') ||
         resolvedMime.startsWith('video/') ||
         resolvedMime.startsWith('audio/') ||
         resolvedMime === 'application/pdf';
 
-      const stored = isBinaryMedia || file.size > 64 * 1024
-        ? await storeAssetFromFile(file, {
-            fileName: file.name,
-            mimeType: resolvedMime,
-            roomId,
-            minBytesToOffload: isBinaryMedia ? 0 : 64 * 1024,
-          })
-        : {
-            url: await readFileAsDataUrl(file),
-            assetId: undefined,
-            mimeType: resolvedMime,
-            size: file.size,
-            storedRemotely: false,
-          };
+      const stored = await storeAssetFromFile(file, {
+        fileName: file.name,
+        mimeType: resolvedMime,
+        roomId,
+        resourceType: isMediaOrPdf ? 'auto' : 'raw',
+      });
 
       onUploadFile({
         name: file.name,
-        size: file.size,
+        size: stored.size || file.size,
         fileType: resolvedMime,
         dataUrl: stored.url,
         ...(stored.assetId ? { assetId: stored.assetId } : {}),
       });
       return null;
-    } catch {
-      return `${file.name}: Dosya işlenirken beklenmeyen bir hata oluştu.`;
+    } catch (err) {
+      return getAssetUploadErrorMessage(err, file.name);
     }
   };
 

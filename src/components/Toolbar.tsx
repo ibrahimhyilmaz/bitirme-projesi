@@ -310,7 +310,7 @@ interface ToolbarProps {
   onZoomOut: () => void;
   onResetZoom: () => void;
   onPingClick: () => void;
-  onAddImageFile?: (dataUrl: string, width: number, height: number) => void;
+  onAddImageFile?: (fileOrDataUrl: File | string, width: number, height: number) => void;
   onOpenAIPrompt?: () => void;
   canEdit?: boolean;
   isHidden?: boolean;
@@ -597,28 +597,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const handleQuickImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !onAddImageFile) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      const img = new Image();
-      img.src = dataUrl;
-      img.onload = () => {
-        const maxDim = 320;
-        let w = img.width || 240;
-        let h = img.height || 240;
-        if (w > maxDim || h > maxDim) {
-          if (w > h) {
-            h = Math.round((h / w) * maxDim);
-            w = maxDim;
-          } else {
-            w = Math.round((w / h) * maxDim);
-            h = maxDim;
-          }
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const maxDim = 320;
+      let w = img.naturalWidth || img.width || 240;
+      let h = img.naturalHeight || img.height || 240;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h / w) * maxDim);
+          w = maxDim;
+        } else {
+          w = Math.round((w / h) * maxDim);
+          h = maxDim;
         }
-        onAddImageFile(dataUrl, w, h);
-      };
+      }
+      URL.revokeObjectURL(objectUrl);
+      onAddImageFile(file, w, h);
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      onAddImageFile(file, 320, 240);
+    };
+    img.src = objectUrl;
     e.target.value = '';
   };
 

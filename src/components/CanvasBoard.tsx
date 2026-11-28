@@ -60,7 +60,7 @@ import {
   Maximize2,
   Minimize2,
 } from 'lucide-react';
-import { getPdfInfo, renderPdfPage } from '../utils/pdfRenderer';
+import { aliasPdfCache, ensurePdfPageRendered, getPdfInfo } from '../utils/pdfRenderer';
 import { getDocumentPageInfo, renderDocumentPage } from '../utils/documentPageRenderer';
 import {
   validateFile,
@@ -73,6 +73,7 @@ import { CanvasQuickAccess, getRadialToolAtAngle } from './CanvasQuickAccess';
 import type { RemoteCursorState, RemoteCursorsStore } from '../hooks/useWebSocket';
 import {
   extractAssetId,
+  getAssetUploadErrorMessage,
   inferMimeFromNameOrUrl,
   resolveAssetDataUrl,
   resolveAssetText,
@@ -277,6 +278,13 @@ interface CanvasBoardProps {
   onPing?: (point: Point) => void;
   onSaveHistorySnapshot?: () => void;
   onCreateElement: (el: CanvasElement, insertBeforeId?: string) => void;
+  onCreateLocalPreviewElement?: (el: CanvasElement, insertBeforeId?: string) => void;
+  onFinalizeLocalPreviewElement?: (
+    id: string,
+    changes: Partial<CanvasElement>,
+    insertBeforeId?: string
+  ) => boolean;
+  onDiscardLocalPreviewElement?: (id: string) => void;
   onUpdateElement: (id: string, changes: Partial<CanvasElement>) => void;
   onBatchUpdateElements: (updates: { id: string; changes: Partial<CanvasElement> }[]) => void;
   onDeleteElements: (ids: string[]) => void;
@@ -608,6 +616,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   onPing,
   onSaveHistorySnapshot,
   onCreateElement,
+  onCreateLocalPreviewElement,
+  onFinalizeLocalPreviewElement,
+  onDiscardLocalPreviewElement,
   onUpdateElement,
   onBatchUpdateElements,
   onDeleteElements,
@@ -1198,7 +1209,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                   }
 
                   outCtx.putImageData(outImg, 0, 0);
-                  const dataUrl = outCanvas.toDataURL('image/png');
                   const worldX = minWX + padMinX / scale;
                   const worldY = minWY + padMinY / scale;
                   const worldBoxW = Math.max(2, (padMaxX + 1 - padMinX) / scale);
@@ -1219,43 +1229,46 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                     );
                   });
 
-                  if (onSaveHistorySnapshot) onSaveHistorySnapshot();
-                  if (existingMatchingFill) {
-                    const targetFillId = existingMatchingFill.id;
-                    const fallbackBound = existingMatchingFill.boundElementIds;
-                    void storeAssetFromDataUrl(dataUrl, {
-                      fileName: 'bucket-fill.png',
-                      mimeType: 'image/png',
-                      roomId,
-                    }).then((stored) => {
-                      onUpdateElement(targetFillId, {
-                        x: worldX,
-                        y: worldY,
-                        width: worldBoxW,
-                        height: worldBoxH,
-                        imageUrl: stored.url,
-                        ...(stored.assetId ? { assetId: stored.assetId } : {}),
-                        fillColor: paintColor,
-                        boundElementIds: boundIds.length > 0 ? boundIds : fallbackBound,
-                        updatedAt: Date.now(),
-                      });
-                    });
-                    return;
-                  }
+                  outCanvas.toBlob((fillBlob) => {
+                    if (!fillBlob) return;
+                    if (existingMatchingFill) {
+                      const targetFillId = existingMatchingFill.id;
+                      const fallbackBound = existingMatchingFill.boundElementIds;
+                      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                      void storeAssetFromFile(fillBlob, {
+                        fileName: 'bucket-fill.png',
+                        mimeType: 'image/png',
+                        roomId,
+                        skipCompression: true,
+                      })
+                        .then((stored) => {
+                          onUpdateElement(targetFillId, {
+                            x: worldX,
+                            y: worldY,
+                            width: worldBoxW,
+                            height: worldBoxH,
+                            imageUrl: stored.url,
+                            ...(stored.assetId ? { assetId: stored.assetId } : {}),
+                            fillColor: paintColor,
+                            boundElementIds: boundIds.length > 0 ? boundIds : fallbackBound,
+                            updatedAt: Date.now(),
+                          });
+                        })
+                        .catch((err) => {
+                          setDropErrorToast(getAssetUploadErrorMessage(err, 'Boya dolgusu'));
+                        });
+                      return;
+                    }
 
-                  // Place the fill strictly BEHIND the earliest enclosing stroke so lines always stay crisp on top
-                  const boundSet = new Set(boundIds);
-                  const earliestBoundEl = elements.find((el) => boundSet.has(el.id));
-                  const earliestBoundId = earliestBoundEl?.id;
-                  const fillId = `fill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-                  const authorName = currentUser.name;
+                    // Place the fill strictly BEHIND the earliest enclosing stroke so lines always stay crisp on top
+                    const boundSet = new Set(boundIds);
+                    const earliestBoundEl = elements.find((el) => boundSet.has(el.id));
+                    const earliestBoundId = earliestBoundEl?.id;
+                    const fillId = `fill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+                    const authorName = currentUser.name;
+                    const localFillUrl = URL.createObjectURL(fillBlob);
 
-                  void storeAssetFromDataUrl(dataUrl, {
-                    fileName: 'bucket-fill.png',
-                    mimeType: 'image/png',
-                    roomId,
-                  }).then((stored) => {
-                    const fillElement: CanvasElement = {
+                    const optimisticFill: CanvasElement = {
                       id: fillId,
                       type: 'image',
                       isBucketFill: true,
@@ -1264,8 +1277,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                       y: worldY,
                       width: worldBoxW,
                       height: worldBoxH,
-                      imageUrl: stored.url,
-                      ...(stored.assetId ? { assetId: stored.assetId } : {}),
+                      imageUrl: localFillUrl,
                       color: 'transparent',
                       fillColor: paintColor,
                       strokeWidth: 0,
@@ -1276,8 +1288,62 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                       createdBy: authorName,
                       updatedAt: Date.now(),
                     };
-                    onCreateElement(fillElement, earliestBoundId);
-                  });
+
+                    if (onCreateLocalPreviewElement && onFinalizeLocalPreviewElement && onDiscardLocalPreviewElement) {
+                      onCreateLocalPreviewElement(optimisticFill, earliestBoundId);
+                      void storeAssetFromFile(fillBlob, {
+                        fileName: 'bucket-fill.png',
+                        mimeType: 'image/png',
+                        roomId,
+                        skipCompression: true,
+                      })
+                        .then((stored) => {
+                          const preload = new Image();
+                          preload.crossOrigin = 'anonymous';
+                          const finalize = () => {
+                            onFinalizeLocalPreviewElement(
+                              fillId,
+                              {
+                                imageUrl: stored.url,
+                                ...(stored.assetId ? { assetId: stored.assetId } : {}),
+                              },
+                              earliestBoundId
+                            );
+                            window.setTimeout(() => URL.revokeObjectURL(localFillUrl), 150);
+                          };
+                          preload.onload = finalize;
+                          preload.onerror = finalize;
+                          preload.src = stored.url;
+                        })
+                        .catch((err) => {
+                          onDiscardLocalPreviewElement(fillId);
+                          URL.revokeObjectURL(localFillUrl);
+                          setDropErrorToast(getAssetUploadErrorMessage(err, 'Boya dolgusu'));
+                        });
+                    } else {
+                      URL.revokeObjectURL(localFillUrl);
+                      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+                      void storeAssetFromFile(fillBlob, {
+                        fileName: 'bucket-fill.png',
+                        mimeType: 'image/png',
+                        roomId,
+                        skipCompression: true,
+                      })
+                        .then((stored) => {
+                          onCreateElement(
+                            {
+                              ...optimisticFill,
+                              imageUrl: stored.url,
+                              ...(stored.assetId ? { assetId: stored.assetId } : {}),
+                            },
+                            earliestBoundId
+                          );
+                        })
+                        .catch((err) => {
+                          setDropErrorToast(getAssetUploadErrorMessage(err, 'Boya dolgusu'));
+                        });
+                    }
+                  }, 'image/png');
                   return;
                 }
               }
@@ -3698,26 +3764,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
 
       if (!el.pdfUrl) return;
-      try {
-        setLoadingPdfPages((prev) => ({ ...prev, [el.id]: true }));
-        const newPageImageUrl = await renderPdfPage(el.pdfUrl, targetPage);
-        const storedPage = await storeAssetFromDataUrl(newPageImageUrl, {
-          fileName: `${el.fileName || 'pdf'}-p${targetPage}.png`,
-          mimeType: 'image/png',
-          roomId,
-        });
-        onUpdateElement(el.id, {
-          currentPage: targetPage,
-          imageUrl: storedPage.url,
-          ...(storedPage.assetId ? { assetId: storedPage.assetId } : {}),
-        });
-      } catch (err) {
-        console.error('Failed to turn PDF page:', err);
-      } finally {
-        setLoadingPdfPages((prev) => ({ ...prev, [el.id]: false }));
-      }
+      // Instant local PDF page turning: sync ONLY the page number (~40 bytes).
+      // Every browser renders the page directly from its in-memory pdf.js cache with zero upload delay.
+      onUpdateElement(el.id, {
+        currentPage: targetPage,
+      });
     },
-    [loadingPdfPages, onUpdateElement, roomId]
+    [loadingPdfPages, onUpdateElement]
   );
 
   // Auto-exit PDF fullscreen if the document is removed from the board
@@ -3827,24 +3880,22 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     targetY: number
   ) => {
     try {
-      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
-      const [storedPdf, pdfMeta, page1ImageUrl] = await Promise.all([
+      const [storedPdf, pdfMeta] = await Promise.all([
         storeAssetFromDataUrl(pdfUrl, {
           fileName: fileName || 'Belge.pdf',
           mimeType: 'application/pdf',
           roomId,
-          minBytesToOffload: 0,
+          resourceType: 'auto',
         }),
         getPdfInfo(pdfUrl),
-        renderPdfPage(pdfUrl, 1),
       ]);
       const { totalPages, defaultWidth, defaultHeight } = pdfMeta;
-      const storedPage1 = await storeAssetFromDataUrl(page1ImageUrl, {
-        fileName: `${fileName || 'Belge.pdf'}-p1.png`,
-        mimeType: 'image/png',
-        roomId,
-      });
+      if (pdfUrl !== storedPdf.url) {
+        aliasPdfCache(pdfUrl, storedPdf.url);
+      }
+      void ensurePdfPageRendered(storedPdf.url, 1);
 
+      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
       const pdfEl: CanvasElement = {
         id: `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         type: 'pdf',
@@ -3852,8 +3903,6 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         y: targetY - defaultHeight / 2,
         width: defaultWidth,
         height: defaultHeight,
-        imageUrl: storedPage1.url,
-        ...(storedPage1.assetId ? { assetId: storedPage1.assetId } : {}),
         pdfUrl: storedPdf.url,
         ...(storedPdf.assetId ? { pdfAssetId: storedPdf.assetId } : {}),
         currentPage: 1,
@@ -3877,6 +3926,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
     } catch (err) {
       console.error('Failed to add PDF element:', err);
+      setDropErrorToast(getAssetUploadErrorMessage(err, fileName || 'Belge.pdf'));
     }
   };
 
@@ -3888,36 +3938,41 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     h = 240,
     fileName?: string
   ) => {
-    if (onSaveHistorySnapshot) onSaveHistorySnapshot();
-    const normalized = normalizeImageDataUrl(imageUrl, fileName);
-    const stored = await storeAssetFromDataUrl(normalized, {
-      fileName,
-      roomId,
-    });
-    const imgEl: CanvasElement = {
-      id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      type: 'image',
-      x: targetX - w / 2,
-      y: targetY - h / 2,
-      width: w,
-      height: h,
-      imageUrl: stored.url,
-      ...(stored.assetId ? { assetId: stored.assetId } : {}),
-      fileName,
-      rotation: 0,
-      flipX: false,
-      flipY: false,
-      createdBy: currentUser.name,
-      updatedAt: Date.now(),
-    };
-    onCreateElement(imgEl);
-    if (onSelectElements) {
-      onSelectElements([imgEl.id]);
-    } else {
-      onSelectElement(imgEl.id);
-    }
-    if (onSelectTool) {
-      onSelectTool('select');
+    try {
+      const normalized = normalizeImageDataUrl(imageUrl, fileName);
+      const stored = await storeAssetFromDataUrl(normalized, {
+        fileName,
+        roomId,
+        allowTinySvgFallback: true,
+      });
+      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+      const imgEl: CanvasElement = {
+        id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'image',
+        x: targetX - w / 2,
+        y: targetY - h / 2,
+        width: w,
+        height: h,
+        imageUrl: stored.url,
+        ...(stored.assetId ? { assetId: stored.assetId } : {}),
+        fileName,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
+      onCreateElement(imgEl);
+      if (onSelectElements) {
+        onSelectElements([imgEl.id]);
+      } else {
+        onSelectElement(imgEl.id);
+      }
+      if (onSelectTool) {
+        onSelectTool('select');
+      }
+    } catch (err) {
+      setDropErrorToast(getAssetUploadErrorMessage(err, fileName || 'Görsel'));
     }
   };
 
@@ -3929,36 +3984,40 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     w = 480,
     h = 270
   ) => {
-    if (onSaveHistorySnapshot) onSaveHistorySnapshot();
-    const stored = await storeAssetFromDataUrl(videoUrl, {
-      fileName: fileName || 'Video.mp4',
-      roomId,
-      minBytesToOffload: 0,
-    });
-    const videoEl: CanvasElement = {
-      id: `vid-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      type: 'video',
-      x: targetX - w / 2,
-      y: targetY - h / 2,
-      width: w,
-      height: h,
-      videoUrl: stored.url,
-      ...(stored.assetId ? { assetId: stored.assetId } : {}),
-      fileName: fileName || 'Video.mp4',
-      rotation: 0,
-      flipX: false,
-      flipY: false,
-      createdBy: currentUser.name,
-      updatedAt: Date.now(),
-    };
-    onCreateElement(videoEl);
-    if (onSelectElements) {
-      onSelectElements([videoEl.id]);
-    } else {
-      onSelectElement(videoEl.id);
-    }
-    if (onSelectTool) {
-      onSelectTool('select');
+    try {
+      const stored = await storeAssetFromDataUrl(videoUrl, {
+        fileName: fileName || 'Video.mp4',
+        roomId,
+        resourceType: 'auto',
+      });
+      if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+      const videoEl: CanvasElement = {
+        id: `vid-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'video',
+        x: targetX - w / 2,
+        y: targetY - h / 2,
+        width: w,
+        height: h,
+        videoUrl: stored.url,
+        ...(stored.assetId ? { assetId: stored.assetId } : {}),
+        fileName: fileName || 'Video.mp4',
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        createdBy: currentUser.name,
+        updatedAt: Date.now(),
+      };
+      onCreateElement(videoEl);
+      if (onSelectElements) {
+        onSelectElements([videoEl.id]);
+      } else {
+        onSelectElement(videoEl.id);
+      }
+      if (onSelectTool) {
+        onSelectTool('select');
+      }
+    } catch (err) {
+      setDropErrorToast(getAssetUploadErrorMessage(err, fileName || 'Video.mp4'));
     }
   };
 
@@ -3981,21 +4040,25 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           setDropErrorToast(validation.error || `"${file.name}" klasöre eklenemedi.`);
           continue;
         }
-        const stored = await storeAssetFromFile(file, {
-          fileName: file.name,
-          mimeType: file.type || undefined,
-          roomId,
-        });
-        if (!stored.url) continue;
-        addedItems.push({
-          id: `ffile-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          name: file.name,
-          type: file.type || stored.mimeType || 'application/octet-stream',
-          size: file.size,
-          dataUrl: stored.url,
-          ...(stored.assetId ? { assetId: stored.assetId } : {}),
-          addedAt: Date.now(),
-        });
+        try {
+          const stored = await storeAssetFromFile(file, {
+            fileName: file.name,
+            mimeType: file.type || undefined,
+            roomId,
+          });
+          if (!stored.url) continue;
+          addedItems.push({
+            id: `ffile-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            name: file.name,
+            type: file.type || stored.mimeType || 'application/octet-stream',
+            size: stored.size || file.size,
+            dataUrl: stored.url,
+            ...(stored.assetId ? { assetId: stored.assetId } : {}),
+            addedAt: Date.now(),
+          });
+        } catch (err) {
+          setDropErrorToast(getAssetUploadErrorMessage(err, file.name));
+        }
       }
 
       if (addedItems.length > 0) {
@@ -4203,7 +4266,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
     const lowerName = file.name.toLowerCase();
     const isVideo =
-      file.type.startsWith('video/') || /\.(mp4|webm|mov|ogg)$/.test(lowerName);
+      file.type.startsWith('video/') || /\.(mp4|webm|mov|ogg|ogv|mkv|avi)$/.test(lowerName);
 
     if (isVideo) {
       const videoCheck = await validateVideoFileMetadata(file);
@@ -4211,65 +4274,294 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         setDropErrorToast(videoCheck.error || 'Video süre veya boyut sınırını aşıyor.');
         return;
       }
-      const storedVideo = await storeAssetFromFile(file, {
-        fileName: file.name,
-        mimeType: file.type || undefined,
-        roomId,
-        minBytesToOffload: 0,
-      });
-      if (storedVideo.url) {
-        const w = 480;
-        const h =
-          videoCheck.width && videoCheck.height
-            ? Math.round((w * videoCheck.height) / videoCheck.width)
-            : 270;
+      const w = 480;
+      const h =
+        videoCheck.width && videoCheck.height
+          ? Math.round((w * videoCheck.height) / videoCheck.width)
+          : 270;
+
+      // Instant local preview via ObjectURL; upload raw binary to Cloudinary in background
+      if (onCreateLocalPreviewElement && onFinalizeLocalPreviewElement && onDiscardLocalPreviewElement) {
+        const localVideoUrl = URL.createObjectURL(file);
+        const videoId = `vid-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const optimisticVideo: CanvasElement = {
+          id: videoId,
+          type: 'video',
+          x: canvasPt.x - w / 2,
+          y: canvasPt.y - h / 2,
+          width: w,
+          height: h,
+          videoUrl: localVideoUrl,
+          fileName: file.name || 'Video.mp4',
+          rotation: 0,
+          flipX: false,
+          flipY: false,
+          createdBy: currentUser.name,
+          updatedAt: Date.now(),
+        };
+        onCreateLocalPreviewElement(optimisticVideo);
+        if (onSelectElements) onSelectElements([videoId]);
+        else onSelectElement(videoId);
+        if (onSelectTool) onSelectTool('select');
+
+        void storeAssetFromFile(file, {
+          fileName: file.name,
+          mimeType: file.type || undefined,
+          roomId,
+          resourceType: 'auto',
+        })
+          .then((storedVideo) => {
+            onFinalizeLocalPreviewElement(videoId, {
+              videoUrl: storedVideo.url,
+              ...(storedVideo.assetId ? { assetId: storedVideo.assetId } : {}),
+            });
+            window.setTimeout(() => URL.revokeObjectURL(localVideoUrl), 250);
+          })
+          .catch((err) => {
+            onDiscardLocalPreviewElement(videoId);
+            URL.revokeObjectURL(localVideoUrl);
+            setDropErrorToast(getAssetUploadErrorMessage(err, file.name));
+          });
+        return;
+      }
+
+      try {
+        const storedVideo = await storeAssetFromFile(file, {
+          fileName: file.name,
+          mimeType: file.type || undefined,
+          roomId,
+          resourceType: 'auto',
+        });
         await handleAddVideoAtPosition(storedVideo.url, file.name, canvasPt.x, canvasPt.y, w, h);
+      } catch (err) {
+        setDropErrorToast(getAssetUploadErrorMessage(err, file.name));
       }
       return;
     }
 
-    const isDroppedMedia =
-      file.type.startsWith('image/') ||
-      file.type === 'application/pdf' ||
-      /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|pdf)$/i.test(lowerName);
+    const isPdf = file.type === 'application/pdf' || lowerName.endsWith('.pdf');
+    if (isPdf) {
+      if (onCreateLocalPreviewElement && onFinalizeLocalPreviewElement && onDiscardLocalPreviewElement) {
+        const localPdfUrl = URL.createObjectURL(file);
+        const pdfId = `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        try {
+          const pdfMeta = await getPdfInfo(localPdfUrl);
+          const { totalPages, defaultWidth, defaultHeight } = pdfMeta;
+          void ensurePdfPageRendered(localPdfUrl, 1);
 
-    if (isDroppedMedia) {
-      const stored = await storeAssetFromFile(file, {
-        fileName: file.name,
-        mimeType: file.type || undefined,
-        roomId,
-        minBytesToOffload: lowerName.endsWith('.pdf') || file.type === 'application/pdf' ? 0 : undefined,
-      });
-      if (!stored.url) return;
-      await placeFileItemOnCanvas(
-        {
-          name: file.name,
-          type: file.type || stored.mimeType,
-          size: file.size,
-          dataUrl: stored.url,
-        },
+          const optimisticPdf: CanvasElement = {
+            id: pdfId,
+            type: 'pdf',
+            x: canvasPt.x - defaultWidth / 2,
+            y: canvasPt.y - defaultHeight / 2,
+            width: defaultWidth,
+            height: defaultHeight,
+            pdfUrl: localPdfUrl,
+            currentPage: 1,
+            totalPages: totalPages || 1,
+            fileName: file.name || 'Belge.pdf',
+            rotation: 0,
+            flipX: false,
+            flipY: false,
+            createdBy: currentUser.name,
+            updatedAt: Date.now(),
+          };
+          onCreateLocalPreviewElement(optimisticPdf);
+          if (onSelectElements) onSelectElements([pdfId]);
+          else onSelectElement(pdfId);
+          if (onSelectTool) onSelectTool('select');
+
+          void storeAssetFromFile(file, {
+            fileName: file.name,
+            mimeType: 'application/pdf',
+            roomId,
+            resourceType: 'auto',
+          })
+            .then((storedPdf) => {
+              aliasPdfCache(localPdfUrl, storedPdf.url);
+              onFinalizeLocalPreviewElement(pdfId, {
+                pdfUrl: storedPdf.url,
+                ...(storedPdf.assetId ? { pdfAssetId: storedPdf.assetId } : {}),
+              });
+              window.setTimeout(() => URL.revokeObjectURL(localPdfUrl), 250);
+            })
+            .catch((err) => {
+              onDiscardLocalPreviewElement(pdfId);
+              URL.revokeObjectURL(localPdfUrl);
+              setDropErrorToast(getAssetUploadErrorMessage(err, file.name));
+            });
+        } catch (err) {
+          URL.revokeObjectURL(localPdfUrl);
+          setDropErrorToast(getAssetUploadErrorMessage(err, file.name));
+        }
+        return;
+      }
+
+      try {
+        const storedPdf = await storeAssetFromFile(file, {
+          fileName: file.name,
+          mimeType: 'application/pdf',
+          roomId,
+          resourceType: 'auto',
+        });
+        await handleAddPdfAtPosition(storedPdf.url, file.name, canvasPt.x, canvasPt.y);
+      } catch (err) {
+        setDropErrorToast(getAssetUploadErrorMessage(err, file.name));
+      }
+      return;
+    }
+
+    const isImage =
+      file.type.startsWith('image/') ||
+      /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(lowerName);
+
+    if (isImage) {
+      if (onCreateLocalPreviewElement && onFinalizeLocalPreviewElement && onDiscardLocalPreviewElement) {
+        const localImageUrl = URL.createObjectURL(file);
+        const measureDims = (): Promise<{ w: number; h: number }> =>
+          new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              const maxDim = 360;
+              let w = img.naturalWidth || img.width || 320;
+              let h = img.naturalHeight || img.height || 240;
+              if (w > maxDim || h > maxDim) {
+                if (w > h) {
+                  h = Math.round((h / w) * maxDim);
+                  w = maxDim;
+                } else {
+                  w = Math.round((w / h) * maxDim);
+                  h = maxDim;
+                }
+              }
+              resolve({ w, h });
+            };
+            img.onerror = () => resolve({ w: 320, h: 240 });
+            img.src = localImageUrl;
+          });
+
+        const { w, h } = await measureDims();
+        const imgId = `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const optimisticImg: CanvasElement = {
+          id: imgId,
+          type: 'image',
+          x: canvasPt.x - w / 2,
+          y: canvasPt.y - h / 2,
+          width: w,
+          height: h,
+          imageUrl: localImageUrl,
+          fileName: file.name,
+          rotation: 0,
+          flipX: false,
+          flipY: false,
+          createdBy: currentUser.name,
+          updatedAt: Date.now(),
+        };
+        onCreateLocalPreviewElement(optimisticImg);
+        if (onSelectElements) onSelectElements([imgId]);
+        else onSelectElement(imgId);
+        if (onSelectTool) onSelectTool('select');
+
+        void storeAssetFromFile(file, {
+          fileName: file.name,
+          mimeType: file.type || undefined,
+          roomId,
+          resourceType: 'auto',
+        })
+          .then((storedImg) => {
+            const isGif = file.type === 'image/gif' || lowerName.endsWith('.gif');
+            const finalize = () => {
+              onFinalizeLocalPreviewElement(imgId, {
+                imageUrl: storedImg.url,
+                ...(storedImg.assetId ? { assetId: storedImg.assetId } : {}),
+              });
+              window.setTimeout(() => URL.revokeObjectURL(localImageUrl), 200);
+            };
+            if (isGif) {
+              finalize();
+            } else {
+              const preload = new Image();
+              preload.crossOrigin = 'anonymous';
+              const fallbackTimer = window.setTimeout(finalize, 2500);
+              const done = () => {
+                window.clearTimeout(fallbackTimer);
+                finalize();
+              };
+              preload.onload = done;
+              preload.onerror = done;
+              preload.src = storedImg.url;
+            }
+          })
+          .catch((err) => {
+            onDiscardLocalPreviewElement(imgId);
+            URL.revokeObjectURL(localImageUrl);
+            setDropErrorToast(getAssetUploadErrorMessage(err, file.name));
+          });
+        return;
+      }
+
+      try {
+        const stored = await storeAssetFromFile(file, {
+          fileName: file.name,
+          mimeType: file.type || undefined,
+          roomId,
+          resourceType: 'auto',
+        });
+        await placeFileItemOnCanvas(
+          {
+            name: file.name,
+            type: file.type || stored.mimeType,
+            size: stored.size || file.size,
+            dataUrl: stored.url,
+          },
+          canvasPt.x,
+          canvasPt.y
+        );
+      } catch (err) {
+        setDropErrorToast(getAssetUploadErrorMessage(err, file.name));
+      }
+      return;
+    }
+
+    // Markdown / plain text / other document files dropped directly onto canvas
+    const isMarkdownOrText =
+      /\.(md|markdown|txt)$/i.test(lowerName) ||
+      file.type === 'text/markdown' ||
+      file.type === 'text/x-markdown' ||
+      file.type === 'text/plain';
+
+    if (isMarkdownOrText) {
+      const text = await file.text();
+      handleAddDocumentAtPosition(
+        text,
+        /\.(md|markdown)$/i.test(lowerName) || file.type.includes('markdown') ? 'markdown' : 'text',
+        file.name,
         canvasPt.x,
         canvasPt.y
       );
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const dataUrl = (event.target?.result as string) || '';
-      if (!dataUrl) return;
+    try {
+      const storedDoc = await storeAssetFromFile(file, {
+        fileName: file.name,
+        mimeType: file.type || undefined,
+        roomId,
+        resourceType: 'raw',
+      });
       await placeFileItemOnCanvas(
         {
           name: file.name,
-          type: file.type,
-          size: file.size,
-          dataUrl,
+          type: file.type || storedDoc.mimeType,
+          size: storedDoc.size || file.size,
+          dataUrl: storedDoc.url,
         },
         canvasPt.x,
         canvasPt.y
       );
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      setDropErrorToast(getAssetUploadErrorMessage(err, file.name));
+    }
   };
 
   const getCursorStyle = (): React.CSSProperties['cursor'] => {

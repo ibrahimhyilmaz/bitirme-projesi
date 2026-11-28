@@ -2344,7 +2344,7 @@ export function useWebSocket({
   );
 
   const createElement = useCallback(
-    (element: CanvasElement, insertBeforeId?: string) => {
+    (element: CanvasElement, insertBeforeId?: string, options?: { localOnly?: boolean }) => {
       if (!canEdit) return;
       setElements((prev) => {
         if (prev.some((e) => e.id === element.id)) return prev;
@@ -2358,6 +2358,20 @@ export function useWebSocket({
         }
         return [...prev, element];
       });
+      if (!options?.localOnly) {
+        sendMessage({
+          type: 'element-create',
+          element,
+          ...(insertBeforeId ? { insertBeforeId } : {}),
+        });
+      }
+    },
+    [sendMessage, canEdit]
+  );
+
+  const broadcastElementCreate = useCallback(
+    (element: CanvasElement, insertBeforeId?: string) => {
+      if (!canEdit) return;
       sendMessage({
         type: 'element-create',
         element,
@@ -2368,16 +2382,18 @@ export function useWebSocket({
   );
 
   const updateElement = useCallback(
-    (id: string, changes: Partial<CanvasElement>) => {
+    (id: string, changes: Partial<CanvasElement>, options?: { localOnly?: boolean }) => {
       if (!canEdit) return;
       setElements((prev) =>
         prev.map((el) => (el.id === id ? { ...el, ...changes, updatedAt: Date.now() } : el))
       );
-      sendMessage({
-        type: 'element-update',
-        id,
-        changes,
-      });
+      if (!options?.localOnly) {
+        sendMessage({
+          type: 'element-update',
+          id,
+          changes,
+        });
+      }
     },
     [sendMessage, canEdit]
   );
@@ -2401,14 +2417,16 @@ export function useWebSocket({
   );
 
   const deleteElements = useCallback(
-    (ids: string[]) => {
+    (ids: string[], options?: { localOnly?: boolean }) => {
       if (!canEdit) return;
       const set = new Set(ids);
       setElements((prev) => prev.filter((el) => !set.has(el.id)));
-      sendMessage({
-        type: 'element-delete',
-        ids,
-      });
+      if (!options?.localOnly) {
+        sendMessage({
+          type: 'element-delete',
+          ids,
+        });
+      }
     },
     [sendMessage, canEdit]
   );
@@ -2831,6 +2849,7 @@ export function useWebSocket({
     sendCursor,
     sendLaserPoint,
     createElement,
+    broadcastElementCreate,
     updateElement,
     batchUpdateElements,
     deleteElements,

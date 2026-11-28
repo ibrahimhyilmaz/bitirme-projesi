@@ -1,6 +1,7 @@
 import { getExtraShape, getExtraShapePath } from './extraShapes';
 import { CanvasElement, Point, UserPresence, UserPing, UserReaction } from '../types';
 import { createDocumentCardSvgDataUrl, normalizeImageDataUrl } from './fileValidation';
+import { ensurePdfPageRendered, getCachedPdfPageCanvas } from './pdfRenderer';
 
 export type TransformHandleType =
   | 'rot'
@@ -1419,9 +1420,42 @@ export function drawElement(
       ctx.fill();
       ctx.restore();
 
-      if (element.imageUrl) {
+      const docPrefix =
+        element.documentKind === 'markdown'
+          ? 'Markdown Sayfa'
+          : element.documentKind === 'text'
+          ? 'Belge Sayfa'
+          : 'PDF Sayfa';
+      const targetPage = element.currentPage || 1;
+      let drawn = false;
+
+      // Real PDFs: draw directly from local in-memory pdf.js cache so page turning is instant
+      if (!element.documentKind && element.pdfUrl) {
+        const { canvas: pageCanvas, fallbackCanvas } = getCachedPdfPageCanvas(
+          element.pdfUrl,
+          targetPage,
+          onImageLoadNeedRedraw
+        );
+        const sourceCanvas = pageCanvas || fallbackCanvas;
+        if (sourceCanvas && sourceCanvas.width > 0 && sourceCanvas.height > 0) {
+          try {
+            ctx.save();
+            ctx.beginPath();
+            ctx.roundRect(element.x, element.y, w, h, 6);
+            ctx.clip();
+            ctx.drawImage(sourceCanvas, element.x, element.y, w, h);
+            ctx.restore();
+            drawn = true;
+          } catch {
+            ctx.restore();
+            drawn = false;
+          }
+        }
+      }
+
+      // Markdown/Text paginated docs, or legacy PDF fallback when pdfUrl page isn't ready yet
+      if (!drawn && element.imageUrl) {
         const img = getCachedImage(element.imageUrl, onImageLoadNeedRedraw);
-        let drawn = false;
         if (img && img.complete && img.naturalWidth > 0) {
           try {
             ctx.save();
@@ -1436,35 +1470,16 @@ export function drawElement(
             drawn = false;
           }
         }
-        const docPrefix =
-          element.documentKind === 'markdown'
-            ? 'Markdown Sayfa'
-            : element.documentKind === 'text'
-            ? 'Belge Sayfa'
-            : 'PDF Sayfa';
-        if (!drawn) {
-          ctx.fillStyle = '#f8fafc';
-          ctx.beginPath();
-          ctx.roundRect(element.x, element.y, w, h, 6);
-          ctx.fill();
-          ctx.fillStyle = '#64748b';
-          ctx.font = '500 13px "Plus Jakarta Sans", sans-serif';
-          ctx.fillText(`${docPrefix} ${element.currentPage || 1} yükleniyor...`, element.x + 20, element.y + 40);
-        }
-      } else {
-        const docPrefix =
-          element.documentKind === 'markdown'
-            ? 'Markdown Sayfa'
-            : element.documentKind === 'text'
-            ? 'Belge Sayfa'
-            : 'PDF Sayfa';
+      }
+
+      if (!drawn) {
         ctx.fillStyle = '#f8fafc';
         ctx.beginPath();
         ctx.roundRect(element.x, element.y, w, h, 6);
         ctx.fill();
         ctx.fillStyle = '#64748b';
         ctx.font = '500 13px "Plus Jakarta Sans", sans-serif';
-        ctx.fillText(`${docPrefix} ${element.currentPage || 1} yükleniyor...`, element.x + 20, element.y + 40);
+        ctx.fillText(`${docPrefix} ${targetPage} yükleniyor...`, element.x + 20, element.y + 40);
       }
 
       // Crisp paper border
@@ -2152,6 +2167,14 @@ async function preloadImagesForExport(elements: CanvasElement[]): Promise<void> 
   const tasks: Promise<void>[] = [];
 
   for (const el of elements) {
+    if (el.type === 'pdf' && !el.documentKind && el.pdfUrl) {
+      tasks.push(
+        ensurePdfPageRendered(el.pdfUrl, el.currentPage || 1)
+          .then(() => undefined)
+          .catch(() => undefined)
+      );
+      continue;
+    }
     if ((el.type !== 'image' && el.type !== 'pdf') || !el.imageUrl) continue;
     const rawUrl = el.imageUrl;
     const fileName = el.type === 'image' ? el.fileName : undefined;

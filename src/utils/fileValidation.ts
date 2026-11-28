@@ -6,9 +6,10 @@
 
 import { renderMarkdownCard } from './markdownCard';
 
-export const MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
+export const MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB (Cloudinary free video limit)
 export const MAX_VIDEO_DURATION_SECONDS = 180; // 3 minutes (180 seconds)
-export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
+export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB (Cloudinary free image/PDF/raw limit)
+export const MAX_COMPRESSIBLE_IMAGE_SIZE_BYTES = 50 * 1024 * 1024; // Static PNG/JPEG/WebP compressed client-side before upload
 
 // Explicitly forbidden dangerous and executable extensions
 export const FORBIDDEN_EXTENSIONS = new Set([
@@ -285,20 +286,35 @@ export function validateFile(name: string, mimeType?: string, sizeBytes?: number
     category = 'document';
   }
 
-  // 3. Enforce 50 MB size limit
+  // 3. Enforce Cloudinary free-tier limits (100 MB video, 10 MB PDF/GIF/raw, up to 50 MB compressible static raster)
   if (typeof sizeBytes === 'number') {
     if (category === 'video' && sizeBytes > MAX_VIDEO_SIZE_BYTES) {
       return {
         valid: false,
         category,
-        error: `Video boyutu çok büyük (${formatBytesReadable(sizeBytes)}). Çökme ve yavaşlığı önlemek için maksimum 50 MB ve 3 dakika sınırı uygulanmaktadır.`,
+        error: `Video boyutu çok büyük (${formatBytesReadable(sizeBytes)}). En fazla 100 MB ve 3 dakika sınırı uygulanmaktadır.`,
       };
     }
-    if (sizeBytes > MAX_FILE_SIZE_BYTES) {
+    const isCompressibleRaster =
+      category === 'image' &&
+      ext !== 'gif' &&
+      ext !== 'svg' &&
+      mimeType !== 'image/gif' &&
+      mimeType !== 'image/svg+xml';
+
+    if (isCompressibleRaster) {
+      if (sizeBytes > MAX_COMPRESSIBLE_IMAGE_SIZE_BYTES) {
+        return {
+          valid: false,
+          category,
+          error: `Görsel boyutu (${formatBytesReadable(sizeBytes)}) maksimum 50 MB işleme sınırını aşıyor.`,
+        };
+      }
+    } else if (category !== 'video' && sizeBytes > MAX_FILE_SIZE_BYTES) {
       return {
         valid: false,
         category,
-        error: `Dosya boyutu (${formatBytesReadable(sizeBytes)}) maksimum 50 MB sınırını aşıyor.`,
+        error: `Dosya boyutu (${formatBytesReadable(sizeBytes)}) Cloudinary 10 MB sınırını aşıyor.`,
       };
     }
   }
@@ -307,7 +323,7 @@ export function validateFile(name: string, mimeType?: string, sizeBytes?: number
 }
 
 /**
- * Validates a video file's size (<= 50 MB) and duration (<= 3 minutes / 180 seconds)
+ * Validates a video file's size (<= 100 MB) and duration (<= 3 minutes / 180 seconds)
  * before reading or adding it to the whiteboard.
  */
 export async function validateVideoFileMetadata(
@@ -316,7 +332,7 @@ export async function validateVideoFileMetadata(
   if (file.size > MAX_VIDEO_SIZE_BYTES) {
     return {
       valid: false,
-      error: `Video boyutu (${formatBytesReadable(file.size)}) maksimum 50 MB sınırını aşıyor. Lütfen 50 MB ve 3 dakikadan kısa bir video seçin.`,
+      error: `Video boyutu (${formatBytesReadable(file.size)}) maksimum 100 MB sınırını aşıyor. Lütfen 100 MB ve 3 dakikadan kısa bir video seçin.`,
     };
   }
 
