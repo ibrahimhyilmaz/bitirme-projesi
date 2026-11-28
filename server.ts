@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import fs from 'fs';
+import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -44,8 +45,11 @@ const DEFAULT_ROOM_MAX_USERS = 12;
 // Permissive CORS & COOP middleware so shared/invited clients and OAuth popups never get blocked
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, HEAD, OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Asset-Filename, X-Asset-Room, Range'
+  );
   res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
   if (req.method === 'OPTIONS') {
     res.status(204).end();
@@ -55,6 +59,293 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '25mb' }));
+
+// --- Heavy Media Asset Layer (Content-Addressed Binary Store) ---
+const ASSETS_DIR = path.resolve(__dirname, '.data', 'assets');
+const MAX_ASSET_BYTES = 25 * 1024 * 1024; // 25 MB per asset
+const MAX_TOTAL_ASSET_STORAGE_BYTES = 250 * 1024 * 1024; // 250 MB LRU cap on disk
+const ASSET_FILE_REGEX = /^[a-f0-9]{32}\.[a-z0-9]{2,4}$/;
+
+const ALLOWED_ASSET_MIME_TO_EXT: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'image/bmp': 'bmp',
+  'image/avif': 'avif',
+  'image/x-icon': 'ico',
+  'image/vnd.microsoft.icon': 'ico',
+  'image/svg+xml': 'svg',
+  'application/pdf': 'pdf',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/ogg': 'ogv',
+  'video/quicktime': 'mov',
+  'audio/mpeg': 'mp3',
+  'audio/wav': 'wav',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'text/plain': 'txt',
+  'text/markdown': 'md',
+  'text/csv': 'csv',
+  'application/json': 'json',
+};
+
+const EXT_TO_ASSET_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  avif: 'image/avif',
+  ico: 'image/x-icon',
+  svg: 'image/svg+xml',
+  pdf: 'application/pdf',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  ogv: 'video/ogg',
+  mov: 'video/quicktime',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  txt: 'text/plain; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
+  csv: 'text/csv; charset=utf-8',
+  json: 'application/json; charset=utf-8',
+};
+
+function ensureAssetsDir() {
+  if (!fs.existsSync(ASSETS_DIR)) {
+    fs.mkdirSync(ASSETS_DIR, { recursive: true });
+  }
+}
+
+function resolveConfinedAssetPath(assetFile: string): string | null {
+  if (!ASSET_FILE_REGEX.test(assetFile)) return null;
+  const resolved = path.resolve(ASSETS_DIR, assetFile);
+  if (!resolved.startsWith(ASSETS_DIR + path.sep)) return null;
+  return resolved;
+}
+
+function resolveSafeAssetMime(rawMime?: string, rawFileName?: string): { mime: string; ext: string } | null {
+  const cleanMime = String(rawMime || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  if (cleanMime && ALLOWED_ASSET_MIME_TO_EXT[cleanMime]) {
+    const ext = ALLOWED_ASSET_MIME_TO_EXT[cleanMime];
+    return { mime: EXT_TO_ASSET_MIME[ext].split(';')[0], ext };
+  }
+  if (!cleanMime || cleanMime === 'application/octet-stream') {
+    const baseName = String(rawFileName || '').split('?')[0].toLowerCase();
+    const dotIdx = baseName.lastIndexOf('.');
+    if (dotIdx >= 0) {
+      const extCandidate = baseName.slice(dotIdx + 1) === 'jpeg' ? 'jpg' : baseName.slice(dotIdx + 1);
+      if (EXT_TO_ASSET_MIME[extCandidate]) {
+        return { mime: EXT_TO_ASSET_MIME[extCandidate].split(';')[0], ext: extCandidate };
+      }
+    }
+  }
+  return null;
+}
+
+let lastAssetPruneAt = 0;
+function pruneAssetsIfNeeded() {
+  const now = Date.now();
+  if (now - lastAssetPruneAt < 15_000) return;
+  lastAssetPruneAt = now;
+  try {
+    ensureAssetsDir();
+    const entries = fs
+      .readdirSync(ASSETS_DIR)
+      .filter((name) => ASSET_FILE_REGEX.test(name))
+      .map((name) => {
+        const full = path.resolve(ASSETS_DIR, name);
+        const st = fs.statSync(full);
+        return { full, size: st.size, mtimeMs: st.mtimeMs };
+      });
+    let total = entries.reduce((sum, e) => sum + e.size, 0);
+    if (total <= MAX_TOTAL_ASSET_STORAGE_BYTES) return;
+    entries.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    for (const entry of entries) {
+      if (total <= MAX_TOTAL_ASSET_STORAGE_BYTES * 0.85) break;
+      try {
+        fs.unlinkSync(entry.full);
+        total -= entry.size;
+      } catch {
+        // ignore individual unlink failures
+      }
+    }
+  } catch {
+    // ignore prune failures
+  }
+}
+
+function storeAssetBuffer(
+  buffer: Buffer,
+  rawMime?: string,
+  rawFileName?: string
+): { assetId: string; url: string; mimeType: string; size: number } | null {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > MAX_ASSET_BYTES) {
+    return null;
+  }
+  const resolved = resolveSafeAssetMime(rawMime, rawFileName);
+  if (!resolved) return null;
+
+  ensureAssetsDir();
+  const hash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 32);
+  const assetId = `${hash}.${resolved.ext}`;
+  const targetPath = resolveConfinedAssetPath(assetId);
+  if (!targetPath) return null;
+
+  if (fs.existsSync(targetPath)) {
+    try {
+      const now = new Date();
+      fs.utimesSync(targetPath, now, now);
+    } catch {
+      // ignore touch failures
+    }
+  } else {
+    const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmpPath, buffer);
+    fs.renameSync(tmpPath, targetPath);
+    pruneAssetsIfNeeded();
+  }
+
+  return {
+    assetId,
+    url: `/api/assets/${assetId}`,
+    mimeType: resolved.mime,
+    size: buffer.length,
+  };
+}
+
+function externalizeHeavyDataUrl(
+  value: unknown,
+  fileName?: string,
+  minChars = 48_000
+): { url: string; assetId: string } | null {
+  if (typeof value !== 'string' || value.length < minChars || !value.startsWith('data:')) {
+    return null;
+  }
+  const commaIdx = value.indexOf(',');
+  if (commaIdx === -1) return null;
+  const header = value.slice(0, commaIdx);
+  const body = value.slice(commaIdx + 1);
+  const mimeMatch = header.match(/^data:([^;,]+)/i);
+  const mime = mimeMatch?.[1];
+  const isBase64 = /;base64/i.test(header);
+  try {
+    const buffer = isBase64
+      ? Buffer.from(body.replace(/\s+/g, ''), 'base64')
+      : Buffer.from(decodeURIComponent(body), 'utf8');
+    const stored = storeAssetBuffer(buffer, mime, fileName);
+    if (!stored) return null;
+    return { url: stored.url, assetId: stored.assetId };
+  } catch {
+    return null;
+  }
+}
+
+function externalizeElementAssets(el: CanvasElement): CanvasElement {
+  if (!el || typeof el !== 'object') return el;
+  let next: CanvasElement = el;
+  const ensureClone = () => {
+    if (next === el) next = { ...el };
+  };
+
+  const imgStored = externalizeHeavyDataUrl(el.imageUrl, el.fileName);
+  if (imgStored) {
+    ensureClone();
+    next.imageUrl = imgStored.url;
+    next.assetId = imgStored.assetId;
+  }
+
+  const pdfStored = externalizeHeavyDataUrl(el.pdfUrl, el.fileName || 'document.pdf');
+  if (pdfStored) {
+    ensureClone();
+    next.pdfUrl = pdfStored.url;
+    next.pdfAssetId = pdfStored.assetId;
+  }
+
+  const videoStored = externalizeHeavyDataUrl(el.videoUrl, el.fileName || 'video.mp4');
+  if (videoStored) {
+    ensureClone();
+    next.videoUrl = videoStored.url;
+    next.assetId = videoStored.assetId;
+  }
+
+  if (Array.isArray(el.folderFiles) && el.folderFiles.length > 0) {
+    let changedFiles = false;
+    const mappedFiles = el.folderFiles.map((item) => {
+      const stored = externalizeHeavyDataUrl(item?.dataUrl, item?.name);
+      if (stored) {
+        changedFiles = true;
+        return { ...item, dataUrl: stored.url, assetId: stored.assetId };
+      }
+      return item;
+    });
+    if (changedFiles) {
+      ensureClone();
+      next.folderFiles = mappedFiles;
+    }
+  }
+
+  return next;
+}
+
+function externalizeElementChanges(
+  changes: Partial<CanvasElement>,
+  fallbackFileName?: string
+): Partial<CanvasElement> {
+  if (!changes || typeof changes !== 'object') return changes;
+  let next: Partial<CanvasElement> = changes;
+  const ensureClone = () => {
+    if (next === changes) next = { ...changes };
+  };
+
+  const fileName = changes.fileName || fallbackFileName;
+  const imgStored = externalizeHeavyDataUrl(changes.imageUrl, fileName);
+  if (imgStored) {
+    ensureClone();
+    next.imageUrl = imgStored.url;
+    next.assetId = imgStored.assetId;
+  }
+
+  const pdfStored = externalizeHeavyDataUrl(changes.pdfUrl, fileName || 'document.pdf');
+  if (pdfStored) {
+    ensureClone();
+    next.pdfUrl = pdfStored.url;
+    next.pdfAssetId = pdfStored.assetId;
+  }
+
+  const videoStored = externalizeHeavyDataUrl(changes.videoUrl, fileName || 'video.mp4');
+  if (videoStored) {
+    ensureClone();
+    next.videoUrl = videoStored.url;
+    next.assetId = videoStored.assetId;
+  }
+
+  if (Array.isArray(changes.folderFiles) && changes.folderFiles.length > 0) {
+    let changedFiles = false;
+    const mappedFiles = changes.folderFiles.map((item) => {
+      const stored = externalizeHeavyDataUrl(item?.dataUrl, item?.name);
+      if (stored) {
+        changedFiles = true;
+        return { ...item, dataUrl: stored.url, assetId: stored.assetId };
+      }
+      return item;
+    });
+    if (changedFiles) {
+      ensureClone();
+      next.folderFiles = mappedFiles;
+    }
+  }
+
+  return next;
+}
 
 // Types for in-memory room management
 type UserRole = 'owner' | 'admin' | 'editor' | 'viewer';
@@ -85,6 +376,22 @@ interface CanvasElement {
   fontSize?: number;
   textAlign?: 'left' | 'center' | 'right';
   imageUrl?: string;
+  pdfUrl?: string;
+  videoUrl?: string;
+  assetId?: string;
+  pdfAssetId?: string;
+  fileName?: string;
+  folderFiles?: {
+    id: string;
+    name: string;
+    size: number;
+    type: string;
+    dataUrl: string;
+    assetId?: string;
+    addedAt: number;
+    canvasWidth?: number;
+    canvasHeight?: number;
+  }[];
   rotation?: number;
   flipX?: boolean;
   flipY?: boolean;
@@ -99,6 +406,7 @@ interface SharedFile {
   size: number;
   type: string;
   dataUrl: string;
+  assetId?: string;
   uploadedBy: string;
   uploadedAt: number;
 }
@@ -1289,10 +1597,11 @@ wss.on('connection', (ws: WebSocket) => {
           const sender = room.users.get(currentUserId);
           if (sender && !canEditWorkspace(sender.presence.role)) return;
 
-          const element: CanvasElement = msg.element;
+          const rawElement: CanvasElement = msg.element;
           const insertBeforeId: string | undefined =
             typeof msg.insertBeforeId === 'string' && msg.insertBeforeId ? msg.insertBeforeId : undefined;
-          if (!element || !element.id) return;
+          if (!rawElement || !rawElement.id) return;
+          const element: CanvasElement = externalizeElementAssets(rawElement);
 
           if (!room.elements.has(element.id)) {
             room.elements.set(element.id, element);
@@ -1316,6 +1625,7 @@ wss.on('connection', (ws: WebSocket) => {
               type: 'element-created',
               element,
               insertBeforeId,
+              _senderId: currentUserId,
             },
             currentUserId || undefined
           );
@@ -1330,10 +1640,11 @@ wss.on('connection', (ws: WebSocket) => {
           const sender = room.users.get(currentUserId);
           if (sender && !canEditWorkspace(sender.presence.role)) return;
 
-          const { id, changes } = msg;
+          const { id } = msg;
           const existing = room.elements.get(id);
           if (existing) {
-            const updated = { ...existing, ...changes, updatedAt: Date.now() };
+            const safeChanges = externalizeElementChanges(msg.changes, existing.fileName);
+            const updated = { ...existing, ...safeChanges, updatedAt: Date.now() };
             room.elements.set(id, updated);
 
             broadcastToRoom(
@@ -1341,7 +1652,8 @@ wss.on('connection', (ws: WebSocket) => {
               {
                 type: 'element-updated',
                 id,
-                changes,
+                changes: safeChanges,
+                _senderId: currentUserId,
               },
               currentUserId || undefined
             );
@@ -1359,22 +1671,25 @@ wss.on('connection', (ws: WebSocket) => {
 
           const { updates } = msg;
           if (Array.isArray(updates)) {
-            for (const item of updates) {
+            const safeUpdates = updates.map((item: { id: string; changes: Partial<CanvasElement> }) => {
               const existing = room.elements.get(item.id);
+              const safeChanges = externalizeElementChanges(item.changes, existing?.fileName);
               if (existing) {
                 room.elements.set(item.id, {
                   ...existing,
-                  ...item.changes,
+                  ...safeChanges,
                   updatedAt: Date.now(),
                 });
               }
-            }
+              return { id: item.id, changes: safeChanges };
+            });
 
             broadcastToRoom(
               currentRoomId,
               {
                 type: 'elements-batch-updated',
-                updates,
+                updates: safeUpdates,
+                _senderId: currentUserId,
               },
               currentUserId || undefined
             );
@@ -1402,6 +1717,7 @@ wss.on('connection', (ws: WebSocket) => {
               {
                 type: 'element-deleted',
                 ids,
+                _senderId: currentUserId,
               },
               currentUserId || undefined
             );
@@ -1433,6 +1749,7 @@ wss.on('connection', (ws: WebSocket) => {
               {
                 type: 'elements-replaced',
                 elements,
+                _senderId: currentUserId,
               },
               currentUserId || undefined
             );
@@ -1459,6 +1776,7 @@ wss.on('connection', (ws: WebSocket) => {
               {
                 type: 'elements-replaced',
                 elements: orderedElements,
+                _senderId: currentUserId,
               },
               currentUserId || undefined
             );
@@ -1477,10 +1795,15 @@ wss.on('connection', (ws: WebSocket) => {
           room.elements.clear();
           room.elementOrder = [];
 
-          broadcastToRoom(currentRoomId, {
-            type: 'elements-cleared',
-            clearedBy: currentUserId,
-          });
+          broadcastToRoom(
+            currentRoomId,
+            {
+              type: 'elements-cleared',
+              clearedBy: currentUserId,
+              _senderId: currentUserId,
+            },
+            currentUserId || undefined
+          );
           break;
         }
 
@@ -1501,10 +1824,15 @@ wss.on('connection', (ws: WebSocket) => {
               }
             }
 
-            broadcastToRoom(currentRoomId, {
-              type: 'elements-template-loaded',
-              elements,
-            });
+            broadcastToRoom(
+              currentRoomId,
+              {
+                type: 'elements-template-loaded',
+                elements,
+                _senderId: currentUserId,
+              },
+              currentUserId || undefined
+            );
           }
           break;
         }
@@ -1779,12 +2107,17 @@ wss.on('connection', (ws: WebSocket) => {
               ? msg.id
               : `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 
+          const storedFileAsset = externalizeHeavyDataUrl(msg.dataUrl, msg.name);
+          const resolvedDataUrl = storedFileAsset ? storedFileAsset.url : msg.dataUrl;
+          const resolvedAssetId =
+            storedFileAsset?.assetId || (typeof msg.assetId === 'string' ? msg.assetId : undefined);
+
           // Deduplicate by ID or file signature
           if (
             room.files.some(
               (f) =>
                 f.id === fileId ||
-                (f.name === msg.name && f.size === msg.size && f.dataUrl === msg.dataUrl)
+                (f.name === msg.name && f.size === msg.size && f.dataUrl === resolvedDataUrl)
             )
           ) {
             break;
@@ -1795,7 +2128,8 @@ wss.on('connection', (ws: WebSocket) => {
             name: msg.name,
             size: msg.size,
             type: msg.fileType || msg.type || 'application/octet-stream',
-            dataUrl: msg.dataUrl,
+            dataUrl: resolvedDataUrl,
+            ...(resolvedAssetId ? { assetId: resolvedAssetId } : {}),
             uploadedBy: msg.uploadedBy || 'Kullanıcı',
             uploadedAt: Date.now(),
           };
@@ -2434,6 +2768,203 @@ app.post('/api/code/execute', async (req, res) => {
       language,
     });
   }
+});
+
+// --- Heavy Media Asset Endpoints (Content-Addressed Binary Upload & Range Streaming) ---
+app.post(
+  '/api/assets',
+  express.raw({
+    limit: '26mb',
+    type: (req) => {
+      const ct = String(req.headers['content-type'] || '').toLowerCase();
+      return !ct.startsWith('application/json');
+    },
+  }),
+  (req, res) => {
+    try {
+      const contentType = String(req.headers['content-type'] || '').toLowerCase();
+      let buffer: Buffer | null = null;
+      let rawMime: string | undefined;
+      let rawFileName: string | undefined;
+
+      if (contentType.startsWith('application/json')) {
+        const body = req.body as { dataUrl?: unknown; mimeType?: unknown; fileName?: unknown };
+        if (!body || typeof body.dataUrl !== 'string' || !body.dataUrl.startsWith('data:')) {
+          res.status(400).json({ error: 'Geçerli bir dosya verisi gereklidir.' });
+          return;
+        }
+        const commaIdx = body.dataUrl.indexOf(',');
+        if (commaIdx === -1) {
+          res.status(400).json({ error: 'Geçersiz veri formatı.' });
+          return;
+        }
+        const header = body.dataUrl.slice(0, commaIdx);
+        const payload = body.dataUrl.slice(commaIdx + 1);
+        const mimeMatch = header.match(/^data:([^;,]+)/i);
+        rawMime = typeof body.mimeType === 'string' ? body.mimeType : mimeMatch?.[1];
+        rawFileName = typeof body.fileName === 'string' ? body.fileName : undefined;
+        const isBase64 = /;base64/i.test(header);
+        buffer = isBase64
+          ? Buffer.from(payload.replace(/\s+/g, ''), 'base64')
+          : Buffer.from(decodeURIComponent(payload), 'utf8');
+      } else if (Buffer.isBuffer(req.body)) {
+        buffer = req.body;
+        rawMime = contentType.split(';')[0].trim();
+        const encodedName = req.headers['x-asset-filename'];
+        if (typeof encodedName === 'string' && encodedName.length > 0) {
+          try {
+            rawFileName = decodeURIComponent(encodedName);
+          } catch {
+            rawFileName = encodedName;
+          }
+        }
+      }
+
+      if (!buffer || buffer.length === 0) {
+        res.status(400).json({ error: 'Boş dosya yüklenemez.' });
+        return;
+      }
+
+      if (buffer.length > MAX_ASSET_BYTES) {
+        res.status(413).json({ error: 'Dosya boyutu 25 MB sınırını aşıyor.' });
+        return;
+      }
+
+      const stored = storeAssetBuffer(buffer, rawMime, rawFileName);
+      if (!stored) {
+        res.status(415).json({ error: 'Bu dosya türü varlık deposu için desteklenmiyor.' });
+        return;
+      }
+
+      res.status(201).json(stored);
+    } catch (err) {
+      console.error('Asset upload error:', err);
+      res.status(500).json({ error: 'Dosya kaydedilemedi.' });
+    }
+  }
+);
+
+app.head('/api/assets/:assetFile', (req, res) => {
+  const assetFile = String(req.params.assetFile || '');
+  const targetPath = resolveConfinedAssetPath(assetFile);
+  if (!targetPath) {
+    res.status(404).end();
+    return;
+  }
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(targetPath);
+    if (!stat.isFile()) {
+      res.status(404).end();
+      return;
+    }
+  } catch {
+    res.status(404).end();
+    return;
+  }
+  const ext = assetFile.slice(assetFile.lastIndexOf('.') + 1);
+  const mime = EXT_TO_ASSET_MIME[ext] || 'application/octet-stream';
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Content-Length', String(stat.size));
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader(
+    'Content-Security-Policy',
+    "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+  );
+  res.status(200).end();
+});
+
+app.get('/api/assets/:assetFile', (req, res) => {
+  const assetFile = String(req.params.assetFile || '');
+  const targetPath = resolveConfinedAssetPath(assetFile);
+  if (!targetPath) {
+    res.status(404).json({ error: 'Dosya bulunamadı.' });
+    return;
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(targetPath);
+    if (!stat.isFile()) {
+      res.status(404).json({ error: 'Dosya bulunamadı.' });
+      return;
+    }
+  } catch {
+    res.status(404).json({ error: 'Dosya bulunamadı.' });
+    return;
+  }
+
+  const ext = assetFile.slice(assetFile.lastIndexOf('.') + 1);
+  const mime = EXT_TO_ASSET_MIME[ext] || 'application/octet-stream';
+  const totalSize = stat.size;
+
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader(
+    'Content-Security-Policy',
+    "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+  );
+
+  const pipeSafely = (stream: fs.ReadStream) => {
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(500).end();
+      } else {
+        res.end();
+      }
+    });
+    stream.pipe(res);
+  };
+
+  const rangeHeader = req.headers.range;
+  if (typeof rangeHeader === 'string' && rangeHeader.startsWith('bytes=') && totalSize > 0) {
+    const firstRange = rangeHeader.replace(/^bytes=/, '').split(',')[0].trim();
+    const [startStr, endStr] = firstRange.split('-');
+    let start: number;
+    let end: number;
+
+    if (!startStr && endStr) {
+      const suffixLen = parseInt(endStr, 10);
+      if (Number.isNaN(suffixLen) || suffixLen <= 0) {
+        res.setHeader('Content-Range', `bytes */${totalSize}`);
+        res.status(416).end();
+        return;
+      }
+      start = Math.max(0, totalSize - suffixLen);
+      end = totalSize - 1;
+    } else {
+      start = startStr ? parseInt(startStr, 10) : 0;
+      end = endStr ? Math.min(parseInt(endStr, 10), totalSize - 1) : totalSize - 1;
+    }
+
+    if (
+      Number.isNaN(start) ||
+      Number.isNaN(end) ||
+      start < 0 ||
+      start >= totalSize ||
+      start > end
+    ) {
+      res.setHeader('Content-Range', `bytes */${totalSize}`);
+      res.status(416).end();
+      return;
+    }
+
+    const chunkSize = end - start + 1;
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+    res.setHeader('Content-Length', String(chunkSize));
+    pipeSafely(fs.createReadStream(targetPath, { start, end }));
+    return;
+  }
+
+  res.setHeader('Content-Length', String(totalSize));
+  pipeSafely(fs.createReadStream(targetPath));
 });
 
 // REST Endpoints

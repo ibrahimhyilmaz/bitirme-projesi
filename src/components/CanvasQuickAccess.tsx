@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useSyncExternalStore } from 'react';
 import {
   MousePointer2,
   Pencil,
@@ -20,10 +20,16 @@ import {
 } from 'lucide-react';
 import { CanvasElement, ToolType, ThemeMode, UserPresence } from '../types';
 import { getElementBounds } from '../utils/canvasRenderer';
+import type { RemoteCursorState, RemoteCursorsStore } from '../hooks/useWebSocket';
+
+const EMPTY_CURSORS: Record<string, RemoteCursorState> = {};
+const NOOP_SUBSCRIBE = () => () => {};
+const GET_EMPTY_CURSORS = () => EMPTY_CURSORS;
 
 interface CanvasQuickAccessProps {
   elements: CanvasElement[];
   users?: UserPresence[];
+  remoteCursorsStore?: RemoteCursorsStore;
   currentUserId?: string;
   currentUserIdentityKey?: string;
   camera: { x: number; y: number; zoom: number };
@@ -78,6 +84,7 @@ export function getRadialToolAtAngle(dx: number, dy: number): ToolType | null {
 export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
   elements,
   users = [],
+  remoteCursorsStore,
   currentUserId,
   currentUserIdentityKey,
   camera,
@@ -110,12 +117,25 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
   const MINIMAP_W = 260;
   const MINIMAP_H = 152;
 
-  const remoteCursorUsers = users.filter((u) => {
-    if (!u.cursor) return false;
-    if (currentUserId && u.id === currentUserId) return false;
-    if (currentUserIdentityKey && u.identityKey && u.identityKey === currentUserIdentityKey) return false;
-    return Number.isFinite(u.cursor.x) && Number.isFinite(u.cursor.y);
-  });
+  const isMinimapVisible = !hideBottomDock && showMinimap && isMinimapOpen;
+  const remoteCursors = useSyncExternalStore(
+    isMinimapVisible && remoteCursorsStore ? remoteCursorsStore.subscribe : NOOP_SUBSCRIBE,
+    isMinimapVisible && remoteCursorsStore ? remoteCursorsStore.getSnapshot : GET_EMPTY_CURSORS
+  );
+
+  const remoteCursorUsers = users
+    .map((u) => {
+      const live = remoteCursors[u.id];
+      const cursor = live ? live.cursor : u.cursor;
+      const isDrawing = live ? live.isDrawing : u.isDrawing;
+      return { ...u, cursor, isDrawing };
+    })
+    .filter((u) => {
+      if (!u.cursor) return false;
+      if (currentUserId && u.id === currentUserId) return false;
+      if (currentUserIdentityKey && u.identityKey && u.identityKey === currentUserIdentityKey) return false;
+      return Number.isFinite(u.cursor.x) && Number.isFinite(u.cursor.y);
+    });
 
   // Compute world bounds encompassing all elements, current viewport, and remote user cursors
   const getWorldBounds = () => {
@@ -228,7 +248,7 @@ export const CanvasQuickAccess: React.FC<CanvasQuickAccessProps> = ({
     ctx.strokeStyle = isDark ? '#60a5fa' : '#2563eb';
     ctx.lineWidth = 2;
     ctx.strokeRect(vx, vy, vw, vh);
-  }, [elements, users, camera, isMinimapOpen, showMinimap, hideBottomDock, isDark, theme]);
+  }, [elements, users, remoteCursors, camera, isMinimapOpen, showMinimap, hideBottomDock, isDark, theme]);
 
   const navigateFromMinimapEvent = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = minimapCanvasRef.current;

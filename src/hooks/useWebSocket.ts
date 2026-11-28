@@ -20,6 +20,17 @@ import { soundEffects } from '../utils/audio';
 import { meshClear, meshLoad, meshSave } from '../utils/meshStore';
 import { deduplicateUsers } from '../utils/userIdentity';
 
+export interface RemoteCursorState {
+  cursor: Point;
+  isDrawing: boolean;
+  activeTool?: string;
+}
+
+export interface RemoteCursorsStore {
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => Record<string, RemoteCursorState>;
+}
+
 interface UseWebSocketOptions {
   roomId: string;
   roomName: string;
@@ -200,6 +211,101 @@ export function useWebSocket({
     isDrawing: false,
     activeTool: 'select',
   });
+
+  // External subscription store for high-frequency ephemeral remote cursors (~30Hz)
+  // so cursor packets never trigger React re-renders of App.tsx, TopNav, panels, or CanvasBoard body
+  const remoteCursorsMapRef = useRef<Record<string, RemoteCursorState>>({});
+  const remoteCursorListenersRef = useRef<Set<() => void>>(new Set());
+
+  const emitRemoteCursorsChange = useCallback(() => {
+    remoteCursorListenersRef.current.forEach((listener) => {
+      try {
+        listener();
+      } catch {}
+    });
+  }, []);
+
+  const setRemoteCursor = useCallback(
+    (uid: string, cursor: Point | undefined, isDrawing: boolean, activeTool?: string) => {
+      if (!uid || !cursor || !Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) return;
+      const prev = remoteCursorsMapRef.current[uid];
+      const nextTool = activeTool || prev?.activeTool;
+      if (
+        prev &&
+        prev.cursor.x === cursor.x &&
+        prev.cursor.y === cursor.y &&
+        prev.isDrawing === isDrawing &&
+        prev.activeTool === nextTool
+      ) {
+        return;
+      }
+      remoteCursorsMapRef.current = {
+        ...remoteCursorsMapRef.current,
+        [uid]: {
+          cursor,
+          isDrawing,
+          activeTool: nextTool,
+        },
+      };
+      emitRemoteCursorsChange();
+    },
+    [emitRemoteCursorsChange]
+  );
+
+  const deleteRemoteCursor = useCallback(
+    (uid: string) => {
+      if (!uid || !(uid in remoteCursorsMapRef.current)) return;
+      const next = { ...remoteCursorsMapRef.current };
+      delete next[uid];
+      remoteCursorsMapRef.current = next;
+      emitRemoteCursorsChange();
+    },
+    [emitRemoteCursorsChange]
+  );
+
+  const clearRemoteCursors = useCallback(() => {
+    if (Object.keys(remoteCursorsMapRef.current).length === 0) return;
+    remoteCursorsMapRef.current = {};
+    emitRemoteCursorsChange();
+  }, [emitRemoteCursorsChange]);
+
+  const seedRemoteCursorsFromUsers = useCallback(
+    (list: UserPresence[]) => {
+      const next: Record<string, RemoteCursorState> = {};
+      for (const u of list) {
+        if (!u || !u.id || u.id === userRef.current.id) continue;
+        if (u.cursor && Number.isFinite(u.cursor.x) && Number.isFinite(u.cursor.y)) {
+          next[u.id] = {
+            cursor: u.cursor,
+            isDrawing: Boolean(u.isDrawing),
+            activeTool: u.activeTool,
+          };
+        }
+      }
+      remoteCursorsMapRef.current = next;
+      emitRemoteCursorsChange();
+    },
+    [emitRemoteCursorsChange]
+  );
+
+  const remoteCursorsStore = useMemo<RemoteCursorsStore>(
+    () => ({
+      subscribe: (listener: () => void) => {
+        remoteCursorListenersRef.current.add(listener);
+        return () => {
+          remoteCursorListenersRef.current.delete(listener);
+        };
+      },
+      getSnapshot: () => remoteCursorsMapRef.current,
+    }),
+    []
+  );
+
+  // Element IDs currently being dragged, resized, rotated, or inline-edited locally
+  const activeLocalEditIdsRef = useRef<Set<string>>(new Set());
+  const setActiveLocalEditIds = useCallback((ids: Iterable<string>) => {
+    activeLocalEditIdsRef.current = new Set(ids);
+  }, []);
 
   const pendingQueue = useRef<string[]>([]);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -562,6 +668,14 @@ export function useWebSocket({
               const filtered = prev.filter((u) => u.id !== normalizedJoiner.id);
               return [...filtered, normalizedJoiner];
             });
+            if (normalizedJoiner.cursor) {
+              setRemoteCursor(
+                normalizedJoiner.id,
+                normalizedJoiner.cursor,
+                Boolean(normalizedJoiner.isDrawing),
+                normalizedJoiner.activeTool
+              );
+            }
 
             // Send welcome packet with our presence and current room state
             const meInList = usersRef.current.find((u) => u.id === userRef.current.id);
@@ -656,6 +770,14 @@ export function useWebSocket({
               }
               return updatedList;
             });
+            if (remoteUser.cursor) {
+              setRemoteCursor(
+                remoteUser.id,
+                remoteUser.cursor,
+                Boolean(remoteUser.isDrawing),
+                remoteUser.activeTool
+              );
+            }
 
             if (remoteJoinedEarlier) {
               if (msg.roomName) setSyncedRoomName(msg.roomName);
@@ -772,14 +894,68 @@ export function useWebSocket({
               }
             }
             peerLastSeenRef.current.set(hbUser.id, Date.now());
+            if (hbUser.cursor) {
+              setRemoteCursor(
+                hbUser.id,
+                hbUser.cursor,
+                Boolean(hbUser.isDrawing),
+                hbUser.activeTool
+              );
+            }
             setUsers((prev) => {
-              const exists = prev.some((u) => u.id === hbUser.id);
-              if (!exists) {
+              const idx = prev.findIndex((u) => u.id === hbUser.id);
+              if (idx === -1) {
                 if (prev.length >= roomSettingsRef.current.maxUsers) return prev;
                 soundEffects.playJoinSound();
                 return [...prev, hbUser];
               }
-              return prev.map((u) => (u.id === hbUser.id ? { ...u, ...hbUser } : u));
+              const cur = prev[idx];
+              const nextAvatarUrl =
+                hbUser.avatarUrl !== undefined ? hbUser.avatarUrl : cur.avatarUrl;
+              const nextIdentityKey = hbUser.identityKey || cur.identityKey;
+              const nextName = hbUser.name || cur.name;
+              const nextColor = hbUser.color || cur.color;
+              const nextCursorColor = hbUser.cursorColor || cur.cursorColor;
+              const nextRole = hbUser.role || cur.role;
+              const nextAvatar = hbUser.avatar || cur.avatar;
+              const nextMuted =
+                hbUser.isMuted !== undefined ? hbUser.isMuted : cur.isMuted;
+              const nextDeafened =
+                hbUser.isDeafened !== undefined ? hbUser.isDeafened : cur.isDeafened;
+              const nextSpeaking =
+                hbUser.isSpeaking !== undefined ? hbUser.isSpeaking : cur.isSpeaking;
+
+              // Avoid allocating a new users array when durable presence fields have not changed
+              if (
+                cur.identityKey === nextIdentityKey &&
+                cur.name === nextName &&
+                cur.color === nextColor &&
+                cur.cursorColor === nextCursorColor &&
+                cur.role === nextRole &&
+                cur.avatar === nextAvatar &&
+                cur.avatarUrl === nextAvatarUrl &&
+                cur.isMuted === nextMuted &&
+                cur.isDeafened === nextDeafened &&
+                cur.isSpeaking === nextSpeaking
+              ) {
+                return prev;
+              }
+
+              const next = prev.slice();
+              next[idx] = {
+                ...cur,
+                identityKey: nextIdentityKey,
+                name: nextName,
+                color: nextColor,
+                cursorColor: nextCursorColor,
+                role: nextRole,
+                avatar: nextAvatar,
+                avatarUrl: nextAvatarUrl,
+                isMuted: nextMuted,
+                isDeafened: nextDeafened,
+                isSpeaking: nextSpeaking,
+              };
+              return next;
             });
             break;
           }
@@ -787,6 +963,7 @@ export function useWebSocket({
           case 'mesh-leave': {
             if (!msg.userId || msg.userId === userRef.current.id) break;
             peerLastSeenRef.current.delete(msg.userId);
+            deleteRemoteCursor(msg.userId);
             setUsers((prev) => prev.filter((u) => u.id !== msg.userId));
             setCodeCursors((prev) => prev.filter((c) => c.userId !== msg.userId));
             break;
@@ -829,6 +1006,7 @@ export function useWebSocket({
             }
             if (Array.isArray(msg.users)) {
               setUsers(msg.users);
+              seedRemoteCursorsFromUsers(msg.users);
             }
             break;
           }
@@ -881,6 +1059,7 @@ export function useWebSocket({
               rejectedRoomRef.current = true;
               setIsConnected(false);
               setUsers([]);
+              clearRemoteCursors();
               publishMeshPacket({
                 type: 'mesh-leave',
                 userId: userRef.current.id,
@@ -932,6 +1111,7 @@ export function useWebSocket({
           case 'user-kick': {
             const kickedId = msg.targetUserId;
             if (msg.type === 'kicked-from-room' || kickedId === userRef.current.id) {
+              clearRemoteCursors();
               if (onKickedRef.current) {
                 onKickedRef.current(
                   msg.roomId || roomId,
@@ -940,6 +1120,7 @@ export function useWebSocket({
                 );
               }
             } else if (kickedId) {
+              deleteRemoteCursor(kickedId);
               setUsers((prev) => prev.filter((u) => u.id !== kickedId));
             }
             break;
@@ -951,6 +1132,14 @@ export function useWebSocket({
               const filtered = prev.filter((u) => u.id !== msg.user.id);
               return [...filtered, msg.user];
             });
+            if (msg.user && msg.user.id !== userRef.current.id && msg.user.cursor) {
+              setRemoteCursor(
+                msg.user.id,
+                msg.user.cursor,
+                Boolean(msg.user.isDrawing),
+                msg.user.activeTool
+              );
+            }
             soundEffects.playJoinSound();
             break;
           }
@@ -984,6 +1173,7 @@ export function useWebSocket({
           }
 
           case 'user-left': {
+            deleteRemoteCursor(msg.userId);
             setLiveStrokeMap((prev) => {
               if (!(msg.userId in prev)) return prev;
               const { [msg.userId as string]: _gone, ...rest } = prev;
@@ -998,19 +1188,7 @@ export function useWebSocket({
           case 'cursor-move': {
             const uid = msg.userId || msg._senderId;
             if (!uid || uid === userRef.current.id) break;
-            setUsers((prev) =>
-              prev.map((u) => {
-                if (u.id === uid) {
-                  return {
-                    ...u,
-                    cursor: msg.cursor,
-                    isDrawing: !!msg.isDrawing,
-                    activeTool: msg.activeTool || u.activeTool,
-                  };
-                }
-                return u;
-              })
-            );
+            setRemoteCursor(uid, msg.cursor, Boolean(msg.isDrawing), msg.activeTool);
             break;
           }
 
@@ -1050,6 +1228,7 @@ export function useWebSocket({
 
           case 'element-created':
           case 'element-create': {
+            if (msg._senderId && msg._senderId === userRef.current.id) break;
             if (!msg.element) break;
             // The finished stroke replaces its live preview
             setLiveStrokeMap((prev) => {
@@ -1078,43 +1257,67 @@ export function useWebSocket({
 
           case 'element-updated':
           case 'element-update': {
-            setElements((prev) =>
-              prev.map((el) =>
-                el.id === msg.id ? { ...el, ...msg.changes, updatedAt: Date.now() } : el
-              )
-            );
+            if (msg._senderId && msg._senderId === userRef.current.id) break;
+            if (!msg.id || activeLocalEditIdsRef.current.has(msg.id)) break;
+            setElements((prev) => {
+              const idx = prev.findIndex((el) => el.id === msg.id);
+              if (idx === -1) return prev;
+              const next = prev.slice();
+              next[idx] = { ...prev[idx], ...msg.changes, updatedAt: Date.now() };
+              return next;
+            });
             break;
           }
 
           case 'elements-batch-updated':
           case 'elements-batch-update': {
+            if (msg._senderId && msg._senderId === userRef.current.id) break;
             if (!Array.isArray(msg.updates)) break;
             const updatesMap = new Map<string, Partial<CanvasElement>>();
             for (const u of msg.updates) {
-              updatesMap.set(u.id, u.changes);
+              if (u && u.id && !activeLocalEditIdsRef.current.has(u.id)) {
+                updatesMap.set(u.id, u.changes);
+              }
             }
-            setElements((prev) =>
-              prev.map((el) => {
+            if (updatesMap.size === 0) break;
+            setElements((prev) => {
+              let changed = false;
+              const now = Date.now();
+              const next = prev.map((el) => {
                 const ch = updatesMap.get(el.id);
                 if (ch) {
-                  return { ...el, ...ch, updatedAt: Date.now() };
+                  changed = true;
+                  return { ...el, ...ch, updatedAt: now };
                 }
                 return el;
-              })
-            );
+              });
+              return changed ? next : prev;
+            });
             break;
           }
 
           case 'element-deleted':
           case 'element-delete': {
-            if (!Array.isArray(msg.ids)) break;
+            if (msg._senderId && msg._senderId === userRef.current.id) break;
+            if (!Array.isArray(msg.ids) || msg.ids.length === 0) break;
             const idSet = new Set(msg.ids);
-            setElements((prev) => prev.filter((el) => !idSet.has(el.id)));
+            setElements((prev) => {
+              let removed = false;
+              const next = prev.filter((el) => {
+                if (idSet.has(el.id)) {
+                  removed = true;
+                  return false;
+                }
+                return true;
+              });
+              return removed ? next : prev;
+            });
             break;
           }
 
           case 'elements-replaced':
           case 'elements-replace': {
+            if (msg._senderId && msg._senderId === userRef.current.id) break;
             if (Array.isArray(msg.elements)) {
               setElements(msg.elements);
             }
@@ -1123,12 +1326,14 @@ export function useWebSocket({
 
           case 'elements-cleared':
           case 'elements-clear': {
+            if (msg._senderId && msg._senderId === userRef.current.id) break;
             setElements([]);
             break;
           }
 
           case 'elements-template-loaded':
           case 'elements-load-template': {
+            if (msg._senderId && msg._senderId === userRef.current.id) break;
             if (!Array.isArray(msg.elements)) break;
             setElements((prev) => {
               const existingMap = new Map(prev.map((el) => [el.id, el]));
@@ -1413,7 +1618,14 @@ export function useWebSocket({
         console.error('Packet handling error:', err);
       }
     },
-    [roomId, publishMeshPacket]
+    [
+      roomId,
+      publishMeshPacket,
+      setRemoteCursor,
+      deleteRemoteCursor,
+      clearRemoteCursors,
+      seedRemoteCursorsFromUsers,
+    ]
   );
 
   // Connect & reconnect logic per roomId
@@ -1422,6 +1634,7 @@ export function useWebSocket({
       setIsConnected(false);
       isWsConnectedRef.current = false;
       setUsers([]);
+      clearRemoteCursors();
       setFiles([]);
       filesRef.current = [];
       chunkBuffersRef.current.clear();
@@ -1440,6 +1653,7 @@ export function useWebSocket({
 
     // Reset room-specific state when entering/switching rooms so stale users/elements/files never persist
     setUsers([]);
+    clearRemoteCursors();
     setElements([]);
     setFiles([]);
     filesRef.current = [];
@@ -1705,15 +1919,16 @@ export function useWebSocket({
         }, delay);
       }
 
-      // Periodic heartbeat & stale peer cleanup
+      // Periodic heartbeat & stale peer cleanup (omit heavy avatarUrl from 4s heartbeats)
       meshHeartbeatTimer = window.setInterval(() => {
         if (isCancelled || rejectedRoomRef.current) return;
         const me = usersRef.current.find((u) => u.id === userRef.current.id);
         if (me) {
+          const { avatarUrl: _omitAvatar, ...lightMe } = me;
           publishMeshPacket({
             type: 'mesh-heartbeat',
             user: {
-              ...me,
+              ...lightMe,
               cursor: localCursorRef.current.cursor,
               isDrawing: localCursorRef.current.isDrawing,
               activeTool: localCursorRef.current.activeTool,
@@ -1734,7 +1949,10 @@ export function useWebSocket({
             }
           });
           if (staleIds.length > 0) {
-            staleIds.forEach((id) => peerLastSeenRef.current.delete(id));
+            staleIds.forEach((id) => {
+              peerLastSeenRef.current.delete(id);
+              deleteRemoteCursor(id);
+            });
             setUsers((prev) =>
               prev.filter((u) => u.id === userRef.current.id || !staleIds.includes(u.id))
             );
@@ -1891,7 +2109,7 @@ export function useWebSocket({
         broadcastChannelRef.current = null;
       }
     };
-  }, [roomId, enabled, handleIncomingPacket, publishMeshPacket]);
+  }, [roomId, enabled, handleIncomingPacket, publishMeshPacket, clearRemoteCursors, deleteRemoteCursor]);
 
   // Keep roomsList summary updated ONLY in pure serverless mesh mode (when WS server is not present)
   useEffect(() => {
@@ -2041,6 +2259,7 @@ export function useWebSocket({
 
   const kickUser = useCallback(
     (targetUserId: string) => {
+      deleteRemoteCursor(targetUserId);
       setUsers((prev) => prev.filter((u) => u.id !== targetUserId));
       sendMessage({
         type: 'user-kick',
@@ -2050,7 +2269,7 @@ export function useWebSocket({
         by: userRef.current.name,
       });
     },
-    [sendMessage, roomId]
+    [sendMessage, roomId, deleteRemoteCursor]
   );
 
   const lastCursorSentAtRef = useRef<number>(0);
@@ -2392,7 +2611,7 @@ export function useWebSocket({
   );
 
   const uploadFile = useCallback(
-    (fileData: { name: string; size: number; fileType: string; dataUrl: string }) => {
+    (fileData: { name: string; size: number; fileType: string; dataUrl: string; assetId?: string }) => {
       if (!canEdit) return;
       const fileId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const newFileItem: SharedFile = {
@@ -2401,6 +2620,7 @@ export function useWebSocket({
         size: fileData.size,
         type: fileData.fileType,
         dataUrl: fileData.dataUrl,
+        ...(fileData.assetId ? { assetId: fileData.assetId } : {}),
         uploadedBy: userRef.current.name,
         uploadedAt: Date.now(),
       };
@@ -2587,6 +2807,8 @@ export function useWebSocket({
     canManage,
     elements,
     users: deduplicatedUsers,
+    remoteCursorsStore,
+    setActiveLocalEditIds,
     code,
     notes,
     files,

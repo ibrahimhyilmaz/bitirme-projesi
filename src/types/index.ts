@@ -186,6 +186,7 @@ export interface FolderFileItem {
   size: number;
   type: string;
   dataUrl: string;
+  assetId?: string;
   addedAt: number;
   canvasWidth?: number;
   canvasHeight?: number;
@@ -226,6 +227,10 @@ export interface CanvasElement {
   imageUrl?: string;
   pdfUrl?: string;
   videoUrl?: string;
+  /** Lightweight content-addressed asset reference ID for image/video/rendered page preview */
+  assetId?: string;
+  /** Lightweight content-addressed asset reference ID for underlying PDF binary */
+  pdfAssetId?: string;
   markdownContent?: string;
   /** Paginated document kind: PDF (pdf.js), formatted Markdown (.md), or clean plain text (.txt) */
   documentKind?: 'pdf' | 'markdown' | 'text';
@@ -595,6 +600,7 @@ export interface SharedFile {
   size: number;
   type: string;
   dataUrl: string;
+  assetId?: string;
   uploadedBy: string;
   uploadedAt: number;
 }

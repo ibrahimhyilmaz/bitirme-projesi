@@ -49,6 +49,7 @@ import type { BoardSnapshot } from './utils/cloudBoardCodec';
 import { getPdfInfo, renderPdfPage } from './utils/pdfRenderer';
 import { getDocumentPageInfo, renderDocumentPage } from './utils/documentPageRenderer';
 import { normalizeImageDataUrl, extractTextFromDataUrl } from './utils/fileValidation';
+import { storeAssetFromDataUrl } from './utils/assetStore';
 import { buildIdentityKey } from './utils/userIdentity';
 
 interface ElementDelta {
@@ -778,6 +779,8 @@ export default function App() {
     sendActivity,
     liveStrokes,
     sendLiveStroke,
+    remoteCursorsStore,
+    setActiveLocalEditIds,
   } = useWebSocket({
     roomId,
     roomName: fallbackRoomName,
@@ -2694,7 +2697,7 @@ export default function App() {
   };
 
   // Add Image or Document/Markdown Card from File vault or Toolbar directly to canvas center
-  const handleAddImageToCanvas = (
+  const handleAddImageToCanvas = async (
     dataUrl: string,
     widthOrName?: number | string,
     heightOrWidth = 240,
@@ -2718,6 +2721,10 @@ export default function App() {
     const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - height / 2;
 
     const normalizedDataUrl = normalizeImageDataUrl(dataUrl, fileName);
+    const stored = await storeAssetFromDataUrl(normalizedDataUrl, {
+      fileName,
+      roomId,
+    });
 
     recordUndo();
     const imgEl: CanvasElement = {
@@ -2727,7 +2734,8 @@ export default function App() {
       y: canvasCenterY,
       width,
       height,
-      imageUrl: normalizedDataUrl,
+      imageUrl: stored.url,
+      ...(stored.assetId ? { assetId: stored.assetId } : {}),
       fileName,
       rotation: 0,
       flipX: false,
@@ -2747,8 +2755,22 @@ export default function App() {
   // Add PDF from File vault or drop directly to canvas center
   const handleAddPdfToCanvas = async (pdfUrl: string, name?: string) => {
     try {
-      const { totalPages, defaultWidth, defaultHeight } = await getPdfInfo(pdfUrl);
-      const page1ImageUrl = await renderPdfPage(pdfUrl, 1);
+      const [storedPdf, pdfMeta, page1ImageUrl] = await Promise.all([
+        storeAssetFromDataUrl(pdfUrl, {
+          fileName: name || 'Belge.pdf',
+          mimeType: 'application/pdf',
+          roomId,
+          minBytesToOffload: 0,
+        }),
+        getPdfInfo(pdfUrl),
+        renderPdfPage(pdfUrl, 1),
+      ]);
+      const { totalPages, defaultWidth, defaultHeight } = pdfMeta;
+      const storedPage1 = await storeAssetFromDataUrl(page1ImageUrl, {
+        fileName: `${name || 'Belge.pdf'}-p1.png`,
+        mimeType: 'image/png',
+        roomId,
+      });
 
       const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - defaultWidth / 2;
       const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - defaultHeight / 2;
@@ -2761,8 +2783,10 @@ export default function App() {
         y: canvasCenterY,
         width: defaultWidth,
         height: defaultHeight,
-        imageUrl: page1ImageUrl,
-        pdfUrl: pdfUrl,
+        imageUrl: storedPage1.url,
+        ...(storedPage1.assetId ? { assetId: storedPage1.assetId } : {}),
+        pdfUrl: storedPdf.url,
+        ...(storedPdf.assetId ? { pdfAssetId: storedPdf.assetId } : {}),
         currentPage: 1,
         totalPages: totalPages || 1,
         fileName: name || 'Belge.pdf',
@@ -2785,11 +2809,17 @@ export default function App() {
   };
 
   // Add Video from File vault or drop directly to canvas center
-  const handleAddVideoToCanvas = (videoUrl: string, name?: string) => {
+  const handleAddVideoToCanvas = async (videoUrl: string, name?: string) => {
     const defaultW = 480;
     const defaultH = 270;
     const canvasCenterX = (window.innerWidth / 2 - pan.x) / zoom - defaultW / 2;
     const canvasCenterY = (window.innerHeight / 2 - pan.y) / zoom - defaultH / 2;
+
+    const stored = await storeAssetFromDataUrl(videoUrl, {
+      fileName: name || 'Video.mp4',
+      roomId,
+      minBytesToOffload: 0,
+    });
 
     recordUndo();
     const videoEl: CanvasElement = {
@@ -2799,7 +2829,8 @@ export default function App() {
       y: canvasCenterY,
       width: defaultW,
       height: defaultH,
-      videoUrl,
+      videoUrl: stored.url,
+      ...(stored.assetId ? { assetId: stored.assetId } : {}),
       fileName: name || 'Video.mp4',
       rotation: 0,
       flipX: false,
@@ -3563,6 +3594,9 @@ export default function App() {
         <CanvasBoard
           elements={elements}
           users={users}
+          roomId={roomId}
+          remoteCursorsStore={remoteCursorsStore}
+          onActiveLocalEditIdsChange={setActiveLocalEditIds}
           currentUser={currentUser}
           activeTool={activeTool}
           strokeColor={strokeColor}
@@ -3672,15 +3706,22 @@ export default function App() {
         {/* File Vault Modal / Drawer */}
         {activePanel === 'files' && (
           <FileShareModal
+            roomId={roomId}
             files={files}
             onUploadFile={uploadFile}
             onDeleteFile={deleteFile}
-            onAddImageToCanvas={(dataUrl, name, w, h) => handleAddImageToCanvas(dataUrl, name, w, h)}
-            onAddPdfToCanvas={(pdfUrl, name) => handleAddPdfToCanvas(pdfUrl, name)}
+            onAddImageToCanvas={(dataUrl, name, w, h) => {
+              void handleAddImageToCanvas(dataUrl, name, w, h);
+            }}
+            onAddPdfToCanvas={(pdfUrl, name) => {
+              void handleAddPdfToCanvas(pdfUrl, name);
+            }}
             onAddDocumentToCanvas={(content, kind, name) =>
               handleAddDocumentToCanvas(content, kind, name)
             }
-            onAddVideoToCanvas={(videoUrl, name) => handleAddVideoToCanvas(videoUrl, name)}
+            onAddVideoToCanvas={(videoUrl, name) => {
+              void handleAddVideoToCanvas(videoUrl, name);
+            }}
             onClose={() => setActivePanel('none')}
           />
         )}

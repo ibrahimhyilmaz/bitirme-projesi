@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useSyncExternalStore } from 'react';
 import {
   ALL_SHAPE_TYPES,
   CanvasElement,
@@ -70,6 +70,96 @@ import {
   normalizeImageDataUrl,
 } from '../utils/fileValidation';
 import { CanvasQuickAccess, getRadialToolAtAngle } from './CanvasQuickAccess';
+import type { RemoteCursorState, RemoteCursorsStore } from '../hooks/useWebSocket';
+import {
+  extractAssetId,
+  inferMimeFromNameOrUrl,
+  resolveAssetDataUrl,
+  resolveAssetText,
+  storeAssetFromDataUrl,
+  storeAssetFromFile,
+} from '../utils/assetStore';
+
+const EMPTY_REMOTE_CURSORS: Record<string, RemoteCursorState> = {};
+const NOOP_CURSOR_SUBSCRIBE = () => () => {};
+const GET_EMPTY_REMOTE_CURSORS = () => EMPTY_REMOTE_CURSORS;
+
+interface RemoteCursorsOverlayProps {
+  users: UserPresence[];
+  remoteCursorsStore?: RemoteCursorsStore;
+  currentUserId: string;
+  currentUserIdentityKey?: string;
+  pan: Point;
+  zoom: number;
+}
+
+const RemoteCursorsOverlay: React.FC<RemoteCursorsOverlayProps> = React.memo(
+  ({ users, remoteCursorsStore, currentUserId, currentUserIdentityKey, pan, zoom }) => {
+    const remoteCursors = useSyncExternalStore(
+      remoteCursorsStore ? remoteCursorsStore.subscribe : NOOP_CURSOR_SUBSCRIBE,
+      remoteCursorsStore ? remoteCursorsStore.getSnapshot : GET_EMPTY_REMOTE_CURSORS
+    );
+
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 z-[18] overflow-hidden select-none"
+        aria-hidden="true"
+      >
+        {users.map((user) => {
+          const live = remoteCursors[user.id];
+          const cursor = live ? live.cursor : user.cursor;
+          const isDrawing = live ? live.isDrawing : user.isDrawing;
+          if (
+            user.id === currentUserId ||
+            (currentUserIdentityKey &&
+              user.identityKey &&
+              user.identityKey === currentUserIdentityKey) ||
+            !cursor
+          ) {
+            return null;
+          }
+          const screenX = cursor.x * zoom + pan.x;
+          const screenY = cursor.y * zoom + pan.y;
+          const userColor = user.cursorColor || user.color || '#2563eb';
+          return (
+            <div
+              key={`remote-cursor-${user.id}`}
+              style={{
+                transform: `translate3d(${screenX}px, ${screenY}px, 0)`,
+              }}
+              className="absolute top-0 left-0 will-change-transform"
+            >
+              <svg
+                width="16"
+                height="22"
+                viewBox="0 0 16 22"
+                fill="none"
+                className="drop-shadow-sm overflow-visible"
+              >
+                <path
+                  d="M0 0L0 16L4.5 12L8.5 19L11 17.5L7 10.5L12 10.5Z"
+                  fill={userColor}
+                  stroke="#ffffff"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <div
+                style={{ backgroundColor: userColor }}
+                className="absolute left-[14px] top-[14px] px-2 py-0.5 rounded text-[11px] font-medium text-white shadow-md whitespace-nowrap flex items-center gap-1.5 leading-tight"
+              >
+                <span>{user.name}</span>
+                {isDrawing && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-300 ring-1 ring-white/80 shrink-0" />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+);
 
 // Custom Precision SVG Cursors for Pencil, Fountain Pen (Dolma Kalem), Highlighter, Bucket, Erasers, and Ping
 const PENCIL_CURSOR = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><g stroke='%23ffffff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><path d='M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z'/><path d='m15 5 4 4'/></g><path d='M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z' fill='%23dbeafe' stroke='%231d4ed8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/><path d='m15 5 4 4' stroke='%231d4ed8' stroke-width='1.8' stroke-linecap='round'/><circle cx='2' cy='22' r='1.5' fill='%23ef4444'/></svg>") 2 22, crosshair`;
@@ -145,6 +235,9 @@ function isGifElement(el: CanvasElement): boolean {
 interface CanvasBoardProps {
   elements: CanvasElement[];
   users: UserPresence[];
+  roomId?: string;
+  remoteCursorsStore?: RemoteCursorsStore;
+  onActiveLocalEditIdsChange?: (ids: Iterable<string>) => void;
   currentUser: {
     id: string;
     identityKey?: string;
@@ -546,7 +639,44 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   onChangeGridStyle,
   selectionMode = 'intersect',
   eraserShape = 'circle',
+  roomId,
+  remoteCursorsStore,
+  onActiveLocalEditIdsChange,
 }) => {
+  const onActiveLocalEditIdsChangeRef = useRef(onActiveLocalEditIdsChange);
+  onActiveLocalEditIdsChangeRef.current = onActiveLocalEditIdsChange;
+  const activeTransformIdsRef = useRef<Set<string>>(new Set());
+  const editingElementIdRef = useRef<string | null>(null);
+
+  const notifyActiveLocalEditIds = useCallback(() => {
+    const cb = onActiveLocalEditIdsChangeRef.current;
+    if (!cb) return;
+    const ids = new Set<string>(activeTransformIdsRef.current);
+    if (editingElementIdRef.current) {
+      ids.add(editingElementIdRef.current);
+    }
+    cb(ids);
+  }, []);
+
+  const registerActiveTransformIds = useCallback(
+    (ids: Iterable<string>) => {
+      let changed = false;
+      for (const id of ids) {
+        if (id && !activeTransformIdsRef.current.has(id)) {
+          activeTransformIdsRef.current.add(id);
+          changed = true;
+        }
+      }
+      if (changed) notifyActiveLocalEditIds();
+    },
+    [notifyActiveLocalEditIds]
+  );
+
+  const clearActiveTransformIds = useCallback(() => {
+    if (activeTransformIdsRef.current.size === 0) return;
+    activeTransformIdsRef.current.clear();
+    notifyActiveLocalEditIds();
+  }, [notifyActiveLocalEditIds]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [eyedropperPreview, setEyedropperPreview] = useState<{
@@ -617,9 +747,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const isPanningRef = useRef<boolean>(false);
   const panStartRef = useRef<Point>({ x: 0, y: 0 });
 
-  // In-progress drawing
+  // In-progress drawing (ref-only to avoid per-pixel React re-renders during pointermove)
   const currentDrawingElementRef = useRef<CanvasElement | null>(null);
-  const [currentDrawingElement, setCurrentDrawingElement] = useState<CanvasElement | null>(null);
 
   // Dragging / Transforming selected element
   const isDraggingSelectedRef = useRef<boolean>(false);
@@ -630,18 +759,21 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const initialElementSnapshotRef = useRef<CanvasElement | null>(null);
   const initialBoundsRef = useRef<ReturnType<typeof getElementBounds> | null>(null);
   const initialGroupBoundsRef = useRef<ReturnType<typeof getGroupBounds> | null>(null);
+  // Optimistic local transform overrides rendered at native refresh rate while network commits are batched/throttled
+  const localTransformOverridesRef = useRef<Map<string, Partial<CanvasElement>>>(new Map());
 
-  // Marquee / Box drag multi-selection states
+  // Marquee / Box drag multi-selection states (ref-only box for zero-lag canvas rendering)
   const isMarqueeSelectingRef = useRef<boolean>(false);
   const isAdditiveMarqueeRef = useRef<boolean>(false);
   const initialMarqueeSelectionRef = useRef<string[]>([]);
   const marqueeStartRef = useRef<Point | null>(null);
-  const [marqueeBox, setMarqueeBox] = useState<{
+  const marqueeBoxRef = useRef<{
     startX: number;
     startY: number;
     currentX: number;
     currentY: number;
   } | null>(null);
+  const lastMarqueeSelectAtRef = useRef<number>(0);
 
   // Dragging multiple elements snapshot
   const initialElementsSnapshotRef = useRef<Map<string, CanvasElement>>(new Map());
@@ -659,8 +791,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
   }, [onSelectElements, onSelectElement]);
 
-  // Laser pointer path (with fountain-pen velocity width w and strokeId)
-  const [laserPoints, setLaserPoints] = useState<LaserTrailPoint[]>([]);
+  // Laser pointer path (ref-only for zero-lag 120fps trail without per-pixel React re-renders)
+  const laserPointsRef = useRef<LaserTrailPoint[]>([]);
   const laserStrokeIdRef = useRef<number>(0);
   const [laserColor, setLaserColorState] = useState<string>(() => {
     try {
@@ -720,8 +852,45 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   const rightClickStartPosRef = useRef<Point>({ x: 0, y: 0 });
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
 
-  // Throttled cursor broadcast
+  // Throttled & batched real-time emission state (35–40 ms leading+trailing throttle)
   const lastCursorEmitRef = useRef<number>(0);
+  const cursorEmitTimerRef = useRef<number | null>(null);
+  const pendingCursorRef = useRef<{ pt: Point; isDrawing: boolean; tool: string } | null>(null);
+  const lastSentCursorRef = useRef<{ x: number; y: number; isDrawing: boolean; tool: string } | null>(null);
+
+  const lastLaserEmitRef = useRef<number>(0);
+  const laserEmitTimerRef = useRef<number | null>(null);
+  const pendingLaserRef = useRef<{ pt: Point; color: string } | null>(null);
+
+  const lastTransformFlushRef = useRef<number>(0);
+  const transformFlushTimerRef = useRef<number | null>(null);
+  const pendingTransformUpdatesRef = useRef<Map<string, Partial<CanvasElement>>>(new Map());
+
+  const lastPointEraserAtRef = useRef<number>(0);
+  const lastPointEraserPtRef = useRef<Point | null>(null);
+  const pointEraserTimerRef = useRef<number | null>(null);
+  const pendingPointEraserPtRef = useRef<Point | null>(null);
+
+  // Always-fresh callback refs so trailing throttle timers never close over stale props
+  const onCursorMoveRef = useRef(onCursorMove);
+  onCursorMoveRef.current = onCursorMove;
+  const onLaserMoveRef = useRef(onLaserMove);
+  onLaserMoveRef.current = onLaserMove;
+  const onLiveStrokeRef = useRef(onLiveStroke);
+  onLiveStrokeRef.current = onLiveStroke;
+  const onBatchUpdateElementsRef = useRef(onBatchUpdateElements);
+  onBatchUpdateElementsRef.current = onBatchUpdateElements;
+
+  // On-demand requestAnimationFrame render scheduler (0% CPU when board is idle)
+  const renderRef = useRef<() => void>(() => {});
+  const rafIdRef = useRef<number | null>(null);
+  const scheduleRender = useCallback(() => {
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      renderRef.current();
+    });
+  }, []);
 
   // Mouse position tracking for visible eraser contact circle & ping shortcut
   const mouseScreenPosRef = useRef<Point | null>(null);
@@ -1052,15 +1221,24 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
                   if (onSaveHistorySnapshot) onSaveHistorySnapshot();
                   if (existingMatchingFill) {
-                    onUpdateElement(existingMatchingFill.id, {
-                      x: worldX,
-                      y: worldY,
-                      width: worldBoxW,
-                      height: worldBoxH,
-                      imageUrl: dataUrl,
-                      fillColor: paintColor,
-                      boundElementIds: boundIds.length > 0 ? boundIds : existingMatchingFill.boundElementIds,
-                      updatedAt: Date.now(),
+                    const targetFillId = existingMatchingFill.id;
+                    const fallbackBound = existingMatchingFill.boundElementIds;
+                    void storeAssetFromDataUrl(dataUrl, {
+                      fileName: 'bucket-fill.png',
+                      mimeType: 'image/png',
+                      roomId,
+                    }).then((stored) => {
+                      onUpdateElement(targetFillId, {
+                        x: worldX,
+                        y: worldY,
+                        width: worldBoxW,
+                        height: worldBoxH,
+                        imageUrl: stored.url,
+                        ...(stored.assetId ? { assetId: stored.assetId } : {}),
+                        fillColor: paintColor,
+                        boundElementIds: boundIds.length > 0 ? boundIds : fallbackBound,
+                        updatedAt: Date.now(),
+                      });
                     });
                     return;
                   }
@@ -1068,28 +1246,38 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                   // Place the fill strictly BEHIND the earliest enclosing stroke so lines always stay crisp on top
                   const boundSet = new Set(boundIds);
                   const earliestBoundEl = elements.find((el) => boundSet.has(el.id));
+                  const earliestBoundId = earliestBoundEl?.id;
+                  const fillId = `fill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+                  const authorName = currentUser.name;
 
-                  const fillElement: CanvasElement = {
-                    id: `fill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                    type: 'image',
-                    isBucketFill: true,
-                    boundElementIds: boundIds,
-                    x: worldX,
-                    y: worldY,
-                    width: worldBoxW,
-                    height: worldBoxH,
-                    imageUrl: dataUrl,
-                    color: 'transparent',
-                    fillColor: paintColor,
-                    strokeWidth: 0,
-                    opacity: 1,
-                    rotation: 0,
-                    flipX: false,
-                    flipY: false,
-                    createdBy: currentUser.name,
-                    updatedAt: Date.now(),
-                  };
-                  onCreateElement(fillElement, earliestBoundEl?.id);
+                  void storeAssetFromDataUrl(dataUrl, {
+                    fileName: 'bucket-fill.png',
+                    mimeType: 'image/png',
+                    roomId,
+                  }).then((stored) => {
+                    const fillElement: CanvasElement = {
+                      id: fillId,
+                      type: 'image',
+                      isBucketFill: true,
+                      boundElementIds: boundIds,
+                      x: worldX,
+                      y: worldY,
+                      width: worldBoxW,
+                      height: worldBoxH,
+                      imageUrl: stored.url,
+                      ...(stored.assetId ? { assetId: stored.assetId } : {}),
+                      color: 'transparent',
+                      fillColor: paintColor,
+                      strokeWidth: 0,
+                      opacity: 1,
+                      rotation: 0,
+                      flipX: false,
+                      flipY: false,
+                      createdBy: authorName,
+                      updatedAt: Date.now(),
+                    };
+                    onCreateElement(fillElement, earliestBoundId);
+                  });
                   return;
                 }
               }
@@ -1137,6 +1325,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       opacity,
       elements,
       currentUser.name,
+      roomId,
       onSaveHistorySnapshot,
       onUpdateElement,
       onCreateElement,
@@ -1273,7 +1462,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     [canEdit, strokeWidth, eraserShape, zoom, elements, onDeleteElements, onBatchUpdateElements, onCreateElement, selectedElementId, onSelectElement]
   );
 
-  // Main Render loop
+  // Main Render pass (scheduled on demand via scheduleRender, continuous rAF only while animations are active)
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1291,12 +1480,18 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     ctx.translate(pan.x, pan.y);
     ctx.scale(zoom, zoom);
 
-    // Render all elements
-    for (const el of elements) {
-      if (editingElementId === el.id) continue; // Hidden while editing inline
-      if (el.type === 'folder') continue; // Rendered as crisp pure folder icon DOM overlay
-      if (isGifElement(el)) continue; // Rendered as animated auto-playing DOM GIF overlay
-      drawElement(ctx, el, () => render());
+    const overrides = localTransformOverridesRef.current;
+    const resolveElement = (el: CanvasElement): CanvasElement => {
+      const ov = overrides.size > 0 ? overrides.get(el.id) : undefined;
+      return ov ? { ...el, ...ov } : el;
+    };
+
+    // Render all elements (with zero-latency optimistic local transform overrides)
+    for (const rawEl of elements) {
+      if (editingElementId === rawEl.id) continue; // Hidden while editing inline
+      if (rawEl.type === 'folder') continue; // Rendered as crisp pure folder icon DOM overlay
+      if (isGifElement(rawEl)) continue; // Rendered as animated auto-playing DOM GIF overlay
+      drawElement(ctx, resolveElement(rawEl), scheduleRender);
     }
 
     // Strokes other users are drawing right now (live preview)
@@ -1305,17 +1500,18 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
 
     // Render in-progress drawing element directly from ref for zero-latency frame rendering
-    const activeDrawingEl = currentDrawingElementRef.current || currentDrawingElement;
+    const activeDrawingEl = currentDrawingElementRef.current;
     if (activeDrawingEl) {
       drawElement(ctx, activeDrawingEl);
     }
 
     // Render Marquee Selection Box
-    if (marqueeBox) {
-      const mLeft = Math.min(marqueeBox.startX, marqueeBox.currentX);
-      const mTop = Math.min(marqueeBox.startY, marqueeBox.currentY);
-      const mW = Math.abs(marqueeBox.currentX - marqueeBox.startX);
-      const mH = Math.abs(marqueeBox.currentY - marqueeBox.startY);
+    const activeMarquee = marqueeBoxRef.current;
+    if (activeMarquee) {
+      const mLeft = Math.min(activeMarquee.startX, activeMarquee.currentX);
+      const mTop = Math.min(activeMarquee.startY, activeMarquee.currentY);
+      const mW = Math.abs(activeMarquee.currentX - activeMarquee.startX);
+      const mH = Math.abs(activeMarquee.currentY - activeMarquee.startY);
 
       if (mW > 1 || mH > 1) {
         ctx.save();
@@ -1332,12 +1528,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
     // Render selection gizmo (bounding box + 8 resize handles + rotation handle or multi-selection box)
     if (activeSelectedIds.length === 1 && editingElementId !== activeSelectedIds[0]) {
-      const selectedEl = elements.find((e) => e.id === activeSelectedIds[0]);
-      if (selectedEl) {
-        drawSelectionGizmo(ctx, selectedEl, zoom, isRotatingActive);
+      const rawSelectedEl = elements.find((e) => e.id === activeSelectedIds[0]);
+      if (rawSelectedEl) {
+        drawSelectionGizmo(ctx, resolveElement(rawSelectedEl), zoom, isRotatingActive);
       }
     } else if (activeSelectedIds.length > 1) {
-      const selectedList = elements.filter((e) => activeSelectedIds.includes(e.id));
+      const selectedList = elements
+        .filter((e) => activeSelectedIds.includes(e.id))
+        .map(resolveElement);
       if (selectedList.length > 0) {
         let groupMinX = Infinity;
         let groupMinY = Infinity;
@@ -1420,8 +1618,12 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
 
     // Render local and remote laser pointer trails with smooth Fountain-Pen calligraphic ribbon & vivid neon red
     const now = Date.now();
-    if (laserPoints.length > 0) {
-      drawSmoothLaserTrail(ctx, laserPoints, now, zoom, strokeWidth, laserColor);
+    if (laserPointsRef.current.length > 0) {
+      const aliveLocal = laserPointsRef.current.filter((p) => now - p.time < 1250);
+      laserPointsRef.current = aliveLocal;
+      if (aliveLocal.length > 0) {
+        drawSmoothLaserTrail(ctx, aliveLocal, now, zoom, strokeWidth, laserColor);
+      }
     }
     if (remoteLaserPoints.length > 0) {
       drawSmoothLaserTrail(ctx, remoteLaserPoints, now, zoom, strokeWidth);
@@ -1459,18 +1661,25 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     drawReactions(ctx, reactions, pan, zoom);
 
     ctx.restore(); // Restore DPR
+
+    // Keep animating only while transient visual effects (laser fade, pings, reactions) are alive
+    if (
+      laserPointsRef.current.length > 0 ||
+      remoteLaserPoints.length > 0 ||
+      pings.length > 0 ||
+      reactions.length > 0
+    ) {
+      scheduleRender();
+    }
   }, [
     pan,
     zoom,
     elements,
-    currentDrawingElement,
     liveStrokes,
     selectedElementId,
     selectedElementIds,
     activeSelectedIds,
-    marqueeBox,
     isRotatingActive,
-    laserPoints,
     remoteLaserPoints,
     editingElementId,
     pings,
@@ -1479,10 +1688,28 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     strokeColor,
     strokeWidth,
     eraserShape,
+    laserColor,
+    scheduleRender,
   ]);
 
-  const renderRef = useRef(render);
   renderRef.current = render;
+
+  // Clear reconciled optimistic transform overrides once fresh elements prop commits
+  useEffect(() => {
+    if (
+      !isDraggingSelectedRef.current &&
+      activeTransformHandleRef.current === null &&
+      pendingTransformUpdatesRef.current.size === 0 &&
+      localTransformOverridesRef.current.size > 0
+    ) {
+      localTransformOverridesRef.current.clear();
+    }
+  }, [elements]);
+
+  // Trigger a coalesced repaint whenever any render dependency updates
+  useEffect(() => {
+    scheduleRender();
+  }, [render, scheduleRender]);
 
   // High DPI resize handler (only reallocates canvas buffer when container dimensions actually change)
   useEffect(() => {
@@ -1623,15 +1850,28 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     zoom,
   ]);
 
-  // Request animation frame for continuous animations without restarting RAF on every state update
+  // Protect inline-edited text/sticky elements from stale remote overwrites
   useEffect(() => {
-    let animId: number;
-    const loop = () => {
-      renderRef.current();
-      animId = requestAnimationFrame(loop);
+    editingElementIdRef.current = editingElementId;
+    notifyActiveLocalEditIds();
+  }, [editingElementId, notifyActiveLocalEditIds]);
+
+  // Cancel any scheduled render frame & throttle timers on unmount
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      if (cursorEmitTimerRef.current !== null) clearTimeout(cursorEmitTimerRef.current);
+      if (laserEmitTimerRef.current !== null) clearTimeout(laserEmitTimerRef.current);
+      if (transformFlushTimerRef.current !== null) clearTimeout(transformFlushTimerRef.current);
+      if (pointEraserTimerRef.current !== null) clearTimeout(pointEraserTimerRef.current);
+      if (liveStrokeTimerRef.current !== null) clearTimeout(liveStrokeTimerRef.current);
+      activeTransformIdsRef.current.clear();
+      editingElementIdRef.current = null;
+      onActiveLocalEditIdsChangeRef.current?.([]);
     };
-    animId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animId);
   }, []);
 
   // Wheel zoom: scroll up = zoom in, scroll down = zoom out around cursor position
@@ -1858,12 +2098,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       smoothedDrawPtRef.current = canvasPt;
       const nowMs = Date.now();
       const initPt: LaserTrailPoint = { x: canvasPt.x, y: canvasPt.y, time: nowMs, w: 1, strokeId, color: laserColorRef.current };
-      setLaserPoints((prev) => [
-        ...prev.filter((p) => nowMs - p.time < 1300),
+      laserPointsRef.current = [
+        ...laserPointsRef.current.filter((p) => nowMs - p.time < 1300),
         initPt,
         { ...initPt },
-      ]);
-      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1 }, laserColorRef.current);
+      ];
+      scheduleRender();
+      emitLaserMoveThrottled({ x: canvasPt.x, y: canvasPt.y, w: 1 }, laserColorRef.current, true);
       return;
     }
 
@@ -1923,6 +2164,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               });
             });
             initialElementsSnapshotRef.current = snapMap;
+            registerActiveTransformIds(snapMap.keys());
             return;
           }
         }
@@ -1943,6 +2185,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               points: selectedEl.points ? selectedEl.points.map((p) => ({ ...p })) : undefined,
             };
             initialBoundsRef.current = getElementBounds(selectedEl);
+            registerActiveTransformIds([selectedEl.id]);
             return;
           }
         }
@@ -2006,6 +2249,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               points: hitAny.points ? hitAny.points.map((p) => ({ ...p })) : undefined,
             };
             initialBoundsRef.current = getElementBounds(hitAny);
+            registerActiveTransformIds(initialElementsSnapshotRef.current.keys());
           }
           return;
         }
@@ -2025,6 +2269,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             points: hitSelected.points ? hitSelected.points.map((p) => ({ ...p })) : undefined,
           };
           initialBoundsRef.current = getElementBounds(hitSelected);
+          registerActiveTransformIds(initialElementsSnapshotRef.current.keys());
         }
         return;
       }
@@ -2053,6 +2298,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             points: hitElement.points ? hitElement.points.map((p) => ({ ...p })) : undefined,
           };
           initialBoundsRef.current = getElementBounds(hitElement);
+          registerActiveTransformIds(initialElementsSnapshotRef.current.keys());
         }
         return;
       }
@@ -2062,12 +2308,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       isAdditiveMarqueeRef.current = Boolean(isMultiModifier);
       initialMarqueeSelectionRef.current = isMultiModifier ? [...activeSelectedIds] : [];
       marqueeStartRef.current = canvasPt;
-      setMarqueeBox({
+      marqueeBoxRef.current = {
         startX: canvasPt.x,
         startY: canvasPt.y,
         currentX: canvasPt.x,
         currentY: canvasPt.y,
-      });
+      };
+      lastMarqueeSelectAtRef.current = 0;
+      scheduleRender();
       if (!isMultiModifier) {
         updateSelectedIds([]);
       }
@@ -2090,6 +2338,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     // Handle Precision / Point Eraser Tool (slices touched strokes / deletes touched parts)
     if (activeTool === 'point-eraser') {
       if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+      lastPointEraserAtRef.current = performance.now();
+      lastPointEraserPtRef.current = canvasPt;
+      pendingPointEraserPtRef.current = null;
       applyPointEraser(canvasPt);
       return;
     }
@@ -2239,7 +2490,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         updatedAt: Date.now(),
       };
       currentDrawingElementRef.current = newDrawing;
-      setCurrentDrawingElement(newDrawing);
+      scheduleRender();
       emitLiveStroke(newDrawing, true);
       return;
     }
@@ -2264,17 +2515,222 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       updatedAt: Date.now(),
     };
     currentDrawingElementRef.current = newShape;
-    setCurrentDrawingElement(newShape);
+    scheduleRender();
   };
 
-  // Throttled live broadcast of the stroke being drawn so peers see it while the pointer is still down
+  // Fresh ref for applyPointEraser so trailing timers always inspect latest elements
+  const applyPointEraserRef = useRef(applyPointEraser);
+  applyPointEraserRef.current = applyPointEraser;
+
+  // Leading + trailing throttled live stroke broadcast (40 ms) with immutable point snapshot
   const lastLiveEmitRef = useRef<number>(0);
+  const liveStrokeTimerRef = useRef<number | null>(null);
+  const pendingLiveStrokeRef = useRef<CanvasElement | null>(null);
+
+  const cancelPendingLiveStroke = () => {
+    if (liveStrokeTimerRef.current !== null) {
+      clearTimeout(liveStrokeTimerRef.current);
+      liveStrokeTimerRef.current = null;
+    }
+    pendingLiveStrokeRef.current = null;
+  };
+
   const emitLiveStroke = (el: CanvasElement, force = false) => {
-    if (!onLiveStroke) return;
+    if (!onLiveStrokeRef.current) return;
+    const sendSnapshot = (target: CanvasElement) => {
+      const snapshot: CanvasElement = target.points
+        ? { ...target, points: target.points.slice() }
+        : { ...target };
+      onLiveStrokeRef.current?.(snapshot);
+    };
     const now = performance.now();
-    if (!force && now - lastLiveEmitRef.current < 40) return;
-    lastLiveEmitRef.current = now;
-    onLiveStroke(el);
+    const elapsed = now - lastLiveEmitRef.current;
+    if (force || elapsed >= 40) {
+      if (liveStrokeTimerRef.current !== null) {
+        clearTimeout(liveStrokeTimerRef.current);
+        liveStrokeTimerRef.current = null;
+      }
+      pendingLiveStrokeRef.current = null;
+      lastLiveEmitRef.current = now;
+      sendSnapshot(el);
+      return;
+    }
+    pendingLiveStrokeRef.current = el;
+    if (liveStrokeTimerRef.current === null) {
+      liveStrokeTimerRef.current = window.setTimeout(() => {
+        liveStrokeTimerRef.current = null;
+        const pending = pendingLiveStrokeRef.current;
+        pendingLiveStrokeRef.current = null;
+        if (pending && currentDrawingElementRef.current?.id === pending.id) {
+          lastLiveEmitRef.current = performance.now();
+          sendSnapshot(pending);
+        }
+      }, Math.max(4, 40 - elapsed));
+    }
+  };
+
+  // Optimistic local transform preview + 40 ms batched/throttled commit with guaranteed pointerup flush
+  const flushPendingTransformUpdates = (): boolean => {
+    if (transformFlushTimerRef.current !== null) {
+      clearTimeout(transformFlushTimerRef.current);
+      transformFlushTimerRef.current = null;
+    }
+    if (pendingTransformUpdatesRef.current.size === 0) return false;
+    const batch: { id: string; changes: Partial<CanvasElement> }[] = [];
+    pendingTransformUpdatesRef.current.forEach((changes, id) => {
+      batch.push({ id, changes });
+    });
+    pendingTransformUpdatesRef.current.clear();
+    lastTransformFlushRef.current = performance.now();
+    onBatchUpdateElementsRef.current(batch);
+    return true;
+  };
+
+  const queueTransformUpdates = (updates: { id: string; changes: Partial<CanvasElement> }[]) => {
+    if (updates.length === 0) return;
+    registerActiveTransformIds(updates.map((u) => u.id));
+    for (const u of updates) {
+      const prevOv = localTransformOverridesRef.current.get(u.id);
+      localTransformOverridesRef.current.set(u.id, prevOv ? { ...prevOv, ...u.changes } : u.changes);
+      const prevPending = pendingTransformUpdatesRef.current.get(u.id);
+      pendingTransformUpdatesRef.current.set(u.id, prevPending ? { ...prevPending, ...u.changes } : u.changes);
+    }
+    // Instant local canvas feedback at full monitor refresh rate
+    scheduleRender();
+
+    const now = performance.now();
+    const elapsed = now - lastTransformFlushRef.current;
+    if (elapsed >= 40) {
+      flushPendingTransformUpdates();
+    } else if (transformFlushTimerRef.current === null) {
+      transformFlushTimerRef.current = window.setTimeout(() => {
+        transformFlushTimerRef.current = null;
+        flushPendingTransformUpdates();
+      }, Math.max(4, 40 - elapsed));
+    }
+  };
+
+  // Leading + trailing throttled cursor broadcast (35 ms) with sub-pixel jitter guard
+  const emitCursorMoveThrottled = (pt: Point, isDrawing: boolean, tool: string) => {
+    const prev = lastSentCursorRef.current;
+    if (
+      prev &&
+      prev.isDrawing === isDrawing &&
+      prev.tool === tool &&
+      Math.hypot(pt.x - prev.x, pt.y - prev.y) < 0.5 / zoom
+    ) {
+      return;
+    }
+    const now = performance.now();
+    const elapsed = now - lastCursorEmitRef.current;
+    if (elapsed >= 35) {
+      if (cursorEmitTimerRef.current !== null) {
+        clearTimeout(cursorEmitTimerRef.current);
+        cursorEmitTimerRef.current = null;
+      }
+      pendingCursorRef.current = null;
+      lastCursorEmitRef.current = now;
+      lastSentCursorRef.current = { x: pt.x, y: pt.y, isDrawing, tool };
+      onCursorMoveRef.current(pt, isDrawing, tool);
+      return;
+    }
+    pendingCursorRef.current = { pt, isDrawing, tool };
+    if (cursorEmitTimerRef.current === null) {
+      cursorEmitTimerRef.current = window.setTimeout(() => {
+        cursorEmitTimerRef.current = null;
+        const pending = pendingCursorRef.current;
+        pendingCursorRef.current = null;
+        if (pending) {
+          lastCursorEmitRef.current = performance.now();
+          lastSentCursorRef.current = {
+            x: pending.pt.x,
+            y: pending.pt.y,
+            isDrawing: pending.isDrawing,
+            tool: pending.tool,
+          };
+          onCursorMoveRef.current(pending.pt, pending.isDrawing, pending.tool);
+        }
+      }, Math.max(4, 35 - elapsed));
+    }
+  };
+
+  // Leading + trailing throttled laser broadcast (35 ms)
+  const flushPendingLaserMove = () => {
+    if (laserEmitTimerRef.current !== null) {
+      clearTimeout(laserEmitTimerRef.current);
+      laserEmitTimerRef.current = null;
+    }
+    const pending = pendingLaserRef.current;
+    pendingLaserRef.current = null;
+    if (pending && onLaserMoveRef.current) {
+      lastLaserEmitRef.current = performance.now();
+      onLaserMoveRef.current(pending.pt, pending.color);
+    }
+  };
+
+  const emitLaserMoveThrottled = (pt: Point, color: string, force = false) => {
+    if (!onLaserMoveRef.current) return;
+    const now = performance.now();
+    const elapsed = now - lastLaserEmitRef.current;
+    if (force || elapsed >= 35) {
+      if (laserEmitTimerRef.current !== null) {
+        clearTimeout(laserEmitTimerRef.current);
+        laserEmitTimerRef.current = null;
+      }
+      pendingLaserRef.current = null;
+      lastLaserEmitRef.current = now;
+      onLaserMoveRef.current(pt, color);
+      return;
+    }
+    pendingLaserRef.current = { pt, color };
+    if (laserEmitTimerRef.current === null) {
+      laserEmitTimerRef.current = window.setTimeout(() => {
+        laserEmitTimerRef.current = null;
+        flushPendingLaserMove();
+      }, Math.max(4, 35 - elapsed));
+    }
+  };
+
+  // Throttled point-eraser drag handler (35 ms + distance threshold + trailing flush)
+  const flushPendingPointEraser = () => {
+    if (pointEraserTimerRef.current !== null) {
+      clearTimeout(pointEraserTimerRef.current);
+      pointEraserTimerRef.current = null;
+    }
+    const pending = pendingPointEraserPtRef.current;
+    pendingPointEraserPtRef.current = null;
+    if (pending) {
+      lastPointEraserAtRef.current = performance.now();
+      lastPointEraserPtRef.current = pending;
+      applyPointEraserRef.current(pending);
+    }
+  };
+
+  const queuePointEraser = (pt: Point) => {
+    const prevPt = lastPointEraserPtRef.current;
+    if (prevPt && Math.hypot(pt.x - prevPt.x, pt.y - prevPt.y) < 2 / zoom) {
+      return;
+    }
+    const now = performance.now();
+    const elapsed = now - lastPointEraserAtRef.current;
+    if (elapsed >= 35) {
+      if (pointEraserTimerRef.current !== null) {
+        clearTimeout(pointEraserTimerRef.current);
+        pointEraserTimerRef.current = null;
+      }
+      pendingPointEraserPtRef.current = null;
+      lastPointEraserAtRef.current = now;
+      lastPointEraserPtRef.current = pt;
+      applyPointEraserRef.current(pt);
+      return;
+    }
+    pendingPointEraserPtRef.current = pt;
+    if (pointEraserTimerRef.current === null) {
+      pointEraserTimerRef.current = window.setTimeout(() => {
+        pointEraserTimerRef.current = null;
+        flushPendingPointEraser();
+      }, Math.max(4, 35 - elapsed));
+    }
   };
 
   // Pointer Move
@@ -2316,14 +2772,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     // Track pointer position for visible eraser/pen contact circle & ping shortcut
     mouseScreenPosRef.current = screenPt;
     lastCanvasPtRef.current = canvasPt;
+    if (activeTool === 'point-eraser') {
+      scheduleRender();
+    }
 
     // Throttle cursor emit (only when NOT using the Pan tool so panning never moves remote cursors)
     if (activeTool !== 'pan' && !isSpacePressedRef.current && !isPanningRef.current) {
-      const now = Date.now();
-      if (now - lastCursorEmitRef.current > 35) {
-        lastCursorEmitRef.current = now;
-        onCursorMove(cursorPt, isPointerDownRef.current, activeTool);
-      }
+      emitCursorMoveThrottled(cursorPt, isPointerDownRef.current, activeTool);
     }
 
     // Live color swatch preview when hovering with Eyedropper tool
@@ -2333,21 +2788,24 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Marquee Box dragging (with live selection preview & Ctrl/Shift additive support)
+    // Handle Marquee Box dragging (zero-lag ref canvas preview + throttled live intersection selection)
     if (isMarqueeSelectingRef.current && marqueeStartRef.current) {
       const startPt = marqueeStartRef.current;
-      setMarqueeBox({
+      marqueeBoxRef.current = {
         startX: startPt.x,
         startY: startPt.y,
         currentX: canvasPt.x,
         currentY: canvasPt.y,
-      });
+      };
+      scheduleRender();
 
       const minX = Math.min(startPt.x, canvasPt.x);
       const maxX = Math.max(startPt.x, canvasPt.x);
       const minY = Math.min(startPt.y, canvasPt.y);
       const maxY = Math.max(startPt.y, canvasPt.y);
-      if (maxX - minX > 4 || maxY - minY > 4) {
+      const nowPerf = performance.now();
+      if ((maxX - minX > 4 || maxY - minY > 4) && nowPerf - lastMarqueeSelectAtRef.current >= 45) {
+        lastMarqueeSelectAtRef.current = nowPerf;
         const box = { minX, minY, maxX, maxY };
         const matchedIds = elements
           .filter((el) => doesElementIntersectBox(el, box))
@@ -2492,7 +2950,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
 
       if (batchUpdates.length > 0) {
-        onBatchUpdateElements(batchUpdates);
+        queueTransformUpdates(batchUpdates);
       }
       return;
     }
@@ -2524,7 +2982,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             }
           }
         }
-        onUpdateElement(selectedElementId, { rotation: Math.round(angleDeg) });
+        queueTransformUpdates([{ id: selectedElementId, changes: { rotation: Math.round(angleDeg) } }]);
         return;
       }
 
@@ -2564,11 +3022,16 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           x: newMinX + (pt.x - initBounds.minX) * scaleX,
           y: newMinY + (pt.y - initBounds.minY) * scaleY,
         }));
-        onUpdateElement(selectedElementId, {
-          x: newMinX,
-          y: newMinY,
-          points: scaledPoints,
-        });
+        queueTransformUpdates([
+          {
+            id: selectedElementId,
+            changes: {
+              x: newMinX,
+              y: newMinY,
+              points: scaledPoints,
+            },
+          },
+        ]);
       } else if (initEl.type === 'text') {
         const scaleX = newW / Math.max(1, initBounds.width);
         const scaleY = newH / Math.max(1, initBounds.height);
@@ -2581,20 +3044,30 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           scale = Math.abs(dx) > Math.abs(dy) ? scaleX : scaleY;
         }
         const nextFontSize = Math.min(128, Math.max(10, Math.round((initEl.fontSize || 20) * scale)));
-        onUpdateElement(selectedElementId, {
-          x: newMinX,
-          y: newMinY,
-          width: newW,
-          height: newH,
-          fontSize: nextFontSize,
-        });
+        queueTransformUpdates([
+          {
+            id: selectedElementId,
+            changes: {
+              x: newMinX,
+              y: newMinY,
+              width: newW,
+              height: newH,
+              fontSize: nextFontSize,
+            },
+          },
+        ]);
       } else {
-        onUpdateElement(selectedElementId, {
-          x: newMinX,
-          y: newMinY,
-          width: newW,
-          height: newH,
-        });
+        queueTransformUpdates([
+          {
+            id: selectedElementId,
+            changes: {
+              x: newMinX,
+              y: newMinY,
+              width: newW,
+              height: newH,
+            },
+          },
+        ]);
       }
       return;
     }
@@ -2638,7 +3111,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
       }
       if (batchUpdates.length > 0) {
-        onBatchUpdateElements(batchUpdates);
+        queueTransformUpdates(batchUpdates);
       }
 
       // Check if dragging a board file (image/document/pdf/video) over a Folder element on the board
@@ -2702,13 +3175,13 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       return;
     }
 
-    // Handle Precision / Point Eraser drag
+    // Handle Precision / Point Eraser drag (throttled with trailing flush on pointerup)
     if (isPointerDownRef.current && activeTool === 'point-eraser') {
-      applyPointEraser(canvasPt);
+      queuePointEraser(canvasPt);
       return;
     }
 
-    // Handle Laser trail (instant 1:1 cursor tracking with smooth luminous fade)
+    // Handle Laser trail (instant 1:1 local canvas ribbon + throttled network broadcast)
     if (activeTool === 'laser' && isPointerDownRef.current) {
       const nowMs = Date.now();
       const strokeId = laserStrokeIdRef.current;
@@ -2721,20 +3194,23 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         color: laserColorRef.current,
       };
 
-      setLaserPoints((prev) => {
-        const alive = prev.filter((p) => nowMs - p.time < 1200).slice(-320);
-        if (alive.length > 0) {
-          const last = alive[alive.length - 1];
-          if (
-            last.strokeId === strokeId &&
-            Math.hypot(canvasPt.x - last.x, canvasPt.y - last.y) < 0.8 / zoom
-          ) {
-            return alive;
-          }
+      const alive = laserPointsRef.current.filter((p) => nowMs - p.time < 1200).slice(-320);
+      let shouldAppend = true;
+      if (alive.length > 0) {
+        const last = alive[alive.length - 1];
+        if (
+          last.strokeId === strokeId &&
+          Math.hypot(canvasPt.x - last.x, canvasPt.y - last.y) < 0.8 / zoom
+        ) {
+          shouldAppend = false;
         }
-        return [...alive, nextLaserPt];
-      });
-      if (onLaserMove) onLaserMove({ x: canvasPt.x, y: canvasPt.y, w: 1 }, laserColorRef.current);
+      }
+      if (shouldAppend) {
+        alive.push(nextLaserPt);
+      }
+      laserPointsRef.current = alive;
+      scheduleRender();
+      emitLaserMoveThrottled({ x: canvasPt.x, y: canvasPt.y, w: 1 }, laserColorRef.current);
       return;
     }
 
@@ -2747,7 +3223,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         curr.type === 'fountain-pen' ||
         curr.type === 'highlighter'
       ) {
-        const pts = curr.points || [];
+        if (!curr.points) curr.points = [];
+        const pts = curr.points;
         const lastPt = pts[pts.length - 1];
         const dist = lastPt ? Math.hypot(canvasPt.x - lastPt.x, canvasPt.y - lastPt.y) : 999;
         const minDist = 1.0 / zoom;
@@ -2783,12 +3260,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
             ? { x: canvasPt.x, y: canvasPt.y, w: widthW }
             : { x: canvasPt.x, y: canvasPt.y };
 
-        const nextPts = [...pts, newPt];
-        const updated = { ...curr, points: nextPts };
-        currentDrawingElementRef.current = updated;
-        renderRef.current();
-        setCurrentDrawingElement(updated);
-        emitLiveStroke(updated);
+        // O(1) in-place point accumulation on local draft ref (cloned on throttled emit & pointerup commit)
+        pts.push(newPt);
+        scheduleRender();
+        emitLiveStroke(curr);
       } else {
         let w = canvasPt.x - curr.x;
         let h = canvasPt.y - curr.y;
@@ -2798,10 +3273,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           w = Math.sign(w || 1) * maxDim;
           h = Math.sign(h || 1) * maxDim;
         }
-        const updated = { ...curr, width: w, height: h };
-        currentDrawingElementRef.current = updated;
-        setCurrentDrawingElement(updated);
-        emitLiveStroke(updated);
+        curr.width = w;
+        curr.height = h;
+        scheduleRender();
+        emitLiveStroke(curr);
       }
     }
   };
@@ -2880,15 +3355,17 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
                 ? 'Video.mp4'
                 : 'Görsel.png';
             const fileName = latestEl.fileName || defaultName;
-            const mimeMatch = dataUrl.match(/^data:([^;,]+)/i);
-            const inferredType =
-              mimeMatch?.[1] ||
-              (latestEl.type === 'pdf'
+            const inferredType = inferMimeFromNameOrUrl(
+              fileName,
+              dataUrl,
+              latestEl.type === 'pdf'
                 ? 'application/pdf'
                 : latestEl.type === 'video'
                 ? 'video/mp4'
-                : 'image/png');
+                : 'image/png'
+            );
             const approxSize = Math.max(1024, Math.round((dataUrl.length * 3) / 4));
+            const assetId = latestEl.pdfAssetId || latestEl.assetId || extractAssetId(dataUrl);
 
             absorbedIds.push(id);
             newFolderItems.push({
@@ -2897,6 +3374,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               type: inferredType,
               size: approxSize,
               dataUrl,
+              ...(assetId ? { assetId } : {}),
               addedAt: Date.now(),
               canvasWidth: latestEl.width,
               canvasHeight: latestEl.height,
@@ -2905,6 +3383,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         }
 
         if (newFolderItems.length > 0) {
+          for (const absorbedId of absorbedIds) {
+            pendingTransformUpdatesRef.current.delete(absorbedId);
+            localTransformOverridesRef.current.delete(absorbedId);
+          }
           onUpdateElement(targetFolder.id, {
             folderFiles: [...newFolderItems, ...(targetFolder.folderFiles || [])],
             updatedAt: Date.now(),
@@ -2916,12 +3398,24 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       }
     }
 
+    // Flush any throttled drag/resize/rotate, laser, or point-eraser updates synchronously on release
+    const flushedPendingTransform = flushPendingTransformUpdates();
+    flushPendingLaserMove();
+    flushPendingPointEraser();
+    lastPointEraserPtRef.current = null;
+
     isPointerDownRef.current = false;
     isPanningRef.current = false;
     isDraggingSelectedRef.current = false;
     activeTransformHandleRef.current = null;
     initialGroupBoundsRef.current = null;
     setIsRotatingActive(false);
+    clearActiveTransformIds();
+
+    if (!flushedPendingTransform && localTransformOverridesRef.current.size > 0) {
+      localTransformOverridesRef.current.clear();
+      scheduleRender();
+    }
 
     // Complete marquee / box selection drag
     if (isMarqueeSelectingRef.current) {
@@ -2932,7 +3426,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       marqueeStartRef.current = null;
       isAdditiveMarqueeRef.current = false;
       initialMarqueeSelectionRef.current = [];
-      setMarqueeBox(null);
+      marqueeBoxRef.current = null;
+      scheduleRender();
 
       if (startPt) {
         let endX = lastCanvasPtRef.current.x;
@@ -2964,10 +3459,15 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
 
     if (currentDrawingElementRef.current) {
-      let finished = currentDrawingElementRef.current;
+      const draft = currentDrawingElementRef.current;
       currentDrawingElementRef.current = null;
-      setCurrentDrawingElement(null);
+      cancelPendingLiveStroke();
       onLiveStroke?.(null);
+      scheduleRender();
+
+      let finished: CanvasElement = draft.points
+        ? { ...draft, points: draft.points.slice(), updatedAt: Date.now() }
+        : { ...draft, updatedAt: Date.now() };
 
       // Normalize negative width/height for geometric boxes (except directional arrows/line)
       if (
@@ -3201,9 +3701,15 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       try {
         setLoadingPdfPages((prev) => ({ ...prev, [el.id]: true }));
         const newPageImageUrl = await renderPdfPage(el.pdfUrl, targetPage);
+        const storedPage = await storeAssetFromDataUrl(newPageImageUrl, {
+          fileName: `${el.fileName || 'pdf'}-p${targetPage}.png`,
+          mimeType: 'image/png',
+          roomId,
+        });
         onUpdateElement(el.id, {
           currentPage: targetPage,
-          imageUrl: newPageImageUrl,
+          imageUrl: storedPage.url,
+          ...(storedPage.assetId ? { assetId: storedPage.assetId } : {}),
         });
       } catch (err) {
         console.error('Failed to turn PDF page:', err);
@@ -3211,7 +3717,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         setLoadingPdfPages((prev) => ({ ...prev, [el.id]: false }));
       }
     },
-    [loadingPdfPages, onUpdateElement]
+    [loadingPdfPages, onUpdateElement, roomId]
   );
 
   // Auto-exit PDF fullscreen if the document is removed from the board
@@ -3322,8 +3828,22 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
   ) => {
     try {
       if (onSaveHistorySnapshot) onSaveHistorySnapshot();
-      const { totalPages, defaultWidth, defaultHeight } = await getPdfInfo(pdfUrl);
-      const page1ImageUrl = await renderPdfPage(pdfUrl, 1);
+      const [storedPdf, pdfMeta, page1ImageUrl] = await Promise.all([
+        storeAssetFromDataUrl(pdfUrl, {
+          fileName: fileName || 'Belge.pdf',
+          mimeType: 'application/pdf',
+          roomId,
+          minBytesToOffload: 0,
+        }),
+        getPdfInfo(pdfUrl),
+        renderPdfPage(pdfUrl, 1),
+      ]);
+      const { totalPages, defaultWidth, defaultHeight } = pdfMeta;
+      const storedPage1 = await storeAssetFromDataUrl(page1ImageUrl, {
+        fileName: `${fileName || 'Belge.pdf'}-p1.png`,
+        mimeType: 'image/png',
+        roomId,
+      });
 
       const pdfEl: CanvasElement = {
         id: `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -3332,8 +3852,10 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         y: targetY - defaultHeight / 2,
         width: defaultWidth,
         height: defaultHeight,
-        imageUrl: page1ImageUrl,
-        pdfUrl: pdfUrl,
+        imageUrl: storedPage1.url,
+        ...(storedPage1.assetId ? { assetId: storedPage1.assetId } : {}),
+        pdfUrl: storedPdf.url,
+        ...(storedPdf.assetId ? { pdfAssetId: storedPdf.assetId } : {}),
         currentPage: 1,
         totalPages: totalPages || 1,
         fileName: fileName || 'Belge.pdf',
@@ -3358,7 +3880,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
   };
 
-  const handleAddImageAtPosition = (
+  const handleAddImageAtPosition = async (
     imageUrl: string,
     targetX: number,
     targetY: number,
@@ -3367,6 +3889,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     fileName?: string
   ) => {
     if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+    const normalized = normalizeImageDataUrl(imageUrl, fileName);
+    const stored = await storeAssetFromDataUrl(normalized, {
+      fileName,
+      roomId,
+    });
     const imgEl: CanvasElement = {
       id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       type: 'image',
@@ -3374,7 +3901,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       y: targetY - h / 2,
       width: w,
       height: h,
-      imageUrl: normalizeImageDataUrl(imageUrl, fileName),
+      imageUrl: stored.url,
+      ...(stored.assetId ? { assetId: stored.assetId } : {}),
       fileName,
       rotation: 0,
       flipX: false,
@@ -3393,7 +3921,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     }
   };
 
-  const handleAddVideoAtPosition = (
+  const handleAddVideoAtPosition = async (
     videoUrl: string,
     fileName: string,
     targetX: number,
@@ -3402,6 +3930,11 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
     h = 270
   ) => {
     if (onSaveHistorySnapshot) onSaveHistorySnapshot();
+    const stored = await storeAssetFromDataUrl(videoUrl, {
+      fileName: fileName || 'Video.mp4',
+      roomId,
+      minBytesToOffload: 0,
+    });
     const videoEl: CanvasElement = {
       id: `vid-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       type: 'video',
@@ -3409,7 +3942,8 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       y: targetY - h / 2,
       width: w,
       height: h,
-      videoUrl,
+      videoUrl: stored.url,
+      ...(stored.assetId ? { assetId: stored.assetId } : {}),
       fileName: fileName || 'Video.mp4',
       rotation: 0,
       flipX: false,
@@ -3447,19 +3981,19 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
           setDropErrorToast(validation.error || `"${file.name}" klasöre eklenemedi.`);
           continue;
         }
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
-          reader.onerror = () => resolve('');
-          reader.readAsDataURL(file);
+        const stored = await storeAssetFromFile(file, {
+          fileName: file.name,
+          mimeType: file.type || undefined,
+          roomId,
         });
-        if (!dataUrl) continue;
+        if (!stored.url) continue;
         addedItems.push({
           id: `ffile-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           name: file.name,
-          type: file.type || 'application/octet-stream',
+          type: file.type || stored.mimeType || 'application/octet-stream',
           size: file.size,
-          dataUrl,
+          dataUrl: stored.url,
+          ...(stored.assetId ? { assetId: stored.assetId } : {}),
           addedAt: Date.now(),
         });
       }
@@ -3474,7 +4008,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         setOpenFolderId(folderEl.id);
       }
     },
-    [onSaveHistorySnapshot, onUpdateElement]
+    [onSaveHistorySnapshot, onUpdateElement, roomId]
   );
 
   // Helper to place a FolderFileItem or collab-file onto the canvas at (x, y) as its real content
@@ -3517,7 +4051,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         return;
       }
       if (isVideo) {
-        handleAddVideoAtPosition(
+        await handleAddVideoAtPosition(
           file.dataUrl,
           file.name,
           x,
@@ -3530,7 +4064,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       if (isImage) {
         const normalizedUrl = normalizeImageDataUrl(file.dataUrl, file.name);
         if (file.canvasWidth && file.canvasHeight) {
-          handleAddImageAtPosition(
+          await handleAddImageAtPosition(
             normalizedUrl,
             x,
             y,
@@ -3554,16 +4088,17 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
               h = maxDim;
             }
           }
-          handleAddImageAtPosition(normalizedUrl, x, y, w, h, file.name);
+          void handleAddImageAtPosition(normalizedUrl, x, y, w, h, file.name);
         };
         img.onerror = async () => {
+          const resolvedDataUrl = await resolveAssetDataUrl(file.dataUrl);
           const preview = await buildRealDocumentPreviewDataUrl({
             name: file.name || 'Görsel',
             size: file.size || 0,
             type: file.type,
-            dataUrl: file.dataUrl,
+            dataUrl: resolvedDataUrl,
           });
-          handleAddImageAtPosition(preview.dataUrl, x, y, preview.width, preview.height, file.name);
+          await handleAddImageAtPosition(preview.dataUrl, x, y, preview.width, preview.height, file.name);
         };
         img.src = normalizedUrl;
         return;
@@ -3573,7 +4108,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         file.type === 'text/plain';
 
       if (isMarkdown || isPlainText) {
-        const docText = extractTextFromDataUrl(file.dataUrl || '') || '';
+        const docText = (await resolveAssetText(file.dataUrl || '', extractTextFromDataUrl)) || '';
         handleAddDocumentAtPosition(
           docText,
           isMarkdown ? 'markdown' : 'text',
@@ -3584,13 +4119,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         return;
       }
 
+      const resolvedDataUrl = await resolveAssetDataUrl(file.dataUrl);
       const realPreview = await buildRealDocumentPreviewDataUrl({
         name: file.name || 'Belge',
         size: file.size || 0,
         type: file.type,
-        dataUrl: file.dataUrl,
+        dataUrl: resolvedDataUrl,
       });
-      handleAddImageAtPosition(
+      await handleAddImageAtPosition(
         realPreview.dataUrl,
         x,
         y,
@@ -3675,19 +4211,46 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         setDropErrorToast(videoCheck.error || 'Video süre veya boyut sınırını aşıyor.');
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        if (dataUrl) {
-          const w = 480;
-          const h =
-            videoCheck.width && videoCheck.height
-              ? Math.round((w * videoCheck.height) / videoCheck.width)
-              : 270;
-          handleAddVideoAtPosition(dataUrl, file.name, canvasPt.x, canvasPt.y, w, h);
-        }
-      };
-      reader.readAsDataURL(file);
+      const storedVideo = await storeAssetFromFile(file, {
+        fileName: file.name,
+        mimeType: file.type || undefined,
+        roomId,
+        minBytesToOffload: 0,
+      });
+      if (storedVideo.url) {
+        const w = 480;
+        const h =
+          videoCheck.width && videoCheck.height
+            ? Math.round((w * videoCheck.height) / videoCheck.width)
+            : 270;
+        await handleAddVideoAtPosition(storedVideo.url, file.name, canvasPt.x, canvasPt.y, w, h);
+      }
+      return;
+    }
+
+    const isDroppedMedia =
+      file.type.startsWith('image/') ||
+      file.type === 'application/pdf' ||
+      /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|pdf)$/i.test(lowerName);
+
+    if (isDroppedMedia) {
+      const stored = await storeAssetFromFile(file, {
+        fileName: file.name,
+        mimeType: file.type || undefined,
+        roomId,
+        minBytesToOffload: lowerName.endsWith('.pdf') || file.type === 'application/pdf' ? 0 : undefined,
+      });
+      if (!stored.url) return;
+      await placeFileItemOnCanvas(
+        {
+          name: file.name,
+          type: file.type || stored.mimeType,
+          size: file.size,
+          dataUrl: stored.url,
+        },
+        canvasPt.x,
+        canvasPt.y
+      );
       return;
     }
 
@@ -3781,8 +4344,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
         // Second finger: abandon the stroke the first finger started and switch to pinch mode
         if (currentDrawingElementRef.current) {
           currentDrawingElementRef.current = null;
-          setCurrentDrawingElement(null);
+          cancelPendingLiveStroke();
           onLiveStroke?.(null);
+          scheduleRender();
         }
         handlePointerUp();
         const { center, dist } = touchCenterAndDist();
@@ -3840,6 +4404,9 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       onPointerCancel={handleContainerPointerUp}
       onPointerLeave={() => {
         mouseScreenPosRef.current = null;
+        if (activeTool === 'point-eraser') {
+          scheduleRender();
+        }
       }}
       onDoubleClick={handleDoubleClick}
       onContextMenu={(e) => {
@@ -5663,6 +6230,7 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       <CanvasQuickAccess
         elements={elements}
         users={users}
+        remoteCursorsStore={remoteCursorsStore}
         currentUserId={currentUser.id}
         currentUserIdentityKey={currentUser.identityKey}
         camera={{ x: pan.x, y: pan.y, zoom }}
@@ -5697,59 +6265,14 @@ export const CanvasBoard: React.FC<CanvasBoardProps> = ({
       />
 
       {/* Remote User Cursors — Above Canvas Items (z-6..16) & Strictly Below Floating Bars (z-25..40+) */}
-      <div
-        className="pointer-events-none absolute inset-0 z-[18] overflow-hidden select-none"
-        aria-hidden="true"
-      >
-        {users.map((user) => {
-          if (
-            user.id === currentUser.id ||
-            (currentUser.identityKey &&
-              user.identityKey &&
-              user.identityKey === currentUser.identityKey) ||
-            !user.cursor
-          ) {
-            return null;
-          }
-          const screenX = user.cursor.x * zoom + pan.x;
-          const screenY = user.cursor.y * zoom + pan.y;
-          const userColor = user.cursorColor || user.color || '#2563eb';
-          return (
-            <div
-              key={`remote-cursor-${user.id}`}
-              style={{
-                transform: `translate3d(${screenX}px, ${screenY}px, 0)`,
-              }}
-              className="absolute top-0 left-0 will-change-transform"
-            >
-              <svg
-                width="16"
-                height="22"
-                viewBox="0 0 16 22"
-                fill="none"
-                className="drop-shadow-sm overflow-visible"
-              >
-                <path
-                  d="M0 0L0 16L4.5 12L8.5 19L11 17.5L7 10.5L12 10.5Z"
-                  fill={userColor}
-                  stroke="#ffffff"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <div
-                style={{ backgroundColor: userColor }}
-                className="absolute left-[14px] top-[14px] px-2 py-0.5 rounded text-[11px] font-medium text-white shadow-md whitespace-nowrap flex items-center gap-1.5 leading-tight"
-              >
-                <span>{user.name}</span>
-                {user.isDrawing && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-300 ring-1 ring-white/80 shrink-0" />
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <RemoteCursorsOverlay
+        users={users}
+        remoteCursorsStore={remoteCursorsStore}
+        currentUserId={currentUser.id}
+        currentUserIdentityKey={currentUser.identityKey}
+        pan={pan}
+        zoom={zoom}
+      />
     </div>
   );
 };

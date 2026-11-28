@@ -27,10 +27,18 @@ import {
   normalizeImageDataUrl,
   FILE_INPUT_ACCEPT,
 } from '../utils/fileValidation';
+import { resolveAssetDataUrl, resolveAssetText, storeAssetFromFile } from '../utils/assetStore';
 
 interface FileShareModalProps {
+  roomId?: string;
   files: SharedFile[];
-  onUploadFile: (fileData: { name: string; size: number; fileType: string; dataUrl: string }) => void;
+  onUploadFile: (fileData: {
+    name: string;
+    size: number;
+    fileType: string;
+    dataUrl: string;
+    assetId?: string;
+  }) => void;
   onDeleteFile: (fileId: string) => void;
   onAddImageToCanvas: (dataUrl: string, name: string, width?: number, height?: number) => void;
   onAddPdfToCanvas?: (pdfUrl: string, name: string) => void;
@@ -148,6 +156,7 @@ function renderFormattedMarkdownPreview(mdText: string) {
 }
 
 export const FileShareModal: React.FC<FileShareModalProps> = ({
+  roomId,
   files,
   onUploadFile,
   onDeleteFile,
@@ -209,12 +218,33 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
           ? 'video/quicktime'
           : 'application/octet-stream');
 
-      const dataUrl = await readFileAsDataUrl(file);
+      const isBinaryMedia =
+        resolvedMime.startsWith('image/') ||
+        resolvedMime.startsWith('video/') ||
+        resolvedMime.startsWith('audio/') ||
+        resolvedMime === 'application/pdf';
+
+      const stored = isBinaryMedia || file.size > 64 * 1024
+        ? await storeAssetFromFile(file, {
+            fileName: file.name,
+            mimeType: resolvedMime,
+            roomId,
+            minBytesToOffload: isBinaryMedia ? 0 : 64 * 1024,
+          })
+        : {
+            url: await readFileAsDataUrl(file),
+            assetId: undefined,
+            mimeType: resolvedMime,
+            size: file.size,
+            storedRemotely: false,
+          };
+
       onUploadFile({
         name: file.name,
         size: file.size,
         fileType: resolvedMime,
-        dataUrl,
+        dataUrl: stored.url,
+        ...(stored.assetId ? { assetId: stored.assetId } : {}),
       });
       return null;
     } catch {
@@ -299,8 +329,8 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
     return <File className="w-5 h-5 text-slate-500" />;
   };
 
-  const handleAddMarkdownToBoard = (file: SharedFile) => {
-    const mdText = extractTextFromDataUrl(file.dataUrl);
+  const handleAddMarkdownToBoard = async (file: SharedFile) => {
+    const mdText = await resolveAssetText(file.dataUrl, extractTextFromDataUrl);
     if (onAddDocumentToCanvas) {
       onAddDocumentToCanvas(mdText, 'markdown', file.name);
       return;
@@ -314,8 +344,8 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
     onAddImageToCanvas(cardSvg.dataUrl, file.name, cardSvg.width, cardSvg.height);
   };
 
-  const handleAddPlainTextToBoard = (file: SharedFile) => {
-    const txtText = extractTextFromDataUrl(file.dataUrl);
+  const handleAddPlainTextToBoard = async (file: SharedFile) => {
+    const txtText = await resolveAssetText(file.dataUrl, extractTextFromDataUrl);
     if (onAddDocumentToCanvas) {
       onAddDocumentToCanvas(txtText, 'text', file.name);
       return;
@@ -528,9 +558,9 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
                     {isMarkdown && (
                       <>
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            const content = extractTextFromDataUrl(file.dataUrl);
+                            const content = await resolveAssetText(file.dataUrl, extractTextFromDataUrl);
                             setPreviewMarkdownFile({ file, content });
                           }}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 font-medium transition-colors cursor-pointer"
@@ -542,7 +572,7 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleAddMarkdownToBoard(file);
+                            void handleAddMarkdownToBoard(file);
                           }}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 font-medium transition-colors cursor-pointer"
                           title="Biçimlendirilmiş Markdown Kartı Olarak Tahtaya Ekle"
@@ -600,7 +630,7 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleAddPlainTextToBoard(file);
+                          void handleAddPlainTextToBoard(file);
                         }}
                         className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 font-medium transition-colors cursor-pointer"
                         title="Sayfa Sayfa Metin Belgesi Olarak Tahtaya Ekle"
@@ -614,11 +644,12 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
+                          const resolvedDataUrl = await resolveAssetDataUrl(file.dataUrl);
                           const cardSvg = await buildRealDocumentPreviewDataUrl({
                             name: file.name,
                             size: file.size,
                             type: file.type,
-                            dataUrl: file.dataUrl,
+                            dataUrl: resolvedDataUrl,
                             uploadedBy: file.uploadedBy,
                           });
                           onAddImageToCanvas(cardSvg.dataUrl, file.name, cardSvg.width, cardSvg.height);
@@ -692,7 +723,7 @@ export const FileShareModal: React.FC<FileShareModalProps> = ({
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => {
-                    handleAddMarkdownToBoard(previewMarkdownFile.file);
+                    void handleAddMarkdownToBoard(previewMarkdownFile.file);
                     setPreviewMarkdownFile(null);
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-semibold transition-colors cursor-pointer"
